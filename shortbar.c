@@ -192,7 +192,12 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
         // up from the bar opens the panel, as from the keyboard
         panel_open();
     } else if (ABS(dx) < SHORTBAR_SWIPE_PX && ABS(dy) < SHORTBAR_SWIPE_PX) {
-        tap(press_x, press_y);
+        if (panel_is_open() && !panel_wants_keys()) {
+            // as on the keyboard: a tap puts the panel away, types nothing
+            panel_close();
+        } else {
+            tap(press_x, press_y);
+        }
     }
     return TRUE;
 }

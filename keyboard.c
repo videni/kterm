@@ -199,11 +199,20 @@ gboolean keyboard_set_size(gpointer data) {
     gint window_width = alloc->width;
     gint window_height = alloc->height;
     g_free(alloc);
-    // The keys fill the window, whatever the screen is said to be: right
-    // after the screen is rotated the screen size can still be the old one,
-    // and keys sized from it left the right third of the keyboard empty.
-    // A window that is still small (before the window manager has resized
-    // it) gets its keys sized again when it grows, see keyboard_update().
+#ifdef KINDLE
+    // The window always covers the screen, but its own allocation cannot
+    // be used: on the device the keys were sized from an early, narrow one
+    // and stayed that small. GDK's idea of the screen size can still be the
+    // old one right after a rotation, so ask the X server for the size of
+    // the root window, which follows the rotation at once.
+    gint root_width = 0, root_height = 0;
+    gdk_window_get_geometry(gdk_screen_get_root_window(screen), NULL, NULL, &root_width, &root_height);
+    if (root_width > 0 && root_height > 0) {
+        screen_width = root_width;
+        screen_height = root_height;
+    }
+    window_width = screen_width;
+#endif
     gboolean is_portrait = FALSE;
     if (window_width < screen_height) {
         is_portrait = TRUE;
@@ -481,6 +490,15 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
             } else {
                 panel_close();
             }
+            return TRUE;
+        }
+        if (panel_is_open() && !panel_wants_keys()) {
+            // with the panel open, a tap on the keyboard puts it away and
+            // types nothing; only a form of the panel is typed into
+            if (!key->modifier) {
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), FALSE);
+            }
+            panel_close();
             return TRUE;
         }
         if (!keyboard_event_press(key)) {
