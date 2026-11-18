@@ -32,6 +32,7 @@
 
 #include <vte/vte.h>
 #include "sshconf.h"
+#include "keyboard.h"
 
 /** Connections shown at once; more are reached with the page buttons.
  *  Dragging a list with a finger needs touch events the Kindle's X server
@@ -158,6 +159,14 @@ static void connect_cb(GtkWidget *button, gpointer data) {
     UNUSED(button);
     const guint index = GPOINTER_TO_UINT(data);
     if (!hosts || index >= hosts->len || !terminal_widget) {
+        return;
+    }
+    if (kterm_terminal_busy()) {
+        // The command would be typed into whatever is running: inside an
+        // ssh session it would run on the far machine, which does not know
+        // the names saved here.
+        gtk_label_set_text(GTK_LABEL(empty_label), "终端里有程序在运行（比如已连着的 ssh）。先退出它（exit），再点连接。");
+        gtk_widget_show(empty_label);
         return;
     }
     const SshHost *host = g_ptr_array_index(hosts, index);

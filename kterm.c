@@ -23,6 +23,7 @@
 #include <vte/vte.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <termios.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -53,6 +54,27 @@ static GtkWidget *main_terminal = NULL;
  */
 GtkWidget * kterm_get_terminal(void) {
     return main_terminal;
+}
+
+/** Process started in the terminal (the shell), 0 if unknown */
+static GPid main_child = 0;
+
+/**
+ * @return TRUE if something other than the shell kterm started has the
+ *         terminal: a program is running in it (an ssh session, an editor),
+ *         and what is typed goes to that program, not to the shell.
+ *         FALSE if the shell is waiting for a command, or if it is unknown.
+ */
+gboolean kterm_terminal_busy(void) {
+    if (!main_terminal || main_child <= 0) {
+        return FALSE;
+    }
+    VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(main_terminal));
+    if (!pty) {
+        return FALSE;
+    }
+    const pid_t foreground = tcgetpgrp(vte_pty_get_fd(pty));
+    return foreground > 0 && foreground != (pid_t) main_child;
 }
 
 /**
@@ -750,7 +772,7 @@ static void setup_terminal(GtkWidget *terminal, gchar *command, gchar **envv, GE
     vte_terminal_set_allow_bold(VTE_TERMINAL(terminal), TRUE);
     
 #if VTE_CHECK_VERSION(0,38,0)
-    vte_terminal_spawn_sync(VTE_TERMINAL(terminal), 0, NULL, argv, envv, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL, error);
+    vte_terminal_spawn_sync(VTE_TERMINAL(terminal), 0, NULL, argv, envv, G_SPAWN_SEARCH_PATH, NULL, NULL, &main_child, NULL, error);
 #elif VTE_CHECK_VERSION(0,25,1)
     vte_terminal_fork_command_full(VTE_TERMINAL(terminal), 0, NULL, argv, envv, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, error);
 #else
