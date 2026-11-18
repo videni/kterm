@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Compact terminal layout for Kindle: rows 10 key widths wide, text labels only.
-     The symbol key is one-shot: it switches the next key to its mod1 variant. -->
+     The symbol key is one-shot: it switches the next key to its mod1 variant.
+     Row heights are thousandths of an ordinary row: the three rows of letters,
+     tapped most, are taller; the special keys and the numbers, shorter. -->
 <keyboard>
   <layout id="kindle compact">
-    <row>
+    <row height="875">
       <key>
         <default display="Esc" action="escape" />
       </key>
@@ -45,7 +47,7 @@
         <mod1 display="End" action="end" />
       </key>
     </row>
-    <row>
+    <row height="875">
       <key>
         <default display="1" />
         <shifted display="!" />
@@ -97,7 +99,7 @@
         <mod1 display="F10" action="f10" />
       </key>
     </row>
-    <row>
+    <row height="1200">
       <key obey-caps="true">
         <default display="q" />
         <shifted display="Q" />
@@ -149,7 +151,7 @@
         <mod1 display="&gt;" />
       </key>
     </row>
-    <row>
+    <row height="1200">
       <space width="500" />
       <key obey-caps="true">
         <default display="a" />
@@ -198,7 +200,7 @@
       </key>
       <space width="500" />
     </row>
-    <row>
+    <row height="1200">
       <key width="1500">
         <default display="Shift" action="modifier:shift" />
       </key>
@@ -242,7 +244,7 @@
         <mod1 display="Del" action="delete" />
       </key>
     </row>
-    <row>
+    <row height="1000">
       <key>
         <default display="符" action="modifier:mod1" />
       </key>

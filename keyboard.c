@@ -81,6 +81,28 @@ static gboolean modifier_only_caps(const Keyboard *keyboard) {
 }
 
 /**
+ * Add or take away a style class, only if that changes something: a change
+ * redraws the widget
+ * @param widget Widget
+ * @param name Class name
+ * @param on TRUE to have it
+ */
+static void style_class_set(GtkWidget *widget, const gchar *name, gboolean on) {
+#if GTK_CHECK_VERSION(3,0,0)
+    GtkStyleContext *style = gtk_widget_get_style_context(widget);
+    if (on && !gtk_style_context_has_class(style, name)) {
+        gtk_style_context_add_class(style, name);
+    } else if (!on && gtk_style_context_has_class(style, name)) {
+        gtk_style_context_remove_class(style, name);
+    }
+#else
+    UNUSED(widget);
+    UNUSED(name);
+    UNUSED(on);
+#endif
+}
+
+/**
  * Set layout variant based on modifiers set
  * @param keyboard Keyboard structure
  */
@@ -109,6 +131,18 @@ static void keyboard_set_layout(const Keyboard *keyboard) {
             if (g_strcmp0(gtk_button_get_label(GTK_BUTTON(key->button)), key->label[type])) {
                 gtk_button_set_label(GTK_BUTTON(key->button), key->label[type]);
             }
+            // a label never widens its key, which would push the row and
+            // the whole window past the screen
+            GtkWidget *label = gtk_bin_get_child(GTK_BIN(key->button));
+            if (GTK_IS_LABEL(label) && gtk_label_get_ellipsize(GTK_LABEL(label)) != PANGO_ELLIPSIZE_END) {
+                gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+            }
+            // letters large; words smaller (Ctrl, Enter), and on keys one
+            // unit wide, longer ones (PgUp, Home) smaller still, to fit
+            const glong length = g_utf8_strlen(key->label[type], -1);
+            const gboolean narrow = !key->width || key->width <= KEY_UNIT;
+            style_class_set(key->button, "word", length >= 3);
+            style_class_set(key->button, "long", length >= 4 && narrow);
             if (gtk_button_get_image(GTK_BUTTON(key->button))) {
                 gtk_button_set_image(GTK_BUTTON(key->button), NULL);
             }
@@ -239,6 +273,11 @@ void keyboard_set_size(Keyboard *keyboard) {
     gtk_style_context_get_border(style, 0, &extra);
     unit_wmin += (guint) (extra.left + extra.right);
     unit_hmin += (guint) (extra.top + extra.bottom);
+    // the gap around each key, inside its size
+    GtkBorder margin = {0, 0, 0, 0};
+    gtk_style_context_get_margin(style, 0, &margin);
+    unit_wmin += (guint) (margin.left + margin.right);
+    unit_hmin += (guint) (margin.top + margin.bottom);
 #else
     GtkStyle *style = gtk_widget_get_style(first);
     unit_wmin += (guint) (2 * style->xthickness);
@@ -251,15 +290,6 @@ void keyboard_set_size(Keyboard *keyboard) {
         gtk_border_free(border);
     }
 #endif
-    // Keys are as tall as two lines of text: a finger hits them more easily
-    // than smaller ones.
-    PangoLayout *two_lines = gtk_widget_create_pango_layout(first, NULL);
-    pango_layout_set_markup(two_lines, "<span size=\"x-small\">Xg</span>\nXg", -1);
-    gint two_lines_height = 0;
-    pango_layout_get_pixel_size(two_lines, NULL, &two_lines_height);
-    g_object_unref(two_lines);
-    unit_hmin = MAX(unit_hmin, (guint) two_lines_height + (unit_hmin - keyboard->unit_height));
-
     guint unit_w = MAX(unit_wmax, unit_wmin);
     D printf("wmin: %d, wmax: %d => %d\n", unit_wmin, unit_wmax, unit_w);
     for (guint i = 0; i < keyboard->key_count; i++) {
@@ -304,7 +334,20 @@ void keyboard_set_size(Keyboard *keyboard) {
     // never below what the labels need, or the box grows on its own
     unit_h = MAX(unit_h, unit_hmin);
     D printf("hmin: %d, hmax: %d, pref: %d => %d\n", unit_hmin, unit_hmax, unit_hpref, unit_h);
-    gint kb_height = (gint) (unit_h * keyboard->row_count);
+    // Rows of their own height (height="..." in the layout): the letters,
+    // tapped most, taller than the rows of numbers and of special keys.
+    gint kb_height = 0;
+    for (guint i = 0; i < keyboard->row_count; i++) {
+        const guint height = MAX(unit_hmin, unit_h * keyboard->row_height[i] / KEY_UNIT);
+        if (keyboard->row_box[i]) {
+            gtk_widget_set_size_request(keyboard->row_box[i], -1, (gint) height);
+        }
+        kb_height += (gint) height;
+        if (i == 0) {
+            // the shortcut bar is as tall as the first row, see shortbar.c
+            g_object_set_data(G_OBJECT(keyboard_box), KB_FIRST_ROW_HEIGHT, GUINT_TO_POINTER(height));
+        }
+    }
     D printf("keyboard size: %ix%i\n", kb_width, kb_height);
     gtk_widget_set_size_request(keyboard_box, -1, kb_height);
 }

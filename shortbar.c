@@ -401,10 +401,14 @@ static void follow_visibility_cb(GtkWidget *widget, gpointer data) {
 static void follow_height_cb(GObject *object, GParamSpec *spec, gpointer data) {
     UNUSED(spec);
     UNUSED(data);
-    gint height = -1;
-    gtk_widget_get_size_request(GTK_WIDGET(object), NULL, &height);
-    if (height > 0 && keyboard_rows > 0) {
-        gtk_widget_set_size_request(row, -1, height / (gint) keyboard_rows);
+    // as tall as the keyboard's first row (special keys, a short one)
+    gint height = GPOINTER_TO_INT(g_object_get_data(object, KB_FIRST_ROW_HEIGHT));
+    if (height <= 0 && keyboard_rows > 0) {
+        gtk_widget_get_size_request(GTK_WIDGET(object), NULL, &height);
+        height /= (gint) keyboard_rows;
+    }
+    if (height > 0) {
+        gtk_widget_set_size_request(row, -1, height);
     }
 }
 

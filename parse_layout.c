@@ -140,9 +140,11 @@ static struct kbmodlookup kbmod[] = {
 /** 
  * Start parsing row node
  * @param state Parser state structure
+ * @param attribute_names Attribute names array
+ * @param attribute_values Attribute values array
  * @return True on success, false otherwise
  */
-static gboolean parser_row_start(State *state) {
+static gboolean parser_row_start(State *state, const gchar **attribute_names, const gchar **attribute_values) {
     if (state->keyboard->row_count >= ROWS_MAX) {
         D printf("Too many rows\n");
         return FALSE;
@@ -156,6 +158,15 @@ static gboolean parser_row_start(State *state) {
 #else
     state->current_row = gtk_hbox_new(FALSE, 0);
 #endif
+    // height="1200": a row a fifth taller than the others
+    guint height = KEY_UNIT;
+    for (gint j = 0; attribute_names[j]; j++) {
+        if (!g_ascii_strcasecmp(attribute_names[j], "height") && atoi(attribute_values[j]) > 0) {
+            height = (guint) atoi(attribute_values[j]);
+        }
+    }
+    state->keyboard->row_box[state->keyboard->row_count] = state->current_row;
+    state->keyboard->row_height[state->keyboard->row_count] = height;
     state->keyboard->row_count++;
     return TRUE;
 }
@@ -170,7 +181,8 @@ static gboolean parser_row_end(State *state) {
         D printf("Row empty\n");
         return FALSE;
     }
-    gtk_box_pack_start(GTK_BOX(state->container), state->current_row, TRUE, TRUE, 0);
+    // its height is set with the keyboard's, see keyboard_set_size()
+    gtk_box_pack_start(GTK_BOX(state->container), state->current_row, FALSE, FALSE, 0);
     state->current_row = NULL;
     return TRUE;
 }
@@ -452,7 +464,7 @@ static void parser_start_node_cb(GMarkupParseContext *context, const gchar *node
         D printf ("attribute %s = \"%s\"\n", attribute_names[i], attribute_values[i]);
     }
     if (!strcmp(node_name, "row")) {
-        ret = parser_row_start(state);
+        ret = parser_row_start(state, attribute_names, attribute_values);
     }
     else if (!strcmp(node_name, "key")) {
         ret = parser_button_start(state, attribute_names, attribute_values);

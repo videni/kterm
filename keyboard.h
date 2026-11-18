@@ -73,6 +73,8 @@ struct kbmodlookup {
 #define KTERM_KEY_HIDE 0x0110fff2
 /** Basic size of key button in internal units */
 #define KEY_UNIT 1000
+/** Data of the keyboard widget: height of its first row, in pixels */
+#define KB_FIRST_ROW_HEIGHT "kterm-first-row-height"
 
 struct Keyboard;
 
@@ -102,6 +104,8 @@ typedef struct Keyboard {
     guint key_count; /** Keys count */
     guint row_count; /** Rows count */
     guint key_per_row[ROWS_MAX]; /** Keys count in each row */
+    GtkWidget *row_box[ROWS_MAX]; /** Row widgets */
+    guint row_height[ROWS_MAX]; /** Height of each row, KEY_UNIT for an ordinary one */
     guint unit_width; /** Precalculated minimum width of a button */
     guint unit_height; /** Precalculated minimum height of a button */
     GtkWidget *container; /** Keyboard container */

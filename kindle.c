@@ -300,8 +300,13 @@ void inject_styles(void) {
                                     // Theme padding and minimum width would make
                                     // multi-letter keys (Ctrl, Shift) wider than
                                     // their slot and push the row off screen.
+                                    // Letters as large as on the Kindle's own keyboard, words
+                                    // (Ctrl, Enter) smaller to fit; a gap between keys, so a
+                                    // finger between two can tell which one it is on.
                                     "#ktermKbButton { background: @gray; padding: 0; min-width: 0; min-height: 0; border-color: @line;"
-                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    " margin: 3px 2px; font-family: \"Amazon Ember\", sans-serif; font-size: 11pt; }"
+                                    "#ktermKbButton.word { font-size: 9pt; }"
+                                    "#ktermKbButton.long { font-size: 8pt; }"
                                     "#ktermKbButton:hover { background: @gray; }"
                                     "#ktermKbButton:selected { background: @gray; }"
                                     "#ktermKbButton:disabled { background: @gray; }"
@@ -315,11 +320,11 @@ void inject_styles(void) {
                                     // shortcut bar: keys like the keyboard's,
                                     // set apart from it by a line
                                     "#ktermShortBar { background: #ffffff; border-bottom: 2px solid #000000; }"
-                                    "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0;"
+                                    "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
                                     " border: 1px solid @line; border-radius: 4px; color: #2e3436;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     // the paste button, there for a while: black, set apart from the shortcuts
-                                    "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0;"
+                                    "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
                                     " border: 1px solid #000000; border-radius: 4px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermShortButton.pressed { background: #000000; color: #ffffff; border-color: #000000; }"

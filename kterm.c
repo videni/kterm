@@ -1560,8 +1560,8 @@ gint main(gint argc, gchar **argv) {
 #endif
 
 #if GTK_CHECK_VERSION(3,0,0)
+    // rows of their own heights, see keyboard_set_size()
     GtkWidget *keyboard_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_box_set_homogeneous(GTK_BOX(keyboard_box), TRUE);
 #else
     GtkWidget *keyboard_box = gtk_vbox_new(TRUE, 0);
 #endif
