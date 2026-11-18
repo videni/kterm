@@ -14,8 +14,10 @@
  */
 
 /*
- * The panel that slides over the bottom of the terminal: saved ssh
- * connections and the actions that used to live in the two-finger menu.
+ * The panel that slides over the bottom of the terminal. It opens on a row
+ * of actions; two of them lead to pages of their own, each with a way back:
+ * the saved ssh connections (with the form to add or edit one) and the
+ * settings.
  *
  * It is drawn inside the main window, over the terminal, rather than as a
  * window of its own: the terminal keeps its size, so the program running in
@@ -45,6 +47,12 @@
 
 static GtkWidget *root = NULL;
 static GtkWidget *terminal_widget = NULL;
+static GtkWidget *home_page = NULL;
+/** Row of actions on the first page */
+static GtkWidget *home_row = NULL;
+static GtkWidget *settings_page = NULL;
+static GtkWidget *settings_grid = NULL;
+static gint settings_count = 0;
 static GtkWidget *list_page = NULL;
 static GtkWidget *form_page = NULL;
 static GtkWidget *rows_box = NULL;
@@ -109,6 +117,20 @@ static void focus_terminal(void) {
 }
 
 /**
+ * Show one page of the panel, the others hidden
+ * @param page Page widget
+ */
+static void show_page(GtkWidget *page) {
+    GtkWidget *pages[] = { home_page, list_page, form_page, settings_page };
+    for (guint i = 0; i < G_N_ELEMENTS(pages); i++) {
+        if (pages[i] && pages[i] != page) {
+            gtk_widget_hide(pages[i]);
+        }
+    }
+    gtk_widget_show(page);
+}
+
+/**
  * Hide the panel
  */
 void panel_close(void) {
@@ -121,15 +143,23 @@ void panel_close(void) {
 }
 
 /**
- * Show the panel with the list of connections
+ * Show the panel, on its first page
  */
 void panel_open(void) {
     if (!root || panel_is_open()) {
         return;
     }
-    page_start = 0;
-    show_list();
+    show_page(home_page);
+    focus_terminal();
     gtk_widget_show(root);
+}
+
+/**
+ * Back to the first page
+ */
+static void show_home(void) {
+    show_page(home_page);
+    focus_terminal();
 }
 
 /**
@@ -248,8 +278,7 @@ static void show_form(const SshHost *host) {
     gtk_label_set_text(GTK_LABEL(form_message), "");
     gtk_button_set_label(GTK_BUTTON(delete_button), "删除");
     gtk_widget_set_visible(delete_button, host != NULL);
-    gtk_widget_hide(list_page);
-    gtk_widget_show(form_page);
+    show_page(form_page);
     gtk_widget_grab_focus(entry_name);
 }
 
@@ -357,9 +386,16 @@ static void show_list(void) {
         gtk_widget_set_sensitive(prev_button, page_start > 0);
         gtk_widget_set_sensitive(next_button, page_start + ROWS_PER_PAGE < count);
     }
-    gtk_widget_hide(form_page);
-    gtk_widget_show(list_page);
+    show_page(list_page);
     focus_terminal();
+}
+
+/**
+ * The first page's connections button: the list, from its first page
+ */
+static void connections_cb(void) {
+    page_start = 0;
+    show_list();
 }
 
 /**
@@ -473,44 +509,89 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
 }
 
 /**
- * Build the list page
- * @param actions Row of general actions, shown below the connections
+ * Start a page with its back button and title
+ * @param page Page widget
+ * @param title Title text
+ * @return Header row, for more buttons on the right
+ */
+static GtkWidget * add_header(GtkWidget *page, const gchar *title) {
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
+    GtkWidget *back = panel_button_new("‹ 返回");
+    g_signal_connect(back, "clicked", G_CALLBACK(show_home), NULL);
+    GtkWidget *label = gtk_label_new(NULL);
+    gchar *markup = g_markup_printf_escaped("<b>%s</b>", title);
+    gtk_label_set_markup(GTK_LABEL(label), markup);
+    g_free(markup);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_box_pack_start(GTK_BOX(header), back, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(header), label, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(page), header, FALSE, FALSE, 0);
+    return header;
+}
+
+/**
+ * Build the first page: a row of actions, the panel's close button last
  * @return Page widget
  */
-static GtkWidget * build_list_page(GtkWidget *actions) {
+static GtkWidget * build_home_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
-    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
-    GtkWidget *title = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(title), "<b>SSH 连接</b>");
-    gtk_label_set_xalign(GTK_LABEL(title), 0);
+    home_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_name(home_row, "ktermPanelActions");
+    gtk_box_set_homogeneous(GTK_BOX(home_row), TRUE);
+    GtkWidget *connections = panel_button_new("连接");
+    GtkWidget *settings = panel_button_new("设置");
+    GtkWidget *close = panel_button_new("关闭");
+    g_signal_connect(connections, "clicked", G_CALLBACK(connections_cb), NULL);
+    g_signal_connect_swapped(settings, "clicked", G_CALLBACK(show_page), settings_page);
+    g_signal_connect(close, "clicked", G_CALLBACK(panel_close), NULL);
+    gtk_box_pack_start(GTK_BOX(home_row), connections, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(home_row), settings, TRUE, TRUE, 0);
+    // actions added later go between these and the close button
+    gtk_box_pack_end(GTK_BOX(home_row), close, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(page), home_row, FALSE, FALSE, 0);
+    return page;
+}
+
+/**
+ * Build the settings page; its rows are added with panel_add_setting()
+ * @return Page widget
+ */
+static GtkWidget * build_settings_page(void) {
+    GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    add_header(page, "设置");
+    settings_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(settings_grid), PANEL_SPACING);
+    gtk_grid_set_column_spacing(GTK_GRID(settings_grid), PANEL_SPACING * 2);
+    gtk_box_pack_start(GTK_BOX(page), settings_grid, FALSE, FALSE, 0);
+    return page;
+}
+
+/**
+ * Build the list page
+ * @return Page widget
+ */
+static GtkWidget * build_list_page(void) {
+    GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    GtkWidget *header = add_header(page, "SSH 连接");
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
     GtkWidget *add = panel_button_new("新建");
-    GtkWidget *close = panel_button_new("关闭");
     g_signal_connect(prev_button, "clicked", G_CALLBACK(page_cb), GINT_TO_POINTER(-1));
     g_signal_connect(next_button, "clicked", G_CALLBACK(page_cb), GINT_TO_POINTER(1));
     g_signal_connect(add, "clicked", G_CALLBACK(new_cb), NULL);
-    g_signal_connect(close, "clicked", G_CALLBACK(panel_close), NULL);
-    gtk_box_pack_start(GTK_BOX(header), title, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(header), prev_button, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), page_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), next_button, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), add, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(header), close, FALSE, FALSE, 0);
 
     rows_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
     empty_label = gtk_label_new(NULL);
     gtk_label_set_xalign(GTK_LABEL(empty_label), 0);
     gtk_label_set_line_wrap(GTK_LABEL(empty_label), TRUE);
 
-    gtk_box_pack_start(GTK_BOX(page), header, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), rows_box, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), empty_label, FALSE, FALSE, 0);
-    if (actions) {
-        gtk_box_pack_start(GTK_BOX(page), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(page), actions, FALSE, FALSE, 0);
-    }
     return page;
 }
 
@@ -563,12 +644,35 @@ static GtkWidget * build_form_page(void) {
 }
 
 /**
+ * Add a button to the first page's row, before its close button
+ * @param button Button, see panel_button_new()
+ */
+void panel_add_action(GtkWidget *button) {
+    gtk_box_pack_start(GTK_BOX(home_row), button, TRUE, TRUE, 0);
+    gtk_widget_show(button);
+}
+
+/**
+ * Add a row to the settings page
+ * @param title What is set
+ * @param control Widget that sets it
+ */
+void panel_add_setting(const gchar *title, GtkWidget *control) {
+    GtkWidget *label = gtk_label_new(title);
+    gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_grid_attach(GTK_GRID(settings_grid), label, 0, settings_count, 1, 1);
+    gtk_grid_attach(GTK_GRID(settings_grid), control, 1, settings_count, 1, 1);
+    settings_count++;
+    gtk_widget_show_all(label);
+    gtk_widget_show_all(control);
+}
+
+/**
  * Build the panel
  * @param terminal Terminal widget the connections are opened in
- * @param actions Row of general actions for the bottom of the panel, or NULL
  * @return Panel widget, hidden; meant to be added to a GtkOverlay
  */
-GtkWidget * panel_new(GtkWidget *terminal, GtkWidget *actions) {
+GtkWidget * panel_new(GtkWidget *terminal) {
     terminal_widget = terminal;
     // an event box has a window of its own: it paints a background over the
     // terminal and keeps touches on the panel from reaching it
@@ -579,14 +683,19 @@ GtkWidget * panel_new(GtkWidget *terminal, GtkWidget *actions) {
 
     GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_set_border_width(GTK_CONTAINER(content), PANEL_SPACING * 2);
-    list_page = build_list_page(actions);
+    // the settings page first: the home page's button refers to it
+    settings_page = build_settings_page();
+    home_page = build_home_page();
+    list_page = build_list_page();
     form_page = build_form_page();
+    gtk_box_pack_start(GTK_BOX(content), home_page, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content), list_page, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(content), form_page, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), settings_page, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(root), content);
 
     gtk_widget_show_all(content);
-    gtk_widget_hide(form_page);
+    show_page(home_page);
     // stays hidden through gtk_widget_show_all() on the window
     gtk_widget_set_no_show_all(root, TRUE);
     return root;
@@ -594,11 +703,12 @@ GtkWidget * panel_new(GtkWidget *terminal, GtkWidget *actions) {
 
 #else /* GTK+ 2: no overlay to draw the panel in */
 
-GtkWidget * panel_new(GtkWidget *terminal, GtkWidget *actions) {
+GtkWidget * panel_new(GtkWidget *terminal) {
     UNUSED(terminal);
-    UNUSED(actions);
     return NULL;
 }
+void panel_add_action(GtkWidget *button) { UNUSED(button); }
+void panel_add_setting(const gchar *title, GtkWidget *control) { UNUSED(title); UNUSED(control); }
 GtkWidget * panel_button_new(const gchar *label) { return gtk_button_new_with_label(label); }
 void panel_open(void) {}
 void panel_close(void) {}

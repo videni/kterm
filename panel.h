@@ -23,7 +23,9 @@
 /** Widget name of the panel's buttons, for styling */
 #define PANEL_BUTTON_NAME "ktermPanelButton"
 
-GtkWidget * panel_new(GtkWidget *terminal, GtkWidget *actions);
+GtkWidget * panel_new(GtkWidget *terminal);
+void panel_add_action(GtkWidget *button);
+void panel_add_setting(const gchar *title, GtkWidget *control);
 GtkWidget * panel_button_new(const gchar *label);
 void panel_open(void);
 void panel_close(void);

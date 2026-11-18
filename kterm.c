@@ -31,6 +31,7 @@
 #include <getopt.h>
 #include "keyboard.h"
 #include "panel.h"
+#include "confedit.h"
 #include "shortbar.h"
 #include "shortcuts.h"
 #ifdef KINDLE
@@ -212,6 +213,8 @@ static void resize_font(VteTerminal *terminal, const guint mod) {
             font_size--;
         }
         set_terminal_font(terminal, pango_name, font_size);
+        // the settings page counts from here
+        conf->font_size = (guint) font_size;
     }
     g_free(pango_name);
 }
@@ -605,31 +608,6 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
 }
 
 #if GTK_CHECK_VERSION(3,2,0)
-/**
- * Build the row of general actions for the bottom of the panel
- * @param terminal Terminal widget
- * @param box Kterm container
- * @return Row widget
- */
-/**
- * @return TRUE while the system keyboard is the one on screen
- */
-static gboolean system_keyboard_open(void) {
-#ifdef KINDLE
-    return ime_is_open();
-#else
-    return FALSE;
-#endif
-}
-
-static void panel_kb_label_cb(GtkWidget *panel, gpointer kb_button) {
-    UNUSED(panel);
-    gtk_button_set_label(GTK_BUTTON(kb_button), system_keyboard_open() ? "终端键盘"
-                                                : conf->kb_on ? "隐藏键盘" : "显示键盘");
-}
-
-static void toggle_keyboard(GtkWidget *widget, gpointer box);
-
 #ifdef KINDLE
 static void panel_read_label_cb(GtkWidget *panel, gpointer read_button) {
     UNUSED(panel);
@@ -654,58 +632,85 @@ static void panel_read_clicked_cb(GtkWidget *button, gpointer data) {
     kterm_hide_keyboard();
     read_mode = TRUE;
 }
-#endif
 
-/**
- * The panel's keyboard button: folds or unfolds the built-in keyboard, or
- * comes back to it from the system keyboard.
- */
-static void panel_kb_clicked_cb(GtkWidget *button, gpointer box) {
-    if (system_keyboard_open()) {
-        kterm_use_builtin_keyboard();
-    } else {
-        toggle_keyboard(button, box);
-    }
-}
-
-/** The panel's keyboard button, its label follows the keyboard's state */
-static GtkWidget *panel_kb_button = NULL;
-#ifdef KINDLE
 /** The panel's reading button */
 static GtkWidget *panel_read_button = NULL;
 #endif
 
-static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_name(row, "ktermPanelActions");
-    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
-    GtkWidget *fontdown_button = panel_button_new("字号 −");
-    GtkWidget *fontup_button = panel_button_new("字号 +");
-    GtkWidget *kb_button = panel_button_new("隐藏键盘");
-    panel_kb_button = kb_button;
-    GtkWidget *quit_button = panel_button_new("退出");
-    g_signal_connect(fontdown_button, "clicked", G_CALLBACK(fontdown), (gpointer) terminal);
-    g_signal_connect(fontup_button, "clicked", G_CALLBACK(fontup), (gpointer) terminal);
-    // the panel goes with the keyboard: it is opened by swiping up from it
-    g_signal_connect(kb_button, "clicked", G_CALLBACK(panel_kb_clicked_cb), box);
-    g_signal_connect_swapped(kb_button, "clicked", G_CALLBACK(panel_close), NULL);
-    g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
-    gtk_box_pack_start(GTK_BOX(row), fontdown_button, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(row), fontup_button, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(row), kb_button, TRUE, TRUE, 0);
+/** Font sizes offered on the settings page */
+#define FONT_SIZE_MIN 4
+#define FONT_SIZE_MAX 30
+
+/**
+ * Font size buttons of the settings page: the new size is used at once and
+ * written to kterm.conf for the next start.
+ * @param button Calling widget, carries the step (-1 or 1)
+ * @param label Shows the size
+ */
+static void font_size_cb(GtkWidget *button, gpointer label) {
+    const gint step = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "step"));
+    const gint size = CLAMP((gint) conf->font_size + step, FONT_SIZE_MIN, FONT_SIZE_MAX);
+    if (size == (gint) conf->font_size || !main_terminal) {
+        return;
+    }
+    conf->font_size = (guint) size;
+    set_terminal_font(VTE_TERMINAL(main_terminal), conf->font_family, size);
+    gchar *text = g_strdup_printf("%d", size);
+    gtk_label_set_text(GTK_LABEL(label), text);
+    g_free(text);
+    gchar *line = g_strdup_printf("font_size = %d", size);
+    GError *error = NULL;
+    if (!confedit_save(CONFIG_FULL_PATH, "font_size", line, &error)) {
+        D printf("font size not saved: %s\n", error->message);
+        g_error_free(error);
+    }
+    g_free(line);
+}
+
+/**
+ * @param text Button text
+ * @param step Font size change
+ * @param label Shows the size
+ * @return Button
+ */
+static GtkWidget * font_size_button(const gchar *text, gint step, GtkWidget *label) {
+    GtkWidget *button = panel_button_new(text);
+    g_object_set_data(G_OBJECT(button), "step", GINT_TO_POINTER(step));
+    g_signal_connect(button, "clicked", G_CALLBACK(font_size_cb), label);
+    return button;
+}
+
+/**
+ * Fill the panel: actions on its first page, the settings page
+ * @param box Kterm container
+ */
+static void add_panel_actions(GtkWidget *box) {
 #ifdef KINDLE
     GtkWidget *read_button = panel_button_new("阅读");
     panel_read_button = read_button;
     g_signal_connect(read_button, "clicked", G_CALLBACK(panel_read_clicked_cb), NULL);
     g_signal_connect_swapped(read_button, "clicked", G_CALLBACK(panel_close), NULL);
-    gtk_box_pack_start(GTK_BOX(row), read_button, TRUE, TRUE, 0);
+    panel_add_action(read_button);
     GtkWidget *rotate_button = panel_button_new("旋转");
     g_signal_connect_swapped(rotate_button, "clicked", G_CALLBACK(panel_close), NULL);
     g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), box);
-    gtk_box_pack_start(GTK_BOX(row), rotate_button, TRUE, TRUE, 0);
+    panel_add_action(rotate_button);
+#else
+    UNUSED(box);
 #endif
-    gtk_box_pack_start(GTK_BOX(row), quit_button, TRUE, TRUE, 0);
-    return row;
+    GtkWidget *quit_button = panel_button_new("退出");
+    g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
+    panel_add_action(quit_button);
+
+    GtkWidget *font_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
+    gchar *size = g_strdup_printf("%u", conf->font_size);
+    GtkWidget *size_label = gtk_label_new(size);
+    g_free(size);
+    gtk_label_set_width_chars(GTK_LABEL(size_label), 3);
+    gtk_box_pack_start(GTK_BOX(font_row), font_size_button("−", -1, size_label), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(font_row), size_label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(font_row), font_size_button("+", 1, size_label), FALSE, FALSE, 0);
+    panel_add_setting("字号", font_row);
 }
 #endif
 
@@ -1246,8 +1251,8 @@ gint main(gint argc, gchar **argv) {
     // the panel is drawn over the terminal, which keeps its size
     GtkWidget *overlay = gtk_overlay_new();
     gtk_container_add(GTK_CONTAINER(overlay), terminal);
-    GtkWidget *panel = panel_new(terminal, build_panel_actions(terminal, vbox));
-    g_signal_connect(panel, "show", G_CALLBACK(panel_kb_label_cb), panel_kb_button);
+    GtkWidget *panel = panel_new(terminal);
+    add_panel_actions(vbox);
 #ifdef KINDLE
     g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
 #endif
