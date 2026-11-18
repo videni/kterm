@@ -4,7 +4,7 @@
   "name": "Terminal 终端 (kterm)",
   "author": "B. Fabiszewski, vidy",
   "description": "kterm fork: GTK+ 3 / VTE 0.84 terminal with a compact programmer keyboard and the system pinyin keyboard. Runs inside the Alpine chroot (/mnt/us/alpine).",
-  "version": [3, 5, 0],
+  "version": [3, 6, 0],
   "dependencies": [],
   "supported_platforms": [
     "kindlehf"

@@ -312,6 +312,10 @@ void inject_styles(void) {
                                     "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0;"
                                     " border: 1px solid @line; border-radius: 4px; color: #2e3436;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    // the paste button, there for a while: black, set apart from the shortcuts
+                                    "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0;"
+                                    " border: 1px solid #000000; border-radius: 4px;"
+                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
                                     "#ktermShortProblem { color: #000000; padding: 4px 8px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 7pt; }"

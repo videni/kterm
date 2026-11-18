@@ -191,6 +191,7 @@ static void set_terminal_font(VteTerminal *terminal, const gchar *font_family, c
     pango_font_description_free(desc);
 }
 
+#ifndef KINDLE
 /**
  * Resize terminal font
  * @param terminal Terminal
@@ -240,6 +241,7 @@ static void fontdown(GtkWidget *widget, gpointer terminal) {
     UNUSED(widget);
     resize_font(terminal, FONT_DOWN);
 }
+#endif
 /**
  * Setup terminal color scheme
  * @param terminal Terminal
@@ -319,6 +321,7 @@ static void set_terminal_colors(GtkWidget *terminal, gboolean scheme) {
     conf->color_reversed = scheme;
 }
 
+#ifndef KINDLE
 /**
  * Reverse color scheme menu callback
  * @param widget Calling widget
@@ -328,6 +331,7 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
     UNUSED(widget);
     set_terminal_colors(terminal, !conf->color_reversed);
 }
+#endif
 
 #ifdef KINDLE
 /** How far a finger may move, in pixels, and still count as a tap */
@@ -480,27 +484,7 @@ static void keyboard_update(GtkWidget *keyboard_box, GtkAllocation *alloc, Keybo
     }
 }
 
-#ifdef KINDLE
-/**
- * Rotate screen menu callback
- * @param widget Calling widget
- * @param box Kterm container
- */
-static void screen_rotate(GtkWidget *widget, gpointer data) {
-    UNUSED(widget);
-    UNUSED(data);
-    char request = 0;
-    if (conf->orientation == 'U') {
-        request = 'R';
-    } else {
-        request = 'U';
-    }
-    if (set_orientation(request)) {
-        conf->orientation = request;
-    }
-}
-#endif
-
+#ifndef KINDLE
 /**
  * Reset terminal manu callback
  * @param widget Calling widget
@@ -533,42 +517,12 @@ static void toggle_keyboard(GtkWidget *widget, gpointer box) {
         } else {
             gtk_widget_show(keyboard_box);
             conf->kb_on = TRUE;
-#ifdef KINDLE
-            read_mode = FALSE;
-#endif
         }
     }
 }
-
-#ifdef KINDLE
-/**
- * Wrapper for g_signal_handlers_disconnect_by_func()
- * The only reason is to avoid warnings for converting a function pointer to a void pointer.
- * FIXME: is there a better way?
- * @param instance: The instance to remove handlers from.
- * @param func: The C closure callback of the handlers (useless for non-C closures).
- * @param data: The closure data of the handlers' closures.
- * @return The number of handlers that matched.
- */
-static guint signal_handlers_disconnect_by_func(gpointer instance, GCallback func, gpointer data) {
-    return g_signal_handlers_disconnect_by_func(instance, *(gpointer*)&func, data);
-}
-
-/**
- * Callback on menu deactivated signal
- * @param widget Calling widget
- * @param data User data
- */
-static void menu_deactivate_cb(GtkWidget *widget, gpointer data) {
-    UNUSED(widget);
-    D printf("Menu deactivated\n");
-    GdkEventButton *event = data;
-    signal_handlers_disconnect_by_func(widget, G_CALLBACK(menu_deactivate_cb), data);
-    gdk_test_simulate_button(event->window, (gint) event->x, (gint) event->y, 1, event->state, GDK_BUTTON_RELEASE);
-    gdk_event_free((GdkEvent *) event);
-}
 #endif
 
+#ifndef KINDLE
 /**
  * Build popup menu
  * @param terminal Terminal widget
@@ -583,9 +537,6 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
     GtkWidget *color_item = gtk_menu_item_new_with_label("Reverse colors");
     GtkWidget *kb_item = gtk_menu_item_new_with_label("Toggle keyboard");
     GtkWidget *reset_item = gtk_menu_item_new_with_label("Reset terminal");
-#ifdef KINDLE
-    GtkWidget *rotate_item = gtk_menu_item_new_with_label("Screen rotate");
-#endif
     GtkWidget *quit_item = gtk_menu_item_new_with_label("Quit");
     
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), fontup_item);
@@ -593,9 +544,6 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), color_item);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), kb_item);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), reset_item);
-#ifdef KINDLE
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), rotate_item);
-#endif
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit_item);
     
     
@@ -604,20 +552,18 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
     g_signal_connect(G_OBJECT(color_item), "activate", G_CALLBACK(reverse_colors), (gpointer) terminal);
     g_signal_connect(G_OBJECT(kb_item), "activate", G_CALLBACK(toggle_keyboard), box);
     g_signal_connect(G_OBJECT(reset_item), "activate", G_CALLBACK(reset_terminal), (gpointer) terminal);
-#ifdef KINDLE
-    g_signal_connect(G_OBJECT(rotate_item), "activate", G_CALLBACK(screen_rotate), box);
-#endif
     g_signal_connect(G_OBJECT(quit_item), "activate", G_CALLBACK(gtk_main_quit), NULL);
     
     gtk_widget_show_all(menu);
     return menu;
 }
+#endif
 
 #if GTK_CHECK_VERSION(3,2,0)
 #ifdef KINDLE
 static void panel_read_label_cb(GtkWidget *panel, gpointer read_button) {
     UNUSED(panel);
-    gtk_button_set_label(GTK_BUTTON(read_button), read_mode ? "退出阅读" : "阅读");
+    gtk_button_set_label(GTK_BUTTON(read_button), read_mode ? "退出预览" : "预览");
 }
 
 /**
@@ -748,7 +694,7 @@ static GtkWidget * font_size_button(const gchar *text, gint step, GtkWidget *lab
  */
 static void add_panel_actions(void) {
 #ifdef KINDLE
-    GtkWidget *read_button = panel_button_new("阅读");
+    GtkWidget *read_button = panel_button_new("预览");
     panel_read_button = read_button;
     g_signal_connect(read_button, "clicked", G_CALLBACK(panel_read_clicked_cb), NULL);
     g_signal_connect_swapped(read_button, "clicked", G_CALLBACK(panel_close), NULL);
@@ -777,9 +723,34 @@ static void add_panel_actions(void) {
 #ifdef KINDLE
 /** Most wheel steps sent for one swipe */
 #define SWIPE_WHEEL_MAX 60
-/** Set while terminal_wheel() moves VTE's idea of the pointer: that one
- *  motion event has to get through to VTE */
-static gboolean pointer_placing = FALSE;
+/** Set while an event made here is given to VTE: touch_event() lets it
+ *  through */
+static gboolean forwarding = FALSE;
+
+/**
+ * Show VTE the pointer at a place in the terminal
+ * @param terminal Terminal widget
+ * @param source Touch event it stands for (window, device, time)
+ * @param x,y Position in the terminal, pixels
+ * @param state Buttons held: with one, a program that asked for the mouse
+ *  is told about the move (a drag)
+ */
+static void terminal_pointer(GtkWidget *terminal, const GdkEventButton *source, gdouble x, gdouble y, guint state) {
+    GdkEvent *move = gdk_event_new(GDK_MOTION_NOTIFY);
+    move->motion.window = g_object_ref(source->window);
+    move->motion.send_event = TRUE;
+    move->motion.time = source->time;
+    move->motion.x = x;
+    move->motion.y = y;
+    move->motion.x_root = source->x_root - source->x + x;
+    move->motion.y_root = source->y_root - source->y + y;
+    move->motion.state = state;
+    gdk_event_set_device(move, gdk_event_get_device((const GdkEvent *) source));
+    forwarding = TRUE;
+    gtk_widget_event(terminal, move);
+    forwarding = FALSE;
+    gdk_event_free(move);
+}
 
 /**
  * Send mouse wheel steps to the terminal, as a mouse over it would.
@@ -795,20 +766,7 @@ static void terminal_wheel(GtkWidget *terminal, const GdkEventButton *source, Gd
                            gdouble x, gdouble y, guint steps) {
     // VTE reports the wheel at the place it last saw the pointer, not at
     // the place the wheel event names: show it the pointer there first.
-    GdkEvent *move = gdk_event_new(GDK_MOTION_NOTIFY);
-    move->motion.window = g_object_ref(source->window);
-    move->motion.send_event = TRUE;
-    move->motion.time = source->time;
-    move->motion.x = x;
-    move->motion.y = y;
-    move->motion.x_root = source->x_root - source->x + x;
-    move->motion.y_root = source->y_root - source->y + y;
-    move->motion.state = 0;
-    gdk_event_set_device(move, gdk_event_get_device((const GdkEvent *) source));
-    pointer_placing = TRUE;
-    gtk_widget_event(terminal, move);
-    pointer_placing = FALSE;
-    gdk_event_free(move);
+    terminal_pointer(terminal, source, x, y, 0);
     for (guint i = 0; i < steps && i < SWIPE_WHEEL_MAX; i++) {
         GdkEvent *wheel = gdk_event_new(GDK_SCROLL);
         wheel->scroll.window = g_object_ref(source->window);
@@ -821,7 +779,9 @@ static void terminal_wheel(GtkWidget *terminal, const GdkEventButton *source, Gd
         wheel->scroll.state = 0;
         wheel->scroll.direction = direction;
         gdk_event_set_device(wheel, gdk_event_get_device((const GdkEvent *) source));
+        forwarding = TRUE;
         gtk_widget_event(terminal, wheel);
+        forwarding = FALSE;
         gdk_event_free(wheel);
     }
 }
@@ -927,116 +887,270 @@ static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
 }
 #endif
 
+#ifdef KINDLE
+/*
+ * How the Kindle's touch driver reports a touch, as X buttons (recorded on
+ * the device with xinput): a finger going down and up is button 1. Once a
+ * swipe is recognised it clicks another button, button 1 still down: 3
+ * going up, 4 going down (4 to 7 reach GTK as wheel turns, see
+ * scroll_event()). A finger held still for half a second clicks button 9.
+ * A second finger is button 2.
+ *
+ * The press of button 1 is kept from the terminal until the release tells
+ * what the touch was: a tap is then given to the terminal whole, a swipe
+ * scrolls, a long press selects text and two fingers are the right button.
+ * Given the press at once, the program in the terminal (tmux) would take
+ * every swipe and every right click for a click of the left button too.
+ */
+
+/** The touch under way, from the press of button 1 to its release */
+static struct {
+    gdouble x_root, y_root; /** Where the finger went down, on the screen */
+    gdouble x, y;           /** ...and in the terminal */
+    guint state;            /** Modifiers at the press */
+    gboolean swiping;       /** The driver marked a swipe */
+    gboolean two_fingers;   /** A second finger touched */
+    gboolean selecting;     /** Held still, then moved: selecting text */
+} touch;
+/** A two finger tap pressed the right button: the next tap releases it
+ *  where it lands, which picks the item of a menu the press opened */
+static gboolean right_held = FALSE;
+static gdouble right_x = 0, right_y = 0;
+
 /**
- * Mouse button event callback
+ * Give the terminal a button event made here
+ * @param terminal Terminal widget
+ * @param source Touch event it stands for (window, device, time)
+ * @param type GDK_BUTTON_PRESS or GDK_BUTTON_RELEASE
+ * @param button Button number
+ * @param x,y Position in the terminal, pixels
+ * @param state Modifiers and buttons held
+ */
+static void terminal_button(GtkWidget *terminal, const GdkEventButton *source, GdkEventType type, guint button,
+                            gdouble x, gdouble y, guint state) {
+    GdkEvent *event = gdk_event_new(type);
+    event->button.window = g_object_ref(source->window);
+    event->button.send_event = TRUE;
+    event->button.time = source->time;
+    event->button.x = x;
+    event->button.y = y;
+    event->button.x_root = source->x_root - source->x + x;
+    event->button.y_root = source->y_root - source->y + y;
+    event->button.state = state;
+    event->button.button = button;
+    gdk_event_set_device(event, gdk_event_get_device((const GdkEvent *) source));
+    forwarding = TRUE;
+    gtk_widget_event(terminal, event);
+    forwarding = FALSE;
+    gdk_event_free(event);
+}
+
+/**
+ * A long press: start selecting text where the finger is. Shift makes VTE
+ * select even when the program in the terminal asked for the mouse (tmux);
+ * with no selection there it starts a new one rather than extending it.
+ * @param terminal Terminal widget
+ * @param source Event of the long press
+ */
+static void selection_start(GtkWidget *terminal, const GdkEventButton *source) {
+    vte_terminal_unselect_all(VTE_TERMINAL(terminal));
+    terminal_button(terminal, source, GDK_BUTTON_PRESS, 1, touch.x, touch.y, touch.state | GDK_SHIFT_MASK);
+    touch.selecting = TRUE;
+}
+
+/**
+ * The finger is lifted from a selection: it is copied as it is lifted, and
+ * the shortcut bar offers to paste it. The selection stays drawn, to show
+ * what was copied, until the next tap.
+ * @param terminal Terminal widget
+ * @param event Release event
+ */
+static void selection_end(GtkWidget *terminal, const GdkEventButton *event) {
+    touch.selecting = FALSE;
+    terminal_button(terminal, event, GDK_BUTTON_RELEASE, 1, event->x, event->y,
+                    event->state | GDK_SHIFT_MASK | GDK_BUTTON1_MASK);
+    if (!vte_terminal_get_has_selection(VTE_TERMINAL(terminal))) {
+        return;
+    }
+    gchar *text = vte_terminal_get_text_selected(VTE_TERMINAL(terminal), VTE_FORMAT_TEXT);
+    if (text && *text) {
+        shortbar_offer_paste(text);
+    }
+    g_free(text);
+}
+
+/**
+ * Touches on the terminal
+ * @param terminal Terminal widget
+ * @param any Button or motion event
+ * @return TRUE to keep the event from VTE
+ */
+static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
+    if (any->type == GDK_MOTION_NOTIFY) {
+        if (!touch.selecting) {
+            // a moving finger scrolls, see terminal_swipe_scroll()
+            return TRUE;
+        }
+        any->motion.state |= GDK_SHIFT_MASK;
+        return FALSE;
+    }
+    GdkEventButton *event = &any->button;
+    if (event->type != GDK_BUTTON_PRESS && event->type != GDK_BUTTON_RELEASE) {
+        // double clicks made by GTK out of two real presses: taps are given
+        // to the terminal whole, at the release
+        return TRUE;
+    }
+    if (event->button == 2) {
+        if (event->type == GDK_BUTTON_PRESS) {
+            touch.two_fingers = TRUE;
+        }
+        return TRUE;
+    }
+    if (event->button == 9) {
+        if (event->type == GDK_BUTTON_PRESS && !touch.swiping && !touch.two_fingers && !touch.selecting) {
+            selection_start(terminal, event);
+        }
+        return TRUE;
+    }
+    if (event->button != 1) {
+        // the mark of a swipe; given on, tmux would open its menu
+        if (event->type == GDK_BUTTON_PRESS) {
+            touch.swiping = TRUE;
+        }
+        return TRUE;
+    }
+    if (event->type == GDK_BUTTON_PRESS) {
+        touch.x_root = event->x_root;
+        touch.y_root = event->y_root;
+        touch.x = event->x;
+        touch.y = event->y;
+        touch.state = event->state;
+        touch.swiping = touch.two_fingers = touch.selecting = FALSE;
+        return TRUE;
+    }
+    if (touch.selecting) {
+        selection_end(terminal, event);
+        return TRUE;
+    }
+    if (touch.two_fingers) {
+        if (right_held) {
+            terminal_button(terminal, event, GDK_BUTTON_RELEASE, 3, right_x, right_y, touch.state | GDK_BUTTON3_MASK);
+        }
+        terminal_button(terminal, event, GDK_BUTTON_PRESS, 3, touch.x, touch.y, touch.state);
+        right_held = TRUE;
+        right_x = touch.x;
+        right_y = touch.y;
+        return TRUE;
+    }
+    const gdouble dx = event->x_root - touch.x_root;
+    const gdouble dy = event->y_root - touch.y_root;
+    const gboolean vertical = ABS(dy) >= EDGE_SWIPE_MIN_PX && ABS(dy) >= ABS(dx) * 1.5;
+    const gboolean horizontal = ABS(dx) >= EDGE_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5;
+    const gboolean tap = !touch.swiping && !vertical && !horizontal;
+    if (right_held) {
+        // A tap lets the right button go where it lands, as if dragged
+        // there: on an item of a menu the press opened (tmux), that item is
+        // chosen. Anything else lets it go where it was pressed, which
+        // closes the menu.
+        right_held = FALSE;
+        const gdouble x = tap ? event->x : right_x;
+        const gdouble y = tap ? event->y : right_y;
+        terminal_pointer(terminal, event, x, y, touch.state | GDK_BUTTON3_MASK);
+        terminal_button(terminal, event, GDK_BUTTON_RELEASE, 3, x, y, touch.state | GDK_BUTTON3_MASK);
+        if (tap) {
+            return TRUE;
+        }
+    }
+    if (vertical && dy > 0 && touch.y_root <= EDGE_TOP_PX) {
+        // Down from the top edge is the device's own gesture for its quick
+        // settings (light, dark mode, airplane mode). A full screen
+        // application has to pass it on.
+        show_system_menu();
+        return TRUE;
+    }
+    if (vertical && dy < 0 && (!conf->kb_on || ime_is_open())
+        && touch.y >= gtk_widget_get_allocated_height(terminal) - EDGE_BOTTOM_PX) {
+        // No keyboard of ours to swipe up from: it is folded away, or the
+        // system keyboard (another program's window) is in its place. The
+        // swipe then starts at the foot of the terminal.
+        panel_open();
+        return TRUE;
+    }
+    if (vertical) {
+        terminal_swipe_scroll(terminal, event, touch.x, touch.y, dy);
+        return TRUE;
+    }
+    if (horizontal && read_mode) {
+        terminal_swipe_switch(terminal, dx);
+    }
+    if (!tap) {
+        return TRUE;
+    }
+    // a tap puts away the selection drawn
+    vte_terminal_unselect_all(VTE_TERMINAL(terminal));
+    if (ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX && !read_mode
+        && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
+        // A tap on the terminal brings a hidden keyboard back, as tapping a
+        // text field does elsewhere on the device. Not while previewing:
+        // there a tap belongs to the program (tmux switches to the window
+        // whose name is tapped).
+        conf->kb_on = TRUE;
+        gtk_widget_show(builtin_kb_box);
+    }
+    // the press kept back, then this release
+    terminal_button(terminal, event, GDK_BUTTON_PRESS, 1, touch.x, touch.y, touch.state);
+    return FALSE;
+}
+
+/**
+ * Wheel turns on the terminal: those of the touch driver are marks of a
+ * swipe (see touch_event()); only the ones made here reach VTE
+ */
+static gboolean scroll_event(GtkWidget *terminal, GdkEventScroll *event, gpointer data) {
+    UNUSED(terminal);
+    UNUSED(data);
+    return !forwarding && !event->send_event;
+}
+#endif
+
+/**
+ * Mouse button and motion callback
  * @param terminal Terminal widget
  * @param event Button event
- * @param menu Popup menu
+ * @param menu Popup menu (not on the Kindle)
  * @return True to stop processing event, false otherwise
  */
 static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointer menu) {
-#ifndef KINDLE
-    UNUSED(terminal);
-#endif
-    D printf("event-type: %i\n", event->type);
-    D printf("event-button: %i\n", event->button);
-    D {
-        GtkWidget *grab = gtk_grab_get_current();
-        printf("event-at: %.0f,%.0f (widget %.0f,%.0f) gtk-grab: %s\n", event->x_root, event->y_root,
-               event->x, event->y, grab ? gtk_widget_get_name(grab) : "none");
+#ifdef KINDLE
+    if (forwarding) {
+        return FALSE;
     }
+#endif
     // A touch while the panel is open puts it away, and the program in the
-    // terminal sees none of it: given the press alone, VTE and tmux would
-    // take the button as held down.
+    // terminal sees none of it.
     static gboolean closing_panel = FALSE;
     if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
         closing_panel = panel_is_open();
-        if (closing_panel) {
-            return TRUE;
+    }
+    if (closing_panel) {
+        if (event->type == GDK_BUTTON_RELEASE && event->button == 1) {
+            closing_panel = FALSE;
+            panel_close();
         }
-    } else if (event->type == GDK_BUTTON_RELEASE && event->button == 1 && closing_panel) {
-        closing_panel = FALSE;
-        panel_close();
         return TRUE;
     }
 #ifdef KINDLE
-    // ignore any motion events (i think we don't need selecting text as one finger motion scrolls buffer)
-    if (event->type == GDK_MOTION_NOTIFY) { return !pointer_placing; }
-    // The touch driver clicks button 3 during a swipe, while button 1 is
-    // still down: that touch is scrolling, whatever distance it ends at.
-    static gboolean swiping = FALSE;
-    if (event->button == 3) {
-        if (event->type == GDK_BUTTON_PRESS) {
-            swiping = TRUE;
-        }
-        // It is a mark, not a click: passed on, tmux and others would
-        // open their context menu at every swipe.
-        return TRUE;
-    }
-    if (event->button == 1) {
-        static gdouble press_x = 0, press_y = 0, press_in_terminal_x = 0, press_in_terminal_y = 0;
-        if (event->type == GDK_BUTTON_PRESS) {
-            swiping = FALSE;
-            press_x = event->x_root;
-            press_y = event->y_root;
-            press_in_terminal_x = event->x;
-            press_in_terminal_y = event->y;
-        } else if (event->type == GDK_BUTTON_RELEASE) {
-            const gdouble dx = event->x_root - press_x;
-            const gdouble dy = event->y_root - press_y;
-            const gboolean vertical = ABS(dy) >= EDGE_SWIPE_MIN_PX && ABS(dy) >= ABS(dx) * 1.5;
-            if (vertical && dy > 0 && press_y <= EDGE_TOP_PX) {
-                // Down from the top edge is the device's own gesture for its
-                // quick settings (light, dark mode, airplane mode). A full
-                // screen application has to pass it on. The release still
-                // goes to the terminal, which had the press.
-                show_system_menu();
-                return FALSE;
-            }
-            if (vertical && dy < 0 && (!conf->kb_on || ime_is_open())
-                && press_in_terminal_y >= gtk_widget_get_allocated_height(terminal) - EDGE_BOTTOM_PX) {
-                // No keyboard of ours to swipe up from: it is folded away,
-                // or the system keyboard (another program's window) is in
-                // its place. The swipe then starts at the foot of the
-                // terminal.
-                panel_open();
-                return FALSE;
-            }
-            const gboolean horizontal = ABS(dx) >= EDGE_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5;
-            if (vertical && !panel_is_open()) {
-                terminal_swipe_scroll(terminal, event, press_in_terminal_x, press_in_terminal_y, dy);
-            } else if (horizontal && read_mode && !panel_is_open()) {
-                terminal_swipe_switch(terminal, dx);
-            }
-            if (!vertical && !swiping && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX && !read_mode
-                && !panel_is_open() && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
-                // A tap on the terminal brings a hidden keyboard back, as
-                // tapping a text field does elsewhere on the device. Not
-                // while reading: there a tap belongs to the program (tmux
-                // switches to the window whose name is tapped).
-                conf->kb_on = TRUE;
-                gtk_widget_show(builtin_kb_box);
-            }
-        }
-    }
-#endif
-    if (event->button == BUTTON_MENU) {
-#ifdef KINDLE
-        // ignore button click to disable paste (quite messy on kindle)
-        if (event->type == GDK_BUTTON_PRESS) { return TRUE; }
-        guint button = 0;
-        // emit button 1 release on deactivate, otherwise vte enters selection mode
-        GdkEventButton *event_copy = (GdkEventButton *) gdk_event_copy((GdkEvent *) event);
-        g_signal_connect(menu, "deactivate", G_CALLBACK(menu_deactivate_cb), event_copy);
+    UNUSED(menu);
+    return touch_event(terminal, (GdkEvent *) event);
 #else
+    UNUSED(terminal);
+    if (event->button == BUTTON_MENU) {
         if (event->type == GDK_BUTTON_RELEASE) { return FALSE; }
-        guint button = event->button;
-#endif
-
-        gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, button, event->time);
+        gtk_menu_popup(GTK_MENU(menu), NULL, NULL, NULL, NULL, event->button, event->time);
         return TRUE;
     }
     return FALSE;
+#endif
 }
 
 /**
@@ -1414,7 +1528,13 @@ gint main(gint argc, gchar **argv) {
     shortpage_init();
 #endif
 
+    // on the Kindle a second finger is the right button, see touch_event()
+#ifdef KINDLE
+    GtkWidget *menu = NULL;
+    g_signal_connect(terminal, "scroll-event", G_CALLBACK(scroll_event), NULL);
+#else
     GtkWidget *menu = build_popup(terminal, vbox);
+#endif
     // signals
     g_signal_connect(window, "delete_event", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(terminal, "child-exited", G_CALLBACK(terminal_exit), NULL);
@@ -1438,7 +1558,9 @@ gint main(gint argc, gchar **argv) {
     gtk_main();
     
     clean_on_exit(keyboard);
-    gtk_widget_destroy(menu);
+    if (menu) {
+        gtk_widget_destroy(menu);
+    }
     D printf("the end\n");
     return 0;
 }

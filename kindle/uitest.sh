@@ -5,6 +5,8 @@
 #   uitest.sh start            start X and kterm (fresh home directory)
 #   uitest.sh tap X Y [X Y..]  touch one point after another
 #   uitest.sh kswipe X1 Y1 X2 Y2  swipe with the event sequence of the real Kindle
+#   uitest.sh klong X1 Y1 X2 Y2   long press at X1 Y1, then drag (selects text)
+#   uitest.sh ktwo X Y         two finger tap
 #   uitest.sh swipe X1 Y1 X2 Y2
 #   uitest.sh shot NAME        screenshot to build/shots/NAME.png
 #   uitest.sh sh 'command'     run a command in the container
@@ -55,10 +57,23 @@ tap)
 kswipe)
     # A swipe as the Kindle's touch driver reports it (recorded on the
     # device with "xinput test"): button 1 goes down, and once the finger
-    # has moved far enough button 3 is clicked while button 1 is still held.
+    # has moved far enough another button is clicked while button 1 is
+    # still held: 3 going up, 4 (a wheel turn to X) going down.
     mx=$(( ($2 + $4) / 2 )); my=$(( ($3 + $5) / 2 ))
+    mark=3; [ "$5" -gt "$3" ] && mark=4
     $X xdotool mousemove "$2" "$3" mousedown 1 sleep 0.05 mousemove "$mx" "$my" \
-        mousedown 3 mouseup 3 sleep 0.05 mousemove "$4" "$5" sleep 0.05 mouseup 1
+        click $mark sleep 0.05 mousemove "$4" "$5" sleep 0.05 mouseup 1
+    sleep 1.5 ;;
+klong)
+    # held still for half a second the driver clicks button 9, then the
+    # finger moves
+    mx=$(( ($2 + $4) / 2 )); my=$(( ($3 + $5) / 2 ))
+    $X xdotool mousemove "$2" "$3" mousedown 1 sleep 0.5 click 9 sleep 0.3 \
+        mousemove "$mx" "$my" sleep 0.1 mousemove "$4" "$5" sleep 0.2 mouseup 1
+    sleep 1.5 ;;
+ktwo)
+    # the second finger is button 2
+    $X xdotool mousemove "$2" "$3" mousedown 1 sleep 0.03 click 2 sleep 0.05 mouseup 1
     sleep 1.5 ;;
 swipe)
     $X xdotool mousemove "$2" "$3" mousedown 1 sleep 0.05 \

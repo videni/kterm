@@ -45,6 +45,9 @@ static gchar *file_path = NULL;
 static GPtrArray *items = NULL;
 /** First button of the page shown */
 static guint page_start = 0;
+/** Text copied from the terminal, waiting to be pasted: while there is
+ *  some, a paste button leads the row */
+static gchar *paste_text = NULL;
 /** Where the finger went down */
 static gdouble press_x = 0;
 static gdouble press_y = 0;
@@ -59,8 +62,9 @@ static guint keyboard_rows = 0;
  * @return Buttons on one page of the bar
  */
 static guint per_page(void) {
+    const guint places = SHORTBAR_PER_PAGE - (paste_text ? 1 : 0);
     // when there is more than one page, the last place says which page it is
-    return items->len > SHORTBAR_PER_PAGE ? SHORTBAR_PER_PAGE - 1 : SHORTBAR_PER_PAGE;
+    return items->len > places ? places - 1 : places;
 }
 
 /**
@@ -72,7 +76,7 @@ static void update_visibility(void) {
     }
     const gboolean keyboard = gtk_widget_get_visible(keyboard_box)
         || (other_keyboard && gtk_widget_get_visible(other_keyboard));
-    const gboolean something = items->len > 0 || gtk_widget_get_visible(problem_label);
+    const gboolean something = items->len > 0 || paste_text || gtk_widget_get_visible(problem_label);
     gtk_widget_set_visible(bar, keyboard && something);
 }
 
@@ -88,6 +92,12 @@ static void fill_row(void) {
     const guint count = per_page();
     if (page_start >= items->len) {
         page_start = items->len ? ((items->len - 1) / count) * count : 0;
+    }
+    if (paste_text) {
+        GtkWidget *paste = gtk_label_new("粘贴");
+        gtk_widget_set_name(paste, SHORTBAR_PASTE_NAME);
+        g_object_set_data(G_OBJECT(paste), "paste", GINT_TO_POINTER(1));
+        gtk_box_pack_start(GTK_BOX(row), paste, TRUE, TRUE, 0);
     }
     for (guint i = page_start; i < items->len && i < page_start + count; i++) {
         const Shortcut *item = g_ptr_array_index(items, i);
@@ -133,7 +143,29 @@ static void turn_page(gint step) {
 }
 
 /**
- * Type the keys of the button under the finger
+ * Show or take away the paste button, staying on the same page
+ * @param text Text to paste, NULL for none
+ */
+static void set_paste(const gchar *text) {
+    const guint page = page_start / per_page();
+    g_free(paste_text);
+    paste_text = g_strdup(text);
+    page_start = page * per_page();
+    fill_row();
+    update_visibility();
+}
+
+/**
+ * Offer text copied from the terminal: a paste button leads the bar until
+ * it is used
+ * @param text Text, copied
+ */
+void shortbar_offer_paste(const gchar *text) {
+    set_paste(text);
+}
+
+/**
+ * Type the keys of the button under the finger, or paste
  * @param x Position in the bar
  * @param y Position in the bar
  */
@@ -143,24 +175,34 @@ static void tap(gdouble x, gdouble y) {
     if (!terminal || panel_wants_keys()) {
         return;
     }
+    GtkWidget *hit = NULL;
     GList *buttons = gtk_container_get_children(GTK_CONTAINER(row));
-    for (GList *l = buttons; l; l = l->next) {
+    for (GList *l = buttons; l && !hit; l = l->next) {
         GtkWidget *button = l->data;
-        const guint index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "index"));
         gint bx = 0, by = 0;
-        if (!index || !gtk_widget_translate_coordinates(bar, button, (gint) x, (gint) y, &bx, &by)) {
-            continue;
-        }
-        if (bx >= 0 && by >= 0 && bx < gtk_widget_get_allocated_width(button)
+        if (gtk_widget_translate_coordinates(bar, button, (gint) x, (gint) y, &bx, &by)
+            && bx >= 0 && by >= 0 && bx < gtk_widget_get_allocated_width(button)
             && by < gtk_widget_get_allocated_height(button)) {
-            const Shortcut *item = g_ptr_array_index(items, index - 1);
-            gsize size = 0;
-            const gchar *keys = g_bytes_get_data(item->keys, &size);
-            vte_terminal_feed_child(VTE_TERMINAL(terminal), keys, (gssize) size);
-            break;
+            hit = button;
         }
     }
     g_list_free(buttons);
+    if (!hit) {
+        return;
+    }
+    const guint index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(hit), "index"));
+    if (g_object_get_data(G_OBJECT(hit), "paste")) {
+        // as if pasted from a menu: a program that asked for it (Claude
+        // Code, a shell) is told where the pasted text starts and ends
+        vte_terminal_paste_text(VTE_TERMINAL(terminal), paste_text);
+        // used once, the button goes
+        set_paste(NULL);
+    } else if (index) {
+        const Shortcut *item = g_ptr_array_index(items, index - 1);
+        gsize size = 0;
+        const gchar *keys = g_bytes_get_data(item->keys, &size);
+        vte_terminal_feed_child(VTE_TERMINAL(terminal), keys, (gssize) size);
+    }
 }
 
 /**

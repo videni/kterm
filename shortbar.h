@@ -27,10 +27,13 @@
 
 /** Widget name of the page number at the end of the row */
 #define SHORTBAR_PAGES_NAME "ktermShortPages"
+/** Widget name of the paste button, there while something was copied */
+#define SHORTBAR_PASTE_NAME "ktermShortPaste"
 
 GtkWidget * shortbar_new(const gchar *path);
 void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);
 GPtrArray * shortbar_items(void);
 gboolean shortbar_save(GError **error);
+void shortbar_offer_paste(const gchar *text);
 
 #endif /* shortbar_h */

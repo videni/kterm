@@ -1,4 +1,4 @@
-AC_INIT([kterm], [3.5.0])
+AC_INIT([kterm], [3.6.0])
 AM_INIT_AUTOMAKE([foreign])
 AC_PROG_CC
 m4_version_prereq([2.70], [], [AC_PROG_CC_C99])
