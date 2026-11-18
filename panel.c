@@ -51,7 +51,7 @@ static GtkWidget *terminal_widget = NULL;
 static GtkWidget *content = NULL;
 static GPtrArray *pages = NULL;
 static GtkWidget *current_page = NULL;
-/** What is below the terminal: the panel sits above all of these */
+/** What is below the terminal: a form of the panel sits above these */
 static GPtrArray *bottoms = NULL;
 static GtkWidget *home_page = NULL;
 /** Row of actions on the first page */
@@ -141,14 +141,18 @@ static gint height_of(GPtrArray *list) {
 }
 
 /**
- * Put the panel right above the keyboard (and the shortcut bar), which
- * stays in view and usable, over the bottom of the terminal.
+ * Put the panel at the bottom of the screen, drawn over the bottom of the
+ * keyboard, which stays in view above it; a tap on the keyboard puts the
+ * panel away. A form of the panel sits right above the keyboard instead,
+ * which types into it.
  */
 static void place(void) {
     if (!root) {
         return;
     }
-    gtk_widget_set_margin_bottom(root, height_of(bottoms));
+    const gboolean typing = current_page
+        && g_object_get_data(G_OBJECT(current_page), "typing") != NULL;
+    gtk_widget_set_margin_bottom(root, typing ? height_of(bottoms) : 0);
 }
 
 static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
