@@ -460,6 +460,16 @@ void kterm_use_builtin_keyboard(void) {}
 #endif
 
 /**
+ * Lay the keyboard out again, after its keys got new sizes
+ * @param keyboard_box Keyboard widget
+ * @return FALSE, once
+ */
+static gboolean keyboard_relayout(gpointer keyboard_box) {
+    gtk_widget_queue_resize(GTK_WIDGET(keyboard_box));
+    return G_SOURCE_REMOVE;
+}
+
+/**
  * Keyboard widget size allocation signal handler.
  * Updates keyboard size
  * @param keyboard_box Keyboard widget
@@ -467,7 +477,6 @@ void kterm_use_builtin_keyboard(void) {}
  * @param keyboard Keyboard structure
  */
 static void keyboard_update(GtkWidget *keyboard_box, GtkAllocation *alloc, Keyboard *keyboard) {
-    UNUSED(keyboard_box);
     GdkScreen *screen = gdk_screen_get_default();
     gint screen_height = gdk_screen_get_height(screen);
     static gint saved_width = -1;
@@ -481,6 +490,10 @@ static void keyboard_update(GtkWidget *keyboard_box, GtkAllocation *alloc, Keybo
         keyboard_set_size(keyboard);
         saved_width = alloc->width;
         saved_height = screen_height;
+        // GTK drops sizes asked for while it is laying the window out: after
+        // a rotation the keys kept their old widths, an empty band on the
+        // right. Lay them out again before the next frame is drawn.
+        g_idle_add_full(G_PRIORITY_HIGH_IDLE, keyboard_relayout, keyboard_box, NULL);
     }
 }
 
