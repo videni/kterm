@@ -367,6 +367,10 @@ static void parser_button_action(Key *key, const gchar *attribute_value, const K
         if (mod) {
             key->keyval[kb_type] = gdk_keyval_from_name(mod->gdk_name);
             key->modifier = mod->modifier;
+#if GTK_CHECK_VERSION(3,0,0)
+            // drawn differently while it is on, see the styles
+            gtk_style_context_add_class(gtk_widget_get_style_context(key->button), "modifier");
+#endif
         } else {
             key->keyval[kb_type] = 0;
             key->modifier = 0;

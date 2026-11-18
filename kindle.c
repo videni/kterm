@@ -297,6 +297,10 @@ void inject_styles(void) {
                                     "#ktermKbButton:selected { background: @gray; }"
                                     "#ktermKbButton:disabled { background: @gray; }"
                                     "#ktermKbButton:active { background: @gray; }"
+                                    // Shift, Ctrl, Alt, the symbol key: black while
+                                    // on, until the next key uses them
+                                    "#ktermKbButton.modifier:checked { background: #000000; color: #ffffff; }"
+                                    "#ktermKbButton.modifier:checked label { color: #ffffff; }"
                                     // shortcut bar: keys like the keyboard's,
                                     // set apart from it by a line
                                     "#ktermShortBar { background: #ffffff; border-bottom: 2px solid #000000; }"
