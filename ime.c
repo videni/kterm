@@ -274,9 +274,14 @@ static GDBusMessage * ime_filter(GDBusConnection *connection, GDBusMessage *mess
  * @param term Terminal widget that receives the text
  * @return True if the system keyboard can be used
  */
+static gboolean ime_fake(void);
+
 gboolean ime_init(GtkWidget *term) {
     terminal = term;
     trace = (g_getenv("KTERM_IME_TRACE") != NULL);
+    if (ime_fake()) {
+        return TRUE;
+    }
     GError *error = NULL;
     bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
     if (!bus) {
@@ -324,8 +329,17 @@ void ime_shutdown(void) {
 /**
  * @return True if ime_init() succeeded
  */
+/**
+ * @return True if KTERM_IME_FAKE is set: the system keyboard is only
+ *         pretended to open. For testing the layout around it on a machine
+ *         that has no such keyboard.
+ */
+static gboolean ime_fake(void) {
+    return g_getenv("KTERM_IME_FAKE") != NULL;
+}
+
 gboolean ime_available(void) {
-    return bus != NULL && service != NULL;
+    return ime_fake() || (bus != NULL && service != NULL);
 }
 
 /**
@@ -343,6 +357,10 @@ gboolean ime_open(void) {
     if (!ime_available() || opened) {
         return opened;
     }
+    if (ime_fake()) {
+        opened = TRUE;
+        return TRUE;
+    }
     gchar *request = g_strdup_printf("%s:%s:%d", service, KB_TYPE, KB_FLAGS);
     opened = lipc_set_string(KB_SERVICE, "open", request);
     g_free(request);
@@ -356,6 +374,10 @@ void ime_close(void) {
     if (!opened) {
         return;
     }
+    if (ime_fake()) {
+        opened = FALSE;
+        return;
+    }
     lipc_set_string(KB_SERVICE, "close", service);
     opened = FALSE;
 }
@@ -365,7 +387,7 @@ void ime_close(void) {
  */
 gint ime_keyboard_height(void) {
     gint height = 0;
-    if (lipc_get_int(KB_SERVICE, "height", &height) && height > 0) {
+    if (!ime_fake() && lipc_get_int(KB_SERVICE, "height", &height) && height > 0) {
         return height;
     }
     return KB_HEIGHT_FALLBACK;

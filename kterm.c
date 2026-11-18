@@ -376,6 +376,42 @@ void kterm_toggle_ime(void) {
 }
 
 /**
+ * Make the built-in keyboard the one on screen: leave the system keyboard
+ * and unfold ours. The panel's form is typed with it.
+ */
+void kterm_use_builtin_keyboard(void) {
+    if (ime_is_open()) {
+        kterm_toggle_ime();
+    }
+    if (builtin_kb_box && !conf->kb_on) {
+        conf->kb_on = TRUE;
+        gtk_widget_show(builtin_kb_box);
+    }
+}
+
+/**
+ * Touch handler of the bar above the system keyboard: a swipe up from it
+ * opens the panel, as a swipe up from the built-in keyboard does. The
+ * system keyboard itself is another program's window, swipes on it never
+ * reach us.
+ * @return FALSE, the bar's button still works as a button
+ */
+static gboolean ime_bar_event(GtkWidget *widget, GdkEventButton *event, gpointer data) {
+    UNUSED(widget);
+    UNUSED(data);
+    static gdouble press_y = 0;
+    if (event->button != 1) {
+        return FALSE;
+    }
+    if (event->type == GDK_BUTTON_PRESS) {
+        press_y = event->y_root;
+    } else if (event->type == GDK_BUTTON_RELEASE && press_y - event->y_root >= KB_SWIPE_MIN_PX) {
+        panel_open();
+    }
+    return FALSE;
+}
+
+/**
  * Build the panel that replaces the built-in keyboard while the system
  * keyboard is open: one button to come back, and room for that keyboard.
  * @return Panel widget, hidden
@@ -391,6 +427,8 @@ static GtkWidget * build_ime_panel(void) {
     // focus must stay on the terminal, that is where the keys go
     gtk_widget_set_can_focus(back, FALSE);
     g_signal_connect_swapped(back, "clicked", G_CALLBACK(kterm_toggle_ime), NULL);
+    g_signal_connect(back, "button-press-event", G_CALLBACK(ime_bar_event), NULL);
+    g_signal_connect(back, "button-release-event", G_CALLBACK(ime_bar_event), NULL);
     ime_spacer = gtk_label_new(NULL);
     gtk_box_pack_start(GTK_BOX(panel), back, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(panel), ime_spacer, FALSE, FALSE, 0);
@@ -403,6 +441,7 @@ static GtkWidget * build_ime_panel(void) {
 #else
 void kterm_toggle_ime(void) {}
 void kterm_hide_keyboard(void) {}
+void kterm_use_builtin_keyboard(void) {}
 #endif
 
 /**
@@ -563,9 +602,35 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
  * @param box Kterm container
  * @return Row widget
  */
+/**
+ * @return TRUE while the system keyboard is the one on screen
+ */
+static gboolean system_keyboard_open(void) {
+#ifdef KINDLE
+    return ime_is_open();
+#else
+    return FALSE;
+#endif
+}
+
 static void panel_kb_label_cb(GtkWidget *panel, gpointer kb_button) {
     UNUSED(panel);
-    gtk_button_set_label(GTK_BUTTON(kb_button), conf->kb_on ? "隐藏键盘" : "显示键盘");
+    gtk_button_set_label(GTK_BUTTON(kb_button), system_keyboard_open() ? "终端键盘"
+                                                : conf->kb_on ? "隐藏键盘" : "显示键盘");
+}
+
+static void toggle_keyboard(GtkWidget *widget, gpointer box);
+
+/**
+ * The panel's keyboard button: folds or unfolds the built-in keyboard, or
+ * comes back to it from the system keyboard.
+ */
+static void panel_kb_clicked_cb(GtkWidget *button, gpointer box) {
+    if (system_keyboard_open()) {
+        kterm_use_builtin_keyboard();
+    } else {
+        toggle_keyboard(button, box);
+    }
 }
 
 /** The panel's keyboard button, its label follows the keyboard's state */
@@ -582,7 +647,7 @@ static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
     g_signal_connect(fontdown_button, "clicked", G_CALLBACK(fontdown), (gpointer) terminal);
     g_signal_connect(fontup_button, "clicked", G_CALLBACK(fontup), (gpointer) terminal);
     // the panel goes with the keyboard: it is opened by swiping up from it
-    g_signal_connect(kb_button, "clicked", G_CALLBACK(toggle_keyboard), box);
+    g_signal_connect(kb_button, "clicked", G_CALLBACK(panel_kb_clicked_cb), box);
     g_signal_connect_swapped(kb_button, "clicked", G_CALLBACK(panel_close), NULL);
     g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
     gtk_box_pack_start(GTK_BOX(row), fontdown_button, TRUE, TRUE, 0);
@@ -607,7 +672,6 @@ static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
  * @return True to stop processing event, false otherwise
  */
 static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointer menu) {
-    UNUSED(terminal);
     D printf("event-type: %i\n", event->type);
     D printf("event-button: %i\n", event->button);
     D {
@@ -627,16 +691,16 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
         swiping = TRUE;
     }
     if (event->button == 1) {
-        static gdouble press_x = 0, press_y = 0;
+        static gdouble press_x = 0, press_y = 0, press_in_terminal_y = 0;
         if (event->type == GDK_BUTTON_PRESS) {
             swiping = FALSE;
             press_x = event->x_root;
             press_y = event->y_root;
+            press_in_terminal_y = event->y;
         } else if (event->type == GDK_BUTTON_RELEASE) {
             const gdouble dx = event->x_root - press_x;
             const gdouble dy = event->y_root - press_y;
             const gboolean vertical = ABS(dy) >= EDGE_SWIPE_MIN_PX && ABS(dy) >= ABS(dx) * 1.5;
-            const gint screen_height = gdk_screen_get_height(gdk_screen_get_default());
             if (vertical && dy > 0 && press_y <= EDGE_TOP_PX) {
                 // Down from the top edge is the device's own gesture for its
                 // quick settings (light, dark mode, airplane mode). A full
@@ -644,9 +708,12 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
                 show_system_menu();
                 return TRUE;
             }
-            if (vertical && dy < 0 && press_y >= screen_height - EDGE_BOTTOM_PX
-                && !conf->kb_on && !ime_is_open()) {
-                // with the keyboard hidden its swipe starts on the terminal
+            if (vertical && dy < 0 && (!conf->kb_on || ime_is_open())
+                && press_in_terminal_y >= gtk_widget_get_allocated_height(terminal) - EDGE_BOTTOM_PX) {
+                // No keyboard of ours to swipe up from: it is folded away,
+                // or the system keyboard (another program's window) is in
+                // its place. The swipe then starts at the foot of the
+                // terminal.
                 panel_open();
                 return TRUE;
             }

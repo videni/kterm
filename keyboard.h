@@ -115,6 +115,7 @@ void keyboard_key_free(Key *key);
 /** Switch between the built-in keyboard and the system one; provided by kterm.c */
 void kterm_toggle_ime(void);
 void kterm_hide_keyboard(void);
+void kterm_use_builtin_keyboard(void);
 /** The terminal widget; provided by kterm.c */
 GtkWidget * kterm_get_terminal(void);
 gboolean kterm_terminal_busy(void);

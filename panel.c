@@ -235,6 +235,8 @@ static void connect_cb(GtkWidget *button, gpointer data) {
  * @param host Connection to edit, NULL for a new one
  */
 static void show_form(const SshHost *host) {
+    // typed with the built-in keyboard, wherever it is at the moment
+    kterm_use_builtin_keyboard();
     g_free(editing_name);
     editing_name = host ? g_strdup(host->name) : NULL;
     delete_armed = FALSE;
