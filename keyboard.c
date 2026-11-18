@@ -239,14 +239,16 @@ void keyboard_set_size(Keyboard *keyboard) {
     if (window_width < screen_height) {
         is_portrait = TRUE;
     }
-    // count units per row
+    // count units per row, in thousandths of a key: in landscape a row may
+    // be 11.6 keys wide (two halves and the gap between them), and keys
+    // sized for 12 would leave an empty band on the right
     guint units_row_max = 0;
     Key **p = keyboard->keys;
     for (guint i = 0; i < keyboard->row_count; i++) {
         guint units = 0;
         for (guint j = 0; j < keyboard->key_per_row[i]; j++) {
             Key *key = *p++;
-            if (key->extended && is_portrait) {
+            if ((key->extended && is_portrait) || (key->portrait && !is_portrait)) {
                 continue;
             }
             if (key->width) {
@@ -255,12 +257,10 @@ void keyboard_set_size(Keyboard *keyboard) {
                 units += KEY_UNIT;
             }
         }
-        // round up units per row
-        units = (units + (KEY_UNIT - 1)) / KEY_UNIT;
         units_row_max = MAX(units_row_max, units);
     }
     guint unit_hmin = keyboard->unit_height;
-    guint unit_wmax = (units_row_max) ? ((guint) window_width / units_row_max) : 0;
+    guint unit_wmax = (units_row_max) ? ((guint) window_width * KEY_UNIT / units_row_max) : 0;
     guint unit_wmin = keyboard->unit_width;
     // add padding and border
     GtkWidget *first = keyboard->keys[0]->button;
@@ -299,12 +299,12 @@ void keyboard_set_size(Keyboard *keyboard) {
             width *= key->width;
             width /= KEY_UNIT;
         }
-        if (key->extended && is_portrait) {
+        if ((key->extended && is_portrait) || (key->portrait && !is_portrait)) {
             if (gtk_widget_get_visible(key->button)) {
                 gtk_widget_hide(key->button);
             }
             continue;
-        } else if (key->extended) {
+        } else if (key->extended || key->portrait) {
             if (!gtk_widget_get_visible(key->button)) {
                 gtk_widget_show(key->button);
             }

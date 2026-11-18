@@ -91,6 +91,7 @@ typedef struct Key {
     gboolean obey_caps; /** Button should react to caps lock */
     gboolean fill; /** Button may expand to fill free space */
     gboolean extended; /** Button only present in landscape view */
+    gboolean portrait; /** Button only present in portrait view */
     struct Keyboard *keyboard; /** Pointer to keyboard structure */
     guint unpress_source; /** Timer drawing the key released again, 0 if none */
 } Key;

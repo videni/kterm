@@ -214,6 +214,9 @@ static gboolean parser_button_start(State *state, const gchar **attribute_names,
         else if (!g_ascii_strcasecmp(attribute_names[j], "extended") && !g_ascii_strcasecmp(attribute_values[j], "true")) {
             key->extended = TRUE;
         }
+        else if (!g_ascii_strcasecmp(attribute_names[j], "portrait") && !g_ascii_strcasecmp(attribute_values[j], "true")) {
+            key->portrait = TRUE;
+        }
         else if (!g_ascii_strcasecmp(attribute_names[j], "width")) {
             key->width = (guint) atoi(attribute_values[j]);
         }
@@ -269,6 +272,9 @@ static gboolean parser_button_space(State *state, const gchar **attribute_names,
         }
         else if (!g_ascii_strcasecmp(attribute_names[j], "extended") && !g_ascii_strcasecmp(attribute_values[j], "true")) {
             key->extended = TRUE;
+        }
+        else if (!g_ascii_strcasecmp(attribute_names[j], "portrait") && !g_ascii_strcasecmp(attribute_values[j], "true")) {
+            key->portrait = TRUE;
         }
         else if (!g_ascii_strcasecmp(attribute_names[j], "width")) {
             key->width = (guint) atoi(attribute_values[j]);

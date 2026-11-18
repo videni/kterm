@@ -2,7 +2,11 @@
 <!-- Compact terminal layout for Kindle: rows 10 key widths wide, text labels only.
      The symbol key is one-shot: it switches the next key to its mod1 variant.
      Row heights are thousandths of an ordinary row: the three rows of letters,
-     tapped most, are taller; the special keys and the numbers, shorter. -->
+     tapped most, are taller; the special keys and the numbers, shorter.
+     In landscape the keyboard is split in two halves, one for each hand:
+     extended="true" marks what is there only in landscape (the gap in the
+     middle, a space bar on each side), portrait="true" what is there only in
+     portrait. -->
 <keyboard>
   <layout id="kindle compact">
     <row height="875">
@@ -25,6 +29,7 @@
         <shifted display="?" />
         <mod1 display="\" />
       </key>
+      <space width="1600" extended="true" />
       <key>
         <default display="|" />
         <shifted display="\" />
@@ -73,6 +78,7 @@
         <shifted display="%" />
         <mod1 display="F5" action="f5" />
       </key>
+      <space width="1600" extended="true" />
       <key>
         <default display="6" />
         <shifted display="^" />
@@ -125,6 +131,7 @@
         <shifted display="T" />
         <mod1 display="[" />
       </key>
+      <space width="1600" extended="true" />
       <key obey-caps="true">
         <default display="y" />
         <shifted display="Y" />
@@ -178,6 +185,7 @@
         <shifted display="G" />
         <mod1 display="^" />
       </key>
+      <space width="1600" extended="true" />
       <key obey-caps="true">
         <default display="h" />
         <shifted display="H" />
@@ -224,6 +232,7 @@
         <shifted display="V" />
         <mod1 display="!" />
       </key>
+      <space width="1600" extended="true" />
       <key obey-caps="true">
         <default display="b" />
         <shifted display="B" />
@@ -254,13 +263,25 @@
       <key>
         <default display="中" action="ime" />
       </key>
-      <key>
+      <key portrait="true">
         <default display="," />
         <shifted display="&lt;" />
         <mod1 display=";" />
       </key>
-      <key width="3000">
+      <key width="3000" portrait="true">
         <default display=" " action="space" />
+      </key>
+      <key width="2000" extended="true">
+        <default display=" " action="space" />
+      </key>
+      <space width="1600" extended="true" />
+      <key extended="true">
+        <default display=" " action="space" />
+      </key>
+      <key extended="true">
+        <default display="," />
+        <shifted display="&lt;" />
+        <mod1 display=";" />
       </key>
       <key>
         <default display="." />
