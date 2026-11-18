@@ -66,6 +66,7 @@ KTconf *parse_config(void) {
     snprintf(conf->font_family, sizeof(conf->font_family), "%s", VTE_FONT_FAMILY);
     snprintf(conf->encoding, sizeof(conf->encoding), "%s", VTE_ENCODING);
     snprintf(conf->kb_conf_path, sizeof(conf->kb_conf_path), "%s", KB_FULL_PATH);
+    snprintf(conf->tmux_prefix, sizeof(conf->tmux_prefix), "%s", "C-b");
     conf->orientation = 0;
     
     FILE *fp;
@@ -92,6 +93,13 @@ KTconf *parse_config(void) {
                 conf->color_reversed = color_reversed;
                 D printf("color_scheme = %i\n", conf->color_reversed);
             }
+        }
+        else if (!strncmp(buf, "tmux_prefix", 11)) {
+            gchar str[256] = "";
+            if (sscanf(buf, "tmux_prefix = \"%[^\"\n\r]\"", str) == 1 && *str) {
+                snprintf(conf->tmux_prefix, sizeof(conf->tmux_prefix), "%s", str);
+            }
+            D printf("tmux_prefix = %s\n", conf->tmux_prefix);
         }
         else if (!strncmp(buf, "font_family", 11)) {
             gchar str[256];

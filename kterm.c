@@ -333,6 +333,9 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
 #define EDGE_SWIPE_MIN_PX 96
 /** Built-in keyboard container */
 static GtkWidget *builtin_kb_box = NULL;
+/** Reading: the keyboard stays folded away, a tap on the terminal does not
+ *  bring it back. Left from the panel, or by anything that shows a keyboard. */
+static gboolean read_mode = FALSE;
 
 /**
  * Fold the built-in keyboard away. Nothing brings it back by itself:
@@ -380,6 +383,7 @@ void kterm_toggle_ime(void) {
  * and unfold ours. The panel's form is typed with it.
  */
 void kterm_use_builtin_keyboard(void) {
+    read_mode = FALSE;
     if (ime_is_open()) {
         kterm_toggle_ime();
     }
@@ -518,6 +522,9 @@ static void toggle_keyboard(GtkWidget *widget, gpointer box) {
         } else {
             gtk_widget_show(keyboard_box);
             conf->kb_on = TRUE;
+#ifdef KINDLE
+            read_mode = FALSE;
+#endif
         }
     }
 }
@@ -621,6 +628,32 @@ static void panel_kb_label_cb(GtkWidget *panel, gpointer kb_button) {
 
 static void toggle_keyboard(GtkWidget *widget, gpointer box);
 
+#ifdef KINDLE
+static void panel_read_label_cb(GtkWidget *panel, gpointer read_button) {
+    UNUSED(panel);
+    gtk_button_set_label(GTK_BUTTON(read_button), read_mode ? "退出阅读" : "阅读");
+}
+
+/**
+ * The panel's reading button. Reading mode folds every keyboard away and
+ * keeps it away: touches on the terminal only scroll, switch tmux windows
+ * or are passed to the program. Pressed again, the keyboard is back.
+ */
+static void panel_read_clicked_cb(GtkWidget *button, gpointer data) {
+    UNUSED(button);
+    UNUSED(data);
+    if (read_mode) {
+        kterm_use_builtin_keyboard();
+        return;
+    }
+    if (ime_is_open()) {
+        kterm_toggle_ime();
+    }
+    kterm_hide_keyboard();
+    read_mode = TRUE;
+}
+#endif
+
 /**
  * The panel's keyboard button: folds or unfolds the built-in keyboard, or
  * comes back to it from the system keyboard.
@@ -635,9 +668,14 @@ static void panel_kb_clicked_cb(GtkWidget *button, gpointer box) {
 
 /** The panel's keyboard button, its label follows the keyboard's state */
 static GtkWidget *panel_kb_button = NULL;
+#ifdef KINDLE
+/** The panel's reading button */
+static GtkWidget *panel_read_button = NULL;
+#endif
 
 static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_name(row, "ktermPanelActions");
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     GtkWidget *fontdown_button = panel_button_new("字号 −");
     GtkWidget *fontup_button = panel_button_new("字号 +");
@@ -654,6 +692,11 @@ static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
     gtk_box_pack_start(GTK_BOX(row), fontup_button, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(row), kb_button, TRUE, TRUE, 0);
 #ifdef KINDLE
+    GtkWidget *read_button = panel_button_new("阅读");
+    panel_read_button = read_button;
+    g_signal_connect(read_button, "clicked", G_CALLBACK(panel_read_clicked_cb), NULL);
+    g_signal_connect_swapped(read_button, "clicked", G_CALLBACK(panel_close), NULL);
+    gtk_box_pack_start(GTK_BOX(row), read_button, TRUE, TRUE, 0);
     GtkWidget *rotate_button = panel_button_new("旋转");
     g_signal_connect_swapped(rotate_button, "clicked", G_CALLBACK(panel_close), NULL);
     g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), box);
@@ -671,6 +714,137 @@ static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
  * @param box Kterm container
  * @return True to stop processing event, false otherwise
  */
+#ifdef KINDLE
+/** Most wheel steps sent for one swipe */
+#define SWIPE_WHEEL_MAX 60
+/** Set while terminal_wheel() moves VTE's idea of the pointer: that one
+ *  motion event has to get through to VTE */
+static gboolean pointer_placing = FALSE;
+
+/**
+ * Send mouse wheel steps to the terminal, as a mouse over it would.
+ * VTE passes them on to a program that asked for the mouse (tmux, less,
+ * vim), and scrolls its own history otherwise.
+ * @param terminal Terminal widget
+ * @param source Touch event that caused it (window, device, time)
+ * @param direction GDK_SCROLL_UP or GDK_SCROLL_DOWN
+ * @param x,y Position in the terminal, pixels
+ * @param steps How many
+ */
+static void terminal_wheel(GtkWidget *terminal, const GdkEventButton *source, GdkScrollDirection direction,
+                           gdouble x, gdouble y, guint steps) {
+    // VTE reports the wheel at the place it last saw the pointer, not at
+    // the place the wheel event names: show it the pointer there first.
+    GdkEvent *move = gdk_event_new(GDK_MOTION_NOTIFY);
+    move->motion.window = g_object_ref(source->window);
+    move->motion.send_event = TRUE;
+    move->motion.time = source->time;
+    move->motion.x = x;
+    move->motion.y = y;
+    move->motion.x_root = source->x_root - source->x + x;
+    move->motion.y_root = source->y_root - source->y + y;
+    move->motion.state = 0;
+    gdk_event_set_device(move, gdk_event_get_device((const GdkEvent *) source));
+    pointer_placing = TRUE;
+    gtk_widget_event(terminal, move);
+    pointer_placing = FALSE;
+    gdk_event_free(move);
+    for (guint i = 0; i < steps && i < SWIPE_WHEEL_MAX; i++) {
+        GdkEvent *wheel = gdk_event_new(GDK_SCROLL);
+        wheel->scroll.window = g_object_ref(source->window);
+        wheel->scroll.send_event = TRUE;
+        wheel->scroll.time = source->time;
+        wheel->scroll.x = x;
+        wheel->scroll.y = y;
+        wheel->scroll.x_root = source->x_root - source->x + x;
+        wheel->scroll.y_root = source->y_root - source->y + y;
+        wheel->scroll.state = 0;
+        wheel->scroll.direction = direction;
+        gdk_event_set_device(wheel, gdk_event_get_device((const GdkEvent *) source));
+        gtk_widget_event(terminal, wheel);
+        gdk_event_free(wheel);
+    }
+}
+
+/**
+ * @return TRUE if the terminal keeps lines scrolled off its top: then a
+ *         shell is in it, not a full screen program such as tmux (those
+ *         use the alternate screen, which has no history).
+ */
+static gboolean terminal_has_history(GtkWidget *terminal) {
+    GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal));
+    return gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment)
+           > gtk_adjustment_get_lower(adjustment);
+}
+
+/**
+ * A finger moved up or down the terminal: move the text with it.
+ * @param terminal Terminal widget
+ * @param source Release event of the touch
+ * @param x,y Where the touch started, in the terminal
+ * @param dy Distance moved, pixels; negative is up
+ */
+static void terminal_swipe_scroll(GtkWidget *terminal, const GdkEventButton *source, gdouble x, gdouble y, gdouble dy) {
+    const glong cell = vte_terminal_get_char_height(VTE_TERMINAL(terminal));
+    const gint lines = cell > 0 ? (gint) (ABS(dy) / cell + 0.5) : 0;
+    if (lines < 1) {
+        return;
+    }
+    GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal));
+    const gdouble lower = gtk_adjustment_get_lower(adjustment);
+    const gdouble top_max = gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment);
+    if (terminal_has_history(terminal)) {
+        // the terminal's own history: exactly as far as the finger went
+        const gdouble value = gtk_adjustment_get_value(adjustment) + (dy < 0 ? lines : -lines);
+        gtk_adjustment_set_value(adjustment, CLAMP(value, lower, top_max));
+        return;
+    }
+    // No history here: a full screen program (tmux, less) keeps its own.
+    // Finger up shows what is below, which is the wheel turning down.
+    terminal_wheel(terminal, source, dy < 0 ? GDK_SCROLL_DOWN : GDK_SCROLL_UP, x, y, (guint) lines);
+}
+
+/**
+ * Type a tmux command key: the prefix from the configuration (tmux_prefix,
+ * "C-b" unless set), then the key.
+ * @param terminal Terminal widget
+ * @param key Key after the prefix, e.g. "n"
+ * @return FALSE if the configured prefix is not understood
+ */
+static gboolean tmux_send(GtkWidget *terminal, const gchar *key) {
+    const gchar *prefix = conf->tmux_prefix;
+    gchar code;
+    if (g_ascii_strncasecmp(prefix, "C-", 2) != 0) {
+        return FALSE;
+    }
+    if (!g_ascii_strcasecmp(prefix + 2, "Space")) {
+        code = '\0';
+    } else if (prefix[2] && !prefix[3] && g_ascii_isalpha(prefix[2])) {
+        code = (gchar) (g_ascii_toupper(prefix[2]) & 0x1f);
+    } else {
+        return FALSE;
+    }
+    D printf("tmux: prefix %s + %s\n", prefix, key);
+    vte_terminal_feed_child(VTE_TERMINAL(terminal), &code, 1);
+    vte_terminal_feed_child(VTE_TERMINAL(terminal), key, -1);
+    return TRUE;
+}
+
+/**
+ * A finger moved left or right in reading mode: next or previous tmux
+ * window. Nothing is typed into a plain shell.
+ * @param terminal Terminal widget
+ * @param dx Distance moved, pixels; negative is left
+ */
+static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
+    if (terminal_has_history(terminal)) {
+        return;
+    }
+    // towards the left brings the next one in, like turning a page
+    tmux_send(terminal, dx < 0 ? "n" : "p");
+}
+#endif
+
 static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointer menu) {
     D printf("event-type: %i\n", event->type);
     D printf("event-button: %i\n", event->button);
@@ -681,21 +855,27 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
     }
 #ifdef KINDLE
     // ignore any motion events (i think we don't need selecting text as one finger motion scrolls buffer)
-    if (event->type == GDK_MOTION_NOTIFY) { return TRUE; }
+    if (event->type == GDK_MOTION_NOTIFY) { return !pointer_placing; }
 #endif
 #ifdef KINDLE
     // The touch driver clicks button 3 during a swipe, while button 1 is
     // still down: that touch is scrolling, whatever distance it ends at.
     static gboolean swiping = FALSE;
-    if (event->button == 3 && event->type == GDK_BUTTON_PRESS) {
-        swiping = TRUE;
+    if (event->button == 3) {
+        if (event->type == GDK_BUTTON_PRESS) {
+            swiping = TRUE;
+        }
+        // It is a mark, not a click: passed on, tmux and others would
+        // open their context menu at every swipe.
+        return TRUE;
     }
     if (event->button == 1) {
-        static gdouble press_x = 0, press_y = 0, press_in_terminal_y = 0;
+        static gdouble press_x = 0, press_y = 0, press_in_terminal_x = 0, press_in_terminal_y = 0;
         if (event->type == GDK_BUTTON_PRESS) {
             swiping = FALSE;
             press_x = event->x_root;
             press_y = event->y_root;
+            press_in_terminal_x = event->x;
             press_in_terminal_y = event->y;
         } else if (event->type == GDK_BUTTON_RELEASE) {
             const gdouble dx = event->x_root - press_x;
@@ -717,10 +897,18 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
                 panel_open();
                 return TRUE;
             }
-            if (!vertical && !swiping && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
+            const gboolean horizontal = ABS(dx) >= EDGE_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5;
+            if (vertical && !panel_is_open()) {
+                terminal_swipe_scroll(terminal, event, press_in_terminal_x, press_in_terminal_y, dy);
+            } else if (horizontal && read_mode && !panel_is_open()) {
+                terminal_swipe_switch(terminal, dx);
+            }
+            if (!vertical && !swiping && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX && !read_mode
                 && !panel_is_open() && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
                 // A tap on the terminal brings a hidden keyboard back, as
-                // tapping a text field does elsewhere on the device.
+                // tapping a text field does elsewhere on the device. Not
+                // while reading: there a tap belongs to the program (tmux
+                // switches to the window whose name is tapped).
                 conf->kb_on = TRUE;
                 gtk_widget_show(builtin_kb_box);
             }
@@ -1058,6 +1246,9 @@ gint main(gint argc, gchar **argv) {
     gtk_container_add(GTK_CONTAINER(overlay), terminal);
     GtkWidget *panel = panel_new(terminal, build_panel_actions(terminal, vbox));
     g_signal_connect(panel, "show", G_CALLBACK(panel_kb_label_cb), panel_kb_button);
+#ifdef KINDLE
+    g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
+#endif
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
     gtk_box_pack_start(GTK_BOX(vbox), overlay, TRUE, TRUE, 0);
 #else

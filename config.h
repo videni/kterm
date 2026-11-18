@@ -111,6 +111,7 @@ typedef struct {
     gchar cursor_shape;  /** Terminal cursor shape: 'B', 'I' or 'U' */
     gchar encoding[50]; /** Terminal encoding */
     gchar kb_conf_path[PATH_MAX];  /** Keyboard config path */
+    gchar tmux_prefix[16]; /** tmux prefix key: "C-b", "C-a", "C-Space" */
     gchar orientation;  /** Screen orientation: 'U', 'R' or 'L' */
     gchar orientation_saved;  /** Initial screen orientation: 'U', 'R' or 'L' */
 } KTconf;
