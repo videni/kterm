@@ -735,17 +735,20 @@ static gboolean forwarding = FALSE;
  * @param state Buttons held: with one, a program that asked for the mouse
  *  is told about the move (a drag)
  */
-static void terminal_pointer(GtkWidget *terminal, const GdkEventButton *source, gdouble x, gdouble y, guint state) {
+static void terminal_pointer(GtkWidget *terminal, const GdkEvent *source, gdouble x, gdouble y, guint state) {
+    gdouble sx = 0, sy = 0, rx = 0, ry = 0;
+    gdk_event_get_coords(source, &sx, &sy);
+    gdk_event_get_root_coords(source, &rx, &ry);
     GdkEvent *move = gdk_event_new(GDK_MOTION_NOTIFY);
-    move->motion.window = g_object_ref(source->window);
+    move->motion.window = g_object_ref(gdk_event_get_window(source));
     move->motion.send_event = TRUE;
-    move->motion.time = source->time;
+    move->motion.time = gdk_event_get_time(source);
     move->motion.x = x;
     move->motion.y = y;
-    move->motion.x_root = source->x_root - source->x + x;
-    move->motion.y_root = source->y_root - source->y + y;
+    move->motion.x_root = rx - sx + x;
+    move->motion.y_root = ry - sy + y;
     move->motion.state = state;
-    gdk_event_set_device(move, gdk_event_get_device((const GdkEvent *) source));
+    gdk_event_set_device(move, gdk_event_get_device(source));
     forwarding = TRUE;
     gtk_widget_event(terminal, move);
     forwarding = FALSE;
@@ -766,7 +769,7 @@ static void terminal_wheel(GtkWidget *terminal, const GdkEventButton *source, Gd
                            gdouble x, gdouble y, guint steps) {
     // VTE reports the wheel at the place it last saw the pointer, not at
     // the place the wheel event names: show it the pointer there first.
-    terminal_pointer(terminal, source, x, y, 0);
+    terminal_pointer(terminal, (const GdkEvent *) source, x, y, 0);
     for (guint i = 0; i < steps && i < SWIPE_WHEEL_MAX; i++) {
         GdkEvent *wheel = gdk_event_new(GDK_SCROLL);
         wheel->scroll.window = g_object_ref(source->window);
@@ -926,35 +929,120 @@ static gdouble right_x = 0, right_y = 0;
  * @param x,y Position in the terminal, pixels
  * @param state Modifiers and buttons held
  */
-static void terminal_button(GtkWidget *terminal, const GdkEventButton *source, GdkEventType type, guint button,
+static void terminal_button(GtkWidget *terminal, const GdkEvent *source, GdkEventType type, guint button,
                             gdouble x, gdouble y, guint state) {
+    gdouble sx = 0, sy = 0, rx = 0, ry = 0;
+    gdk_event_get_coords(source, &sx, &sy);
+    gdk_event_get_root_coords(source, &rx, &ry);
     GdkEvent *event = gdk_event_new(type);
-    event->button.window = g_object_ref(source->window);
+    event->button.window = g_object_ref(gdk_event_get_window(source));
     event->button.send_event = TRUE;
-    event->button.time = source->time;
+    event->button.time = gdk_event_get_time(source);
     event->button.x = x;
     event->button.y = y;
-    event->button.x_root = source->x_root - source->x + x;
-    event->button.y_root = source->y_root - source->y + y;
+    event->button.x_root = rx - sx + x;
+    event->button.y_root = ry - sy + y;
     event->button.state = state;
     event->button.button = button;
-    gdk_event_set_device(event, gdk_event_get_device((const GdkEvent *) source));
+    gdk_event_set_device(event, gdk_event_get_device(source));
     forwarding = TRUE;
     gtk_widget_event(terminal, event);
     forwarding = FALSE;
     gdk_event_free(event);
 }
 
+/** The character the selection started on, and the side of it the
+ *  selection is anchored to: its start while dragging forward, its end
+ *  while dragging back, so that it is always in the selection */
+static glong select_col = 0, select_row = 0;
+static gboolean select_forward = TRUE;
+
 /**
- * A long press: start selecting text where the finger is. Shift makes VTE
- * select even when the program in the terminal asked for the mouse (tmux);
- * with no selection there it starts a new one rather than extending it.
+ * @param terminal Terminal widget
+ * @param x,y Position in the terminal, pixels
+ * @param col,row Set to the character cell there
+ */
+static void cell_at(GtkWidget *terminal, gdouble x, gdouble y, glong *col, glong *row) {
+    GtkBorder padding;
+    gtk_style_context_get_padding(gtk_widget_get_style_context(terminal), gtk_widget_get_state_flags(terminal),
+                                  &padding);
+    const glong width = MAX(1, vte_terminal_get_char_width(VTE_TERMINAL(terminal)));
+    const glong height = MAX(1, vte_terminal_get_char_height(VTE_TERMINAL(terminal)));
+    *col = MAX(0, (glong) (x - padding.left) / width);
+    *row = MAX(0, (glong) (y - padding.top) / height);
+}
+
+/**
+ * Point VTE at a character, on one side of its middle. VTE takes a
+ * character into a selection only if the pointer is past its middle: a
+ * finger on the left half of the first character, or the right half of
+ * the last, would leave it out.
+ * @param terminal Terminal widget
+ * @param col,row Character cell
+ * @param after TRUE for its right half, FALSE for its left half
+ * @param x,y Set to the position, in the terminal
+ */
+static void cell_point(GtkWidget *terminal, glong col, glong row, gboolean after, gdouble *x, gdouble *y) {
+    GtkBorder padding;
+    gtk_style_context_get_padding(gtk_widget_get_style_context(terminal), gtk_widget_get_state_flags(terminal),
+                                  &padding);
+    const glong width = MAX(1, vte_terminal_get_char_width(VTE_TERMINAL(terminal)));
+    const glong height = MAX(1, vte_terminal_get_char_height(VTE_TERMINAL(terminal)));
+    *x = padding.left + (col + (after ? 0.75 : 0.25)) * width;
+    *y = padding.top + (row + 0.5) * height;
+}
+
+/**
+ * Start VTE's selection at the first character, on the side the finger
+ * goes away from. Shift makes VTE select even when the program in the
+ * terminal asked for the mouse (tmux); with no selection there it starts a
+ * new one rather than extending it.
+ * @param terminal Terminal widget
+ * @param source Touch event it stands for
+ */
+static void selection_anchor(GtkWidget *terminal, const GdkEvent *source) {
+    gdouble x = 0, y = 0;
+    vte_terminal_unselect_all(VTE_TERMINAL(terminal));
+    cell_point(terminal, select_col, select_row, !select_forward, &x, &y);
+    terminal_button(terminal, source, GDK_BUTTON_PRESS, 1, x, y, touch.state | GDK_SHIFT_MASK);
+}
+
+/**
+ * The finger is at a place of the terminal while selecting: the selection
+ * reaches the character there, whichever way it went
+ * @param terminal Terminal widget
+ * @param source Motion or release event
+ * @param x,y Position of the finger, in the terminal
+ */
+static void selection_follow(GtkWidget *terminal, const GdkEvent *source, gdouble x, gdouble y) {
+    glong col = 0, row = 0;
+    cell_at(terminal, x, y, &col, &row);
+    const gboolean forward = row > select_row || (row == select_row && col >= select_col);
+    if (forward != select_forward) {
+        // turned back past the first character: anchored on its other side
+        gdouble ax = 0, ay = 0;
+        cell_point(terminal, select_col, select_row, !select_forward, &ax, &ay);
+        terminal_button(terminal, source, GDK_BUTTON_RELEASE, 1, ax, ay,
+                        touch.state | GDK_SHIFT_MASK | GDK_BUTTON1_MASK);
+        select_forward = forward;
+        selection_anchor(terminal, source);
+    }
+    gdouble px = 0, py = 0;
+    cell_point(terminal, col, row, forward, &px, &py);
+    terminal_pointer(terminal, source, px, py, touch.state | GDK_SHIFT_MASK | GDK_BUTTON1_MASK);
+}
+
+/**
+ * A long press: start selecting text at the character under the finger,
+ * which is drawn selected at once, to show that the long press was taken
  * @param terminal Terminal widget
  * @param source Event of the long press
  */
 static void selection_start(GtkWidget *terminal, const GdkEventButton *source) {
-    vte_terminal_unselect_all(VTE_TERMINAL(terminal));
-    terminal_button(terminal, source, GDK_BUTTON_PRESS, 1, touch.x, touch.y, touch.state | GDK_SHIFT_MASK);
+    cell_at(terminal, touch.x, touch.y, &select_col, &select_row);
+    select_forward = TRUE;
+    selection_anchor(terminal, (const GdkEvent *) source);
+    selection_follow(terminal, (const GdkEvent *) source, touch.x, touch.y);
     touch.selecting = TRUE;
 }
 
@@ -967,8 +1055,13 @@ static void selection_start(GtkWidget *terminal, const GdkEventButton *source) {
  */
 static void selection_end(GtkWidget *terminal, const GdkEventButton *event) {
     touch.selecting = FALSE;
-    terminal_button(terminal, event, GDK_BUTTON_RELEASE, 1, event->x, event->y,
-                    event->state | GDK_SHIFT_MASK | GDK_BUTTON1_MASK);
+    selection_follow(terminal, (const GdkEvent *) event, event->x, event->y);
+    glong col = 0, row = 0;
+    gdouble x = 0, y = 0;
+    cell_at(terminal, event->x, event->y, &col, &row);
+    cell_point(terminal, col, row, select_forward, &x, &y);
+    terminal_button(terminal, (const GdkEvent *) event, GDK_BUTTON_RELEASE, 1, x, y,
+                    touch.state | GDK_SHIFT_MASK | GDK_BUTTON1_MASK);
     if (!vte_terminal_get_has_selection(VTE_TERMINAL(terminal))) {
         return;
     }
@@ -987,12 +1080,11 @@ static void selection_end(GtkWidget *terminal, const GdkEventButton *event) {
  */
 static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
     if (any->type == GDK_MOTION_NOTIFY) {
-        if (!touch.selecting) {
-            // a moving finger scrolls, see terminal_swipe_scroll()
-            return TRUE;
+        if (touch.selecting) {
+            selection_follow(terminal, any, any->motion.x, any->motion.y);
         }
-        any->motion.state |= GDK_SHIFT_MASK;
-        return FALSE;
+        // otherwise a moving finger scrolls, see terminal_swipe_scroll()
+        return TRUE;
     }
     GdkEventButton *event = &any->button;
     if (event->type != GDK_BUTTON_PRESS && event->type != GDK_BUTTON_RELEASE) {
@@ -1034,9 +1126,9 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
     }
     if (touch.two_fingers) {
         if (right_held) {
-            terminal_button(terminal, event, GDK_BUTTON_RELEASE, 3, right_x, right_y, touch.state | GDK_BUTTON3_MASK);
+            terminal_button(terminal, (const GdkEvent *) event, GDK_BUTTON_RELEASE, 3, right_x, right_y, touch.state | GDK_BUTTON3_MASK);
         }
-        terminal_button(terminal, event, GDK_BUTTON_PRESS, 3, touch.x, touch.y, touch.state);
+        terminal_button(terminal, (const GdkEvent *) event, GDK_BUTTON_PRESS, 3, touch.x, touch.y, touch.state);
         right_held = TRUE;
         right_x = touch.x;
         right_y = touch.y;
@@ -1055,8 +1147,8 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
         right_held = FALSE;
         const gdouble x = tap ? event->x : right_x;
         const gdouble y = tap ? event->y : right_y;
-        terminal_pointer(terminal, event, x, y, touch.state | GDK_BUTTON3_MASK);
-        terminal_button(terminal, event, GDK_BUTTON_RELEASE, 3, x, y, touch.state | GDK_BUTTON3_MASK);
+        terminal_pointer(terminal, (const GdkEvent *) event, x, y, touch.state | GDK_BUTTON3_MASK);
+        terminal_button(terminal, (const GdkEvent *) event, GDK_BUTTON_RELEASE, 3, x, y, touch.state | GDK_BUTTON3_MASK);
         if (tap) {
             return TRUE;
         }
@@ -1098,7 +1190,7 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
         gtk_widget_show(builtin_kb_box);
     }
     // the press kept back, then this release
-    terminal_button(terminal, event, GDK_BUTTON_PRESS, 1, touch.x, touch.y, touch.state);
+    terminal_button(terminal, (const GdkEvent *) event, GDK_BUTTON_PRESS, 1, touch.x, touch.y, touch.state);
     return FALSE;
 }
 

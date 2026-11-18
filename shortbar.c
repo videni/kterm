@@ -45,8 +45,8 @@ static gchar *file_path = NULL;
 static GPtrArray *items = NULL;
 /** First button of the page shown */
 static guint page_start = 0;
-/** Text copied from the terminal, waiting to be pasted: while there is
- *  some, a paste button leads the row */
+/** Text last copied from the terminal: once there is some, a paste
+ *  button leads the row */
 static gchar *paste_text = NULL;
 /** Where the finger went down */
 static gdouble press_x = 0;
@@ -156,8 +156,8 @@ static void set_paste(const gchar *text) {
 }
 
 /**
- * Offer text copied from the terminal: a paste button leads the bar until
- * it is used
+ * Offer text copied from the terminal: a paste button leads the bar from
+ * then on, pasting the last text copied
  * @param text Text, copied
  */
 void shortbar_offer_paste(const gchar *text) {
@@ -194,9 +194,8 @@ static void tap(gdouble x, gdouble y) {
     if (g_object_get_data(G_OBJECT(hit), "paste")) {
         // as if pasted from a menu: a program that asked for it (Claude
         // Code, a shell) is told where the pasted text starts and ends
+        // the button stays: a paste undone can be pasted again
         vte_terminal_paste_text(VTE_TERMINAL(terminal), paste_text);
-        // used once, the button goes
-        set_paste(NULL);
     } else if (index) {
         const Shortcut *item = g_ptr_array_index(items, index - 1);
         gsize size = 0;
