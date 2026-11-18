@@ -209,11 +209,7 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
 static void rebuild(const gchar *problems) {
     if (problems) {
         // the first mistake is enough to find the file and the line
-        gchar *first = g_strdup(problems);
-        gchar *end = strchr(first, '\n');
-        if (end) {
-            *end = '\0';
-        }
+        gchar *first = g_strndup(problems, strcspn(problems, "\n"));
         gchar *text = g_strdup_printf("%s %s", file_path ? file_path : SHORTCUTS_FILE, first);
         gtk_label_set_text(GTK_LABEL(problem_label), text);
         g_free(text);
@@ -277,7 +273,11 @@ GPtrArray * shortbar_items(void) {
  */
 gboolean shortbar_save(GError **error) {
     const gboolean saved = shortcuts_save(file_path, items, error);
-    rebuild(NULL);
+    // lines of the file that make no button are kept in it: still tell
+    gchar *problems = NULL;
+    g_ptr_array_unref(shortcuts_load(file_path, &problems));
+    rebuild(problems);
+    g_free(problems);
     return saved;
 }
 
@@ -303,14 +303,12 @@ static void follow_height_cb(GObject *object, GParamSpec *spec, gpointer data) {
 
 /**
  * Show the bar while a keyboard is shown, with buttons as tall as its keys
- * @param widget Bar widget
  * @param keyboard Built-in keyboard
  * @param rows Rows of keys in it
  * @param other Shown instead of the keyboard while the system keyboard is
  *  up, or NULL
  */
-void shortbar_follow(GtkWidget *widget, GtkWidget *keyboard, guint rows, GtkWidget *other) {
-    UNUSED(widget);
+void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other) {
     keyboard_box = keyboard;
     other_keyboard = other;
     keyboard_rows = rows;

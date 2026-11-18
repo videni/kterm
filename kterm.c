@@ -23,12 +23,12 @@
 #include <vte/vte.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <termios.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <signal.h>
 #include <getopt.h>
+#include <glib-unix.h>
 #include "keyboard.h"
 #include "panel.h"
 #include "confedit.h"
@@ -60,24 +60,25 @@ GtkWidget * kterm_get_terminal(void) {
     return main_terminal;
 }
 
-/** Process started in the terminal (the shell), 0 if unknown */
+/** Process started in the terminal, 0 if unknown */
 static GPid main_child = 0;
-
-pid_t kterm_terminal_foreground(void);
+/** TRUE if that process is a shell, FALSE for a program given with -e */
+static gboolean main_child_is_shell = FALSE;
 
 /**
- * @return TRUE if something other than the shell kterm started has the
- *         terminal: a program is running in it (an ssh session, an editor),
- *         and what is typed goes to that program, not to the shell.
- *         FALSE if the shell is waiting for a command, or if it is unknown.
+ * @return TRUE if kterm started a shell in the terminal; FALSE if it runs a
+ *         program given with -e (tmux, ssh...), into which commands meant
+ *         for a shell must not be typed
  */
-gboolean kterm_terminal_busy(void) {
-    return kterm_terminal_foreground() != 0;
+gboolean kterm_terminal_has_shell(void) {
+    return main_child_is_shell;
 }
 
 /**
- * @return Process group that has the terminal when it is not the shell
- *         kterm started; 0 if the shell has it or if it is unknown.
+ * @return Process group that has the terminal when it is not the process
+ *         kterm started: a program is running in the shell (an ssh
+ *         session, an editor) and what is typed goes to it. 0 if the
+ *         process kterm started has it, or if it is unknown.
  */
 pid_t kterm_terminal_foreground(void) {
     if (!main_terminal || main_child <= 0) {
@@ -92,16 +93,17 @@ pid_t kterm_terminal_foreground(void) {
 }
 
 /**
- * Signals handler
- * @param signo Signal number
+ * Signal callback, run from the main loop (not in the signal handler, where
+ * GTK must not be called): quit as the menu would, so that the screen
+ * orientation is restored
+ * @param data Not used
+ * @return G_SOURCE_REMOVE
  */
-static void exit_on_signal(gint signo) {
-    D printf("exiting on signal %i\n", signo);
-    if (gtk_main_level()) {
-        gtk_main_quit();
-    } else {
-        exit(0);
-    }
+static gboolean exit_on_signal(gpointer data) {
+    UNUSED(data);
+    D printf("exiting on signal\n");
+    gtk_main_quit();
+    return G_SOURCE_REMOVE;
 }
 
 /**
@@ -109,9 +111,8 @@ static void exit_on_signal(gint signo) {
  */
 static void install_signal_handlers(void) {
     signal(SIGCHLD, SIG_IGN); // kernel should handle zombies
-    signal(SIGINT, exit_on_signal);
-    signal(SIGQUIT, exit_on_signal);
-    signal(SIGTERM, exit_on_signal);
+    g_unix_signal_add(SIGINT, exit_on_signal, NULL);
+    g_unix_signal_add(SIGTERM, exit_on_signal, NULL);
 }
 
 /**
@@ -485,9 +486,9 @@ static void keyboard_update(GtkWidget *keyboard_box, GtkAllocation *alloc, Keybo
  * @param widget Calling widget
  * @param box Kterm container
  */
-static void screen_rotate(GtkWidget *widget, gpointer box) {
+static void screen_rotate(GtkWidget *widget, gpointer data) {
     UNUSED(widget);
-    UNUSED(box);
+    UNUSED(data);
     char request = 0;
     if (conf->orientation == 'U') {
         request = 'R';
@@ -665,7 +666,7 @@ static void font_size_cb(GtkWidget *button, gpointer label) {
     g_free(text);
     gchar *line = g_strdup_printf("font_size = %d", size);
     GError *error = NULL;
-    if (!confedit_save(CONFIG_FULL_PATH, "font_size", line, &error)) {
+    if (!confedit_save(conf->conf_path, "font_size", line, &error)) {
         D printf("font size not saved: %s\n", error->message);
         g_error_free(error);
     }
@@ -689,7 +690,7 @@ static GtkWidget * font_size_button(const gchar *text, gint step, GtkWidget *lab
  * Fill the panel: actions on its first page, the settings page
  * @param box Kterm container
  */
-static void add_panel_actions(GtkWidget *box) {
+static void add_panel_actions(void) {
 #ifdef KINDLE
     GtkWidget *read_button = panel_button_new("阅读");
     panel_read_button = read_button;
@@ -698,10 +699,8 @@ static void add_panel_actions(GtkWidget *box) {
     panel_add_action(read_button, -1);
     GtkWidget *rotate_button = panel_button_new("旋转");
     g_signal_connect_swapped(rotate_button, "clicked", G_CALLBACK(panel_close), NULL);
-    g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), box);
+    g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), NULL);
     panel_add_action(rotate_button, -1);
-#else
-    UNUSED(box);
 #endif
     GtkWidget *quit_button = panel_button_new("退出");
     g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
@@ -719,13 +718,6 @@ static void add_panel_actions(GtkWidget *box) {
 }
 #endif
 
-/**
- * Mouse button event callback
- * @param terminal Terminal widget
- * @param event Button event
- * @param box Kterm container
- * @return True to stop processing event, false otherwise
- */
 #ifdef KINDLE
 /** Most wheel steps sent for one swipe */
 #define SWIPE_WHEEL_MAX 60
@@ -843,13 +835,35 @@ static gboolean tmux_send(GtkWidget *terminal, const gchar *key) {
 }
 
 /**
+ * @return TRUE if tmux has the terminal, here or, as far as can be told,
+ *         at the other end of an ssh session (a full screen there)
+ */
+static gboolean tmux_may_have_terminal(GtkWidget *terminal) {
+    pid_t pid = kterm_terminal_foreground();
+    if (!pid) {
+        pid = (pid_t) main_child;
+    }
+    gchar *path = g_strdup_printf("/proc/%d/comm", (int) pid);
+    gchar *name = NULL;
+    gboolean tmux = FALSE;
+    if (pid > 0 && g_file_get_contents(path, &name, NULL, NULL)) {
+        tmux = g_str_has_prefix(name, "tmux")
+            || (g_str_has_prefix(name, "ssh") && !terminal_has_history(terminal));
+    }
+    g_free(name);
+    g_free(path);
+    return tmux;
+}
+
+/**
  * A finger moved left or right in reading mode: next or previous tmux
- * window. Nothing is typed into a plain shell.
+ * window. Nothing is typed into a shell, a pager or an editor: the prefix
+ * and the letter would mean something else to them.
  * @param terminal Terminal widget
  * @param dx Distance moved, pixels; negative is left
  */
 static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
-    if (terminal_has_history(terminal)) {
+    if (!tmux_may_have_terminal(terminal)) {
         return;
     }
     // towards the left brings the next one in, like turning a page
@@ -857,7 +871,17 @@ static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
 }
 #endif
 
+/**
+ * Mouse button event callback
+ * @param terminal Terminal widget
+ * @param event Button event
+ * @param menu Popup menu
+ * @return True to stop processing event, false otherwise
+ */
 static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointer menu) {
+#ifndef KINDLE
+    UNUSED(terminal);
+#endif
     D printf("event-type: %i\n", event->type);
     D printf("event-button: %i\n", event->button);
     D {
@@ -865,11 +889,23 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
         printf("event-at: %.0f,%.0f (widget %.0f,%.0f) gtk-grab: %s\n", event->x_root, event->y_root,
                event->x, event->y, grab ? gtk_widget_get_name(grab) : "none");
     }
+    // A touch while the panel is open puts it away, and the program in the
+    // terminal sees none of it: given the press alone, VTE and tmux would
+    // take the button as held down.
+    static gboolean closing_panel = FALSE;
+    if (event->type == GDK_BUTTON_PRESS && event->button == 1) {
+        closing_panel = panel_is_open();
+        if (closing_panel) {
+            return TRUE;
+        }
+    } else if (event->type == GDK_BUTTON_RELEASE && event->button == 1 && closing_panel) {
+        closing_panel = FALSE;
+        panel_close();
+        return TRUE;
+    }
 #ifdef KINDLE
     // ignore any motion events (i think we don't need selecting text as one finger motion scrolls buffer)
     if (event->type == GDK_MOTION_NOTIFY) { return !pointer_placing; }
-#endif
-#ifdef KINDLE
     // The touch driver clicks button 3 during a swipe, while button 1 is
     // still down: that touch is scrolling, whatever distance it ends at.
     static gboolean swiping = FALSE;
@@ -896,9 +932,10 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
             if (vertical && dy > 0 && press_y <= EDGE_TOP_PX) {
                 // Down from the top edge is the device's own gesture for its
                 // quick settings (light, dark mode, airplane mode). A full
-                // screen application has to pass it on.
+                // screen application has to pass it on. The release still
+                // goes to the terminal, which had the press.
                 show_system_menu();
-                return TRUE;
+                return FALSE;
             }
             if (vertical && dy < 0 && (!conf->kb_on || ime_is_open())
                 && press_in_terminal_y >= gtk_widget_get_allocated_height(terminal) - EDGE_BOTTOM_PX) {
@@ -907,7 +944,7 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
                 // its place. The swipe then starts at the foot of the
                 // terminal.
                 panel_open();
-                return TRUE;
+                return FALSE;
             }
             const gboolean horizontal = ABS(dx) >= EDGE_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5;
             if (vertical && !panel_is_open()) {
@@ -927,11 +964,6 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
         }
     }
 #endif
-    if (event->button == 1 && event->type == GDK_BUTTON_RELEASE && panel_is_open()) {
-        // a touch outside the panel puts it away
-        panel_close();
-        return TRUE;
-    }
     if (event->button == BUTTON_MENU) {
 #ifdef KINDLE
         // ignore button click to disable paste (quite messy on kindle)
@@ -1033,6 +1065,14 @@ static void setup_terminal(GtkWidget *terminal, gchar *command, gchar **envv, GE
             argv[argc++] = argbuf;
             argbuf = strtok(NULL, " ");
         }
+    }
+    if (argv[0]) {
+        static const gchar *shells[] = { "sh", "ash", "bash", "dash", "ksh", "mksh", "zsh", "fish" };
+        gchar *name = g_path_get_basename(argv[0]);
+        for (guint i = 0; i < G_N_ELEMENTS(shells); i++) {
+            main_child_is_shell |= !strcmp(name, shells[i]);
+        }
+        g_free(name);
     }
 
     set_terminal_colors(terminal, conf->color_reversed);
@@ -1197,8 +1237,12 @@ gint main(gint argc, gchar **argv) {
     install_signal_handlers();
     
     // window
-    //  \- vbox
-    //      \- terminal  \- keyboard_box
+    //  \- overlay
+    //      \- vbox
+    //      |   \- terminal
+    //      |   \- shortcut bar, keyboard_box (or, while the system keyboard
+    //      |      is up, the bar above it)
+    //      \- panel, drawn over the bottom of the window
     //
     // main window
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -1225,8 +1269,8 @@ gint main(gint argc, gchar **argv) {
 #endif
     gtk_widget_set_name(vbox, "ktermBox");
 #if GTK_CHECK_VERSION(3,2,0)
-    // the panel is drawn over the window, right above the keyboard: the
-    // terminal keeps its size, the program in it is not disturbed
+    // the panel is drawn over the window, at its bottom: the terminal keeps
+    // its size, the program in it is not disturbed
     GtkWidget *overlay = gtk_overlay_new();
     gtk_container_add(GTK_CONTAINER(overlay), vbox);
     gtk_container_add(GTK_CONTAINER(window), overlay);
@@ -1263,12 +1307,12 @@ gint main(gint argc, gchar **argv) {
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
 #if GTK_CHECK_VERSION(3,2,0)
     GtkWidget *panel = panel_new(terminal);
-    add_panel_actions(vbox);
+    add_panel_actions();
 #ifdef KINDLE
     g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
 #endif
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
-    panel_add_bottom(keyboard_box);
+    panel_add_bottom(keyboard_box, FALSE);
 #endif
     
 #ifdef KINDLE
@@ -1276,7 +1320,9 @@ gint main(gint argc, gchar **argv) {
     if (ime_init(terminal)) {
         ime_panel = build_ime_panel();
         gtk_box_pack_end(GTK_BOX(vbox), ime_panel, FALSE, FALSE, 0);
-        g_signal_connect(window, "key-press-event", G_CALLBACK(ime_key_event), NULL);
+        if (g_getenv("KTERM_IME_TRACE")) {
+            g_signal_connect(window, "key-press-event", G_CALLBACK(ime_key_event), NULL);
+        }
     }
 #endif
 #if GTK_CHECK_VERSION(3,2,0)
@@ -1287,9 +1333,9 @@ gint main(gint argc, gchar **argv) {
 #ifdef KINDLE
     system_keyboard_bar = ime_panel;
 #endif
-    shortbar_follow(shortbar, keyboard_box, keyboard->row_count, system_keyboard_bar);
-    panel_add_bottom(shortbar);
-    panel_add_bottom(system_keyboard_bar);
+    shortbar_follow(keyboard_box, keyboard ? keyboard->row_count : 0, system_keyboard_bar);
+    panel_add_bottom(shortbar, FALSE);
+    panel_add_bottom(system_keyboard_bar, TRUE);
     shortpage_init();
 #endif
 

@@ -20,7 +20,6 @@
 
 gboolean ime_init(GtkWidget *terminal);
 void ime_shutdown(void);
-gboolean ime_available(void);
 gboolean ime_is_open(void);
 gboolean ime_open(void);
 void ime_close(void);

@@ -124,6 +124,19 @@ static gboolean append_plain(GByteArray *out, GString *shown, const gchar *key) 
  */
 static gboolean append_key(GByteArray *out, GString *shown, const gchar *key) {
     const gchar *base = after_modifier(key, "C-", "Ctrl+");
+    const gchar *alt_base = base ? after_modifier(base, "M-", "Alt+") : NULL;
+    if (alt_base) {
+        // C-M-x, as Emacs and tmux write it: the same as M-C-x
+        gchar *ctrl_key = g_strconcat("C-", alt_base, NULL);
+        const guint8 esc = 0x1b;
+        g_byte_array_append(out, &esc, 1);
+        if (shown) {
+            g_string_append(shown, "Alt+");
+        }
+        const gboolean understood = append_key(out, shown, ctrl_key);
+        g_free(ctrl_key);
+        return understood;
+    }
     if (base) {
         guint8 code;
         const gchar *name = NULL;

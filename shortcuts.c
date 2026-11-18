@@ -26,8 +26,8 @@
  * the others still make their buttons.
  */
 
+#include <stdlib.h>
 #include <string.h>
-#include <glib/gstdio.h>
 #include "keyseq.h"
 #include "shortcuts.h"
 
@@ -44,43 +44,6 @@ void shortcut_free(gpointer data) {
     g_free(item->spec);
     g_bytes_unref(item->keys);
     g_free(item);
-}
-
-/**
- * Make a button, as typed into the panel's form
- * @param name Text for the button; empty: the keys are shown
- * @param spec Keys as written, see keyseq.c
- * @param error Set when the button could not be written to the file and
- *  read back the same (message in Chinese, shown to the user)
- * @return Button, or NULL
- */
-Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error) {
-    gchar *label = g_strstrip(g_strdup(name ? name : ""));
-    gchar *keys_text = g_strstrip(g_strdup(spec ? spec : ""));
-    if (*label && (strchr(label, '=') || *label == '#')) {
-        g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "名字里不能有 = 号，也不能以 # 开头");
-    } else if (!*label && *keys_text == '#') {
-        g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "以 # 开头的按键请起个名字");
-    }
-    GBytes *keys = NULL;
-    if (!(error && *error)) {
-        keys = keyseq_parse(keys_text, error);
-    }
-    if (!keys) {
-        g_free(label);
-        g_free(keys_text);
-        return NULL;
-    }
-    Shortcut *item = g_new0(Shortcut, 1);
-    if (*label) {
-        item->label = label;
-    } else {
-        g_free(label);
-        item->label = g_strdup(keys_text);
-    }
-    item->spec = keys_text;
-    item->keys = keys;
-    return item;
 }
 
 /**
@@ -145,6 +108,57 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
 }
 
 /**
+ * The line of the file for a button
+ * @param label Text on the button
+ * @param spec Keys as written
+ * @return Line without newline, free with g_free()
+ */
+static gchar * format_line(const gchar *label, const gchar *spec) {
+    if (!strcmp(label, spec)) {
+        return g_strdup(spec);
+    }
+    return g_strdup_printf("%s = %s", label, spec);
+}
+
+/**
+ * Make a button, as typed into the panel's form
+ * @param name Text for the button; empty: the keys are shown
+ * @param spec Keys as written, see keyseq.c
+ * @param error Set when the button could not be written to the file and
+ *  read back the same (message in Chinese, shown to the user)
+ * @return Button, or NULL
+ */
+Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error) {
+    gchar *label = g_strstrip(g_strdup(name ? name : ""));
+    gchar *keys_text = g_strstrip(g_strdup(spec ? spec : ""));
+    if (!*label) {
+        g_free(label);
+        label = g_strdup(keys_text);
+    }
+    gchar *line = format_line(label, keys_text);
+    Shortcut *item = NULL;
+    if (strcmp(label, keys_text) && strchr(label, '=')) {
+        g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "名字里不能有 = 号");
+    } else if (*line == '#') {
+        g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+                    strcmp(label, keys_text) ? "名字不能以 # 开头" : "以 # 开头的按键请起个名字");
+    } else {
+        // what is saved must come back the same from the file
+        item = parse_line(line, error);
+        if (item && (strcmp(item->label, label) || strcmp(item->spec, keys_text))) {
+            shortcut_free(item);
+            item = NULL;
+            g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+                        "这样写存进文件后读回来会变样：名字里不要有 = 号或单个引号，按键以 = 开头或结尾时请起个名字");
+        }
+    }
+    g_free(line);
+    g_free(label);
+    g_free(keys_text);
+    return item;
+}
+
+/**
  * Read the buttons from the text of the file
  * @param text File contents
  * @param problems Set to the lines skipped and why, one per line, or NULL
@@ -174,10 +188,11 @@ GPtrArray * shortcuts_parse(const gchar *text, gchar **problems) {
         }
     }
     g_strfreev(lines);
+    gchar *found = g_string_free(report, report->len == 0);
     if (problems) {
-        *problems = report->len ? g_string_free(report, FALSE) : (g_string_free(report, TRUE), NULL);
+        *problems = found;
     } else {
-        g_string_free(report, TRUE);
+        g_free(found);
     }
     return list;
 }
@@ -211,42 +226,51 @@ GPtrArray * shortcuts_load(const gchar *path, gchar **problems) {
 
 /**
  * The text of the file for a list of buttons
- * @param old_text The file as it was, or NULL; the comments on its top are
- *  kept, everything after them is replaced
+ * @param old_text The file as it was, or NULL. The comments on its top
+ *  stay there, the buttons follow, and the other lines that were no
+ *  buttons (comments further down, lines that could not be read, buttons
+ *  past the limit) are kept after them: nothing written by hand is lost.
  * @param list Buttons, in order
  * @return New contents, free with g_free()
  */
 gchar * shortcuts_format(const gchar *old_text, GPtrArray *list) {
-    GString *out = g_string_new(NULL);
-    if (old_text) {
-        const gchar *p = old_text;
-        while (*p) {
-            const gchar *end = strchr(p, '\n');
-            const gchar *next = end ? end + 1 : p + strlen(p);
-            gchar *line = g_strstrip(g_strndup(p, (gsize) (next - p)));
-            const gboolean note = !*line || *line == '#';
-            g_free(line);
-            if (!note) {
-                break;
-            }
-            g_string_append_len(out, p, next - p);
-            if (!end) {
-                g_string_append_c(out, '\n');
-            }
-            p = next;
+    GString *head = g_string_new(old_text ? NULL : SHORTCUTS_NOTE);
+    GString *kept = g_string_new(NULL);
+    gchar **lines = g_strsplit(old_text ? old_text : "", "\n", -1);
+    gboolean in_head = TRUE;
+    guint buttons = 0;
+    for (guint i = 0; lines[i]; i++) {
+        if (!lines[i + 1] && !*lines[i]) {
+            break; // after the last newline
         }
-    } else {
-        g_string_append(out, SHORTCUTS_NOTE);
+        gchar *line = g_strstrip(g_strdup(lines[i]));
+        const gboolean note = !*line || *line == '#';
+        if (in_head && note) {
+            g_string_append_printf(head, "%s\n", lines[i]);
+        } else if (*line) {
+            in_head = FALSE;
+            Shortcut *item = note ? NULL : parse_line(line, NULL);
+            if (item && buttons < SHORTCUTS_MAX) {
+                buttons++; // one of the list's, written from the list
+            } else {
+                g_string_append_printf(kept, "%s\n", lines[i]);
+            }
+            shortcut_free(item);
+        }
+        g_free(line);
     }
+    g_strfreev(lines);
     for (guint i = 0; i < list->len; i++) {
         const Shortcut *item = g_ptr_array_index(list, i);
-        if (!strcmp(item->label, item->spec)) {
-            g_string_append_printf(out, "%s\n", item->spec);
-        } else {
-            g_string_append_printf(out, "%s = %s\n", item->label, item->spec);
-        }
+        gchar *line = format_line(item->label, item->spec);
+        g_string_append_printf(head, "%s\n", line);
+        g_free(line);
     }
-    return g_string_free(out, FALSE);
+    if (kept->len) {
+        g_string_append_printf(head, "\n%s", kept->str);
+    }
+    g_string_free(kept, TRUE);
+    return g_string_free(head, FALSE);
 }
 
 /**
@@ -261,9 +285,19 @@ gboolean shortcuts_save(const gchar *path, GPtrArray *list, GError **error) {
     g_mkdir_with_parents(dir, 0755);
     g_free(dir);
     gchar *old_text = NULL;
-    g_file_get_contents(path, &old_text, NULL, NULL);
+    GError *read_error = NULL;
+    if (!g_file_get_contents(path, &old_text, NULL, &read_error)
+        && !g_error_matches(read_error, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
+        // never replace a file that is there but could not be read
+        g_propagate_error(error, read_error);
+        return FALSE;
+    }
+    g_clear_error(&read_error);
     gchar *text = shortcuts_format(old_text, list);
-    const gboolean saved = g_file_set_contents(path, text, -1, error);
+    // through a symbolic link: the file it points to is the one replaced
+    char *real = realpath(path, NULL);
+    const gboolean saved = g_file_set_contents(real ? real : path, text, -1, error);
+    free(real);
     g_free(text);
     g_free(old_text);
     return saved;

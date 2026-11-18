@@ -50,6 +50,9 @@ static void test_named_and_alt(void) {
     is("M-b", "\x1b" "b", 2);
     is("M-Left", "\x1b\x1b[D", 4);
     is("M-C-h", "\x1b\x08", 2);
+    // the order Emacs and tmux write it in
+    is("C-M-h", "\x1b\x08", 2);
+    is("Ctrl+Alt+h", "\x1b\x08", 2);
     is("Space", " ", 1);
 }
 

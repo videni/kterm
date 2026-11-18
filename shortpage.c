@@ -23,9 +23,6 @@
 #include "config.h"
 #include "panel.h"
 #include "shortpage.h"
-
-#if GTK_CHECK_VERSION(3,2,0)
-
 #include "keyboard.h"
 #include "keyseq.h"
 #include "shortbar.h"
@@ -264,7 +261,6 @@ static void save_cb(void) {
         // the new one is on the last page of the list
         page_start = ((items->len - 1) / ROWS_PER_PAGE) * ROWS_PER_PAGE;
     }
-    gtk_label_set_text(GTK_LABEL(empty_label), "");
     show_list();
     save_list(empty_label);
 }
@@ -389,9 +385,3 @@ void shortpage_init(void) {
     g_signal_connect(open, "clicked", G_CALLBACK(open_cb), NULL);
     panel_add_action(open, 1);
 }
-
-#else /* GTK+ 2: no panel */
-
-void shortpage_init(void) {}
-
-#endif

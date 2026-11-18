@@ -22,7 +22,6 @@
 #ifndef kindle_h
 #define kindle_h
 
-#include <stdbool.h>
 #include <gtk/gtk.h>
 
 gchar get_orientation(void);

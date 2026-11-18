@@ -224,6 +224,12 @@ static gboolean parser_button_end(State *state) {
         D printf("Button empty\n");
         return FALSE;
     }
+    if (state->current_row == NULL || state->keyboard->key_count >= KEYS_MAX) {
+        // outside a row, or past the room there is for keys
+        keyboard_key_free(state->current_key);
+        state->current_key = NULL;
+        return FALSE;
+    }
     gtk_box_pack_start(GTK_BOX(state->current_row), state->current_key->button, FALSE, FALSE, 0);
     state->keyboard->keys[state->keyboard->key_count++] = state->current_key;
     state->current_key = NULL;
@@ -260,8 +266,7 @@ static gboolean parser_button_space(State *state, const gchar **attribute_names,
     key->button = gtk_label_new(NULL);
     gtk_widget_set_can_focus(key->button, FALSE);
     state->current_key = key;
-    parser_button_end(state);
-    return TRUE;
+    return parser_button_end(state);
 }
 
 /**
@@ -289,8 +294,7 @@ static void parser_button_label(Key *key, const gchar *attribute_value, const KB
             gchar *p = NULL;
             if ((p = strrchr(path, '/')) != NULL) {
                 *++p = '\0';
-                guint space_left = sizeof(path) - (guint) strlen(path);
-                strncpy(p, &attribute_value[prefix_len], space_left);
+                g_strlcpy(p, &attribute_value[prefix_len], sizeof(path) - (gsize) (p - path));
             } else {
                 snprintf(path, sizeof(path), "%s", &attribute_value[prefix_len]);
             }

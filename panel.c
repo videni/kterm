@@ -14,15 +14,16 @@
  */
 
 /*
- * The panel that slides over the bottom of the terminal. It opens on a row
- * of actions; two of them lead to pages of their own, each with a way back:
- * the saved ssh connections (with the form to add or edit one) and the
+ * The panel opened by swiping up. It opens on a row of actions; some lead
+ * to pages of their own, each with a way back: the saved ssh connections
+ * (with the form to add or edit one), the shortcuts (shortpage.c) and the
  * settings.
  *
- * It is drawn inside the main window, over the terminal, rather than as a
- * window of its own: the terminal keeps its size, so the program running in
- * it is not disturbed, and the on-screen keyboard below stays usable for the
- * connection form.
+ * It is drawn inside the main window rather than as a window of its own:
+ * the terminal keeps its size, so the program running in it is not
+ * disturbed. It sits at the bottom of the window, over the last rows of the
+ * keyboard, which stays in view above it; a form sits above the keyboard,
+ * which types into it.
  */
 
 #include <string.h>
@@ -51,8 +52,12 @@ static GtkWidget *terminal_widget = NULL;
 static GtkWidget *content = NULL;
 static GPtrArray *pages = NULL;
 static GtkWidget *current_page = NULL;
-/** What is below the terminal: a form of the panel sits above these */
-static GPtrArray *bottoms = NULL;
+/** Below the terminal: the keyboard and the shortcut bar, which the panel
+ *  is drawn over (a form of the panel sits above them)... */
+static GPtrArray *keyboards = NULL;
+/** ...and the bar above the system keyboard: another program's window is
+ *  drawn below that bar, over anything of ours, so the panel stays above */
+static GPtrArray *system_bars = NULL;
 static GtkWidget *home_page = NULL;
 /** Row of actions on the first page */
 static GtkWidget *home_row = NULL;
@@ -106,12 +111,18 @@ gboolean panel_is_open(void) {
 }
 
 /**
+ * @return True while the page shown is a form the keyboard types into
+ */
+static gboolean page_is_typing(void) {
+    return current_page && g_object_get_data(G_OBJECT(current_page), "typing") != NULL;
+}
+
+/**
  * @return True while the keyboard is typing into the panel's form, so that
  *         nothing typed should reach the terminal
  */
 gboolean panel_wants_keys(void) {
-    return panel_is_open() && current_page
-        && g_object_get_data(G_OBJECT(current_page), "typing") != NULL;
+    return panel_is_open() && page_is_typing();
 }
 
 /**
@@ -150,9 +161,11 @@ static void place(void) {
     if (!root) {
         return;
     }
-    const gboolean typing = current_page
-        && g_object_get_data(G_OBJECT(current_page), "typing") != NULL;
-    gtk_widget_set_margin_bottom(root, typing ? height_of(bottoms) : 0);
+    gint margin = height_of(system_bars);
+    if (page_is_typing()) {
+        margin += height_of(keyboards);
+    }
+    gtk_widget_set_margin_bottom(root, margin);
 }
 
 static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
@@ -165,15 +178,17 @@ static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
  * Tell the panel about a widget below the terminal
  * @param widget Keyboard, shortcut bar, or the bar above the system
  *  keyboard; NULL is ignored
+ * @param system_bar TRUE for the bar above the system keyboard
  */
-void panel_add_bottom(GtkWidget *widget) {
+void panel_add_bottom(GtkWidget *widget, gboolean system_bar) {
     if (!widget) {
         return;
     }
-    if (!bottoms) {
-        bottoms = g_ptr_array_new();
+    GPtrArray **list = system_bar ? &system_bars : &keyboards;
+    if (!*list) {
+        *list = g_ptr_array_new();
     }
-    g_ptr_array_add(bottoms, widget);
+    g_ptr_array_add(*list, widget);
     g_signal_connect_after(widget, "show", G_CALLBACK(bottom_changed_cb), NULL);
     g_signal_connect_after(widget, "hide", G_CALLBACK(bottom_changed_cb), NULL);
     g_signal_connect_after(widget, "notify::height-request", G_CALLBACK(bottom_changed_cb), NULL);
@@ -181,9 +196,9 @@ void panel_add_bottom(GtkWidget *widget) {
 
 /**
  * Show one page of the panel, the others hidden
- * @param page Page widget
+ * @param page Page widget, added with panel_add_page() or one of the panel's
  */
-static void show_page(GtkWidget *page) {
+void panel_show_page(GtkWidget *page) {
     for (guint i = 0; pages && i < pages->len; i++) {
         GtkWidget *other = g_ptr_array_index(pages, i);
         if (other != page) {
@@ -192,15 +207,12 @@ static void show_page(GtkWidget *page) {
     }
     current_page = page;
     gtk_widget_show(page);
+    // While a form is shown, keys such as Tab must not move the focus to
+    // the terminal, where the rest of what is typed would run.
+    if (terminal_widget) {
+        gtk_widget_set_can_focus(terminal_widget, !page_is_typing());
+    }
     place();
-}
-
-/**
- * Show a page added with panel_add_page()
- * @param page Page widget
- */
-void panel_show_page(GtkWidget *page) {
-    show_page(page);
 }
 
 /**
@@ -228,6 +240,9 @@ void panel_close(void) {
     }
     D printf("panel: close\n");
     gtk_widget_hide(root);
+    if (terminal_widget) {
+        gtk_widget_set_can_focus(terminal_widget, TRUE);
+    }
     focus_terminal();
 }
 
@@ -238,7 +253,7 @@ void panel_open(void) {
     if (!root || panel_is_open()) {
         return;
     }
-    show_page(home_page);
+    panel_show_page(home_page);
     focus_terminal();
     gtk_widget_show(root);
 }
@@ -247,7 +262,7 @@ void panel_open(void) {
  * Back to the first page
  */
 static void show_home(void) {
-    show_page(home_page);
+    panel_show_page(home_page);
     focus_terminal();
 }
 
@@ -268,17 +283,14 @@ static gchar * describe(const SshHost *host) {
     return g_string_free(text, FALSE);
 }
 
-/**
- * Connection row callback: run ssh in the terminal.
- * The command is typed into the shell that is already there, so the
- * session behaves exactly as if the user had typed it, and ends back at
- * that shell.
- * @param button Calling widget
- * @param data Index of the connection
- */
 /** Command to type once the session being left has ended */
 static gchar *switch_command = NULL;
 static guint switch_tries = 0;
+static guint switch_source = 0;
+/** What is typed to start a connection. ^E ^U first: anything half typed
+ *  on the command line would otherwise run together with the command.
+ *  Names are validated to be plain words. */
+#define SSH_COMMAND "\x05\x15ssh %s\r"
 
 /**
  * @param pgid Process group
@@ -301,17 +313,27 @@ static gboolean is_ssh(pid_t pgid) {
  */
 static gboolean switch_when_idle(gpointer data) {
     UNUSED(data);
-    if (kterm_terminal_busy() && ++switch_tries < 30) {
+    const gboolean busy = kterm_terminal_foreground() != 0;
+    if (busy && ++switch_tries < 30) {
         return TRUE;
     }
-    if (!kterm_terminal_busy() && switch_command && terminal_widget) {
+    if (!busy && switch_command && terminal_widget) {
         vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), switch_command, -1);
     }
     g_free(switch_command);
     switch_command = NULL;
+    switch_source = 0;
     return FALSE;
 }
 
+/**
+ * Connection row callback: run ssh in the terminal.
+ * The command is typed into the shell that is already there, so the
+ * session behaves exactly as if the user had typed it, and ends back at
+ * that shell.
+ * @param button Calling widget
+ * @param data Index of the connection
+ */
 static void connect_cb(GtkWidget *button, gpointer data) {
     UNUSED(button);
     const guint index = GPOINTER_TO_UINT(data);
@@ -319,6 +341,13 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         return;
     }
     const SshHost *host = g_ptr_array_index(hosts, index);
+    if (!kterm_terminal_has_shell()) {
+        // kterm runs a program of its own (kterm -e tmux): there is no
+        // shell of ours to type the command into
+        gtk_label_set_text(GTK_LABEL(empty_label), "终端里运行的不是 shell，无法在这里连接。");
+        gtk_widget_show(empty_label);
+        return;
+    }
     // Typed while something else has the terminal, the command would go to
     // that program: inside an ssh session it would run on the far machine,
     // which does not know the names saved here.
@@ -329,9 +358,11 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         // command is typed once the shell is back.
         kill(-foreground, SIGHUP);
         g_free(switch_command);
-        switch_command = g_strdup_printf("\x15ssh %s\r", host->name);
+        switch_command = g_strdup_printf(SSH_COMMAND, host->name);
         switch_tries = 0;
-        g_timeout_add(100, switch_when_idle, NULL);
+        if (!switch_source) {
+            switch_source = g_timeout_add(100, switch_when_idle, NULL);
+        }
         panel_close();
         return;
     }
@@ -341,9 +372,7 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         gtk_widget_show(empty_label);
         return;
     }
-    // ^U first: anything half typed on the command line would otherwise be
-    // run together with the command. Names are validated to be plain words.
-    gchar *command = g_strdup_printf("\x15ssh %s\r", host->name);
+    gchar *command = g_strdup_printf(SSH_COMMAND, host->name);
     vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), command, -1);
     g_free(command);
     panel_close();
@@ -367,7 +396,7 @@ static void show_form(const SshHost *host) {
     gtk_label_set_text(GTK_LABEL(form_message), "");
     gtk_button_set_label(GTK_BUTTON(delete_button), "删除");
     gtk_widget_set_visible(delete_button, host != NULL);
-    show_page(form_page);
+    panel_show_page(form_page);
     gtk_widget_grab_focus(entry_name);
 }
 
@@ -475,7 +504,7 @@ static void show_list(void) {
         gtk_widget_set_sensitive(prev_button, page_start > 0);
         gtk_widget_set_sensitive(next_button, page_start + ROWS_PER_PAGE < count);
     }
-    show_page(list_page);
+    panel_show_page(list_page);
     focus_terminal();
 }
 
@@ -633,7 +662,7 @@ static GtkWidget * build_home_page(void) {
     GtkWidget *connections = panel_button_new("连接");
     GtkWidget *settings = panel_button_new("设置");
     g_signal_connect(connections, "clicked", G_CALLBACK(connections_cb), NULL);
-    g_signal_connect_swapped(settings, "clicked", G_CALLBACK(show_page), settings_page);
+    g_signal_connect_swapped(settings, "clicked", G_CALLBACK(panel_show_page), settings_page);
     gtk_box_pack_start(GTK_BOX(home_row), connections, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(home_row), settings, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(page), home_row, FALSE, FALSE, 0);
@@ -787,7 +816,7 @@ GtkWidget * panel_new(GtkWidget *terminal) {
     panel_add_page(form_page, TRUE);
     panel_add_page(settings_page, FALSE);
     gtk_widget_show(content);
-    show_page(home_page);
+    panel_show_page(home_page);
     // stays hidden through gtk_widget_show_all() on the window
     gtk_widget_set_no_show_all(root, TRUE);
     return root;
@@ -795,17 +824,6 @@ GtkWidget * panel_new(GtkWidget *terminal) {
 
 #else /* GTK+ 2: no overlay to draw the panel in */
 
-GtkWidget * panel_new(GtkWidget *terminal) {
-    UNUSED(terminal);
-    return NULL;
-}
-void panel_add_action(GtkWidget *button, gint position) { UNUSED(button); UNUSED(position); }
-void panel_add_page(GtkWidget *page, gboolean typing) { UNUSED(page); UNUSED(typing); }
-void panel_show_page(GtkWidget *page) { UNUSED(page); }
-GtkWidget * panel_page_header(GtkWidget *page, const gchar *title) { UNUSED(page); UNUSED(title); return NULL; }
-void panel_add_bottom(GtkWidget *widget) { UNUSED(widget); }
-void panel_add_setting(const gchar *title, GtkWidget *control) { UNUSED(title); UNUSED(control); }
-GtkWidget * panel_button_new(const gchar *label) { return gtk_button_new_with_label(label); }
 void panel_open(void) {}
 void panel_close(void) {}
 gboolean panel_is_open(void) { return FALSE; }

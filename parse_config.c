@@ -72,8 +72,12 @@ KTconf *parse_config(void) {
     FILE *fp;
     if ((fp = fopen(conf_path, "r")) == NULL) {
         D printf("No config file\n");
+        // settings changed in the panel start a new file in the usual place
+        snprintf(conf->conf_path, sizeof(conf->conf_path), "%s", CONFIG_FULL_PATH);
         return conf;
     }
+    // settings changed in the panel go to the file that was read
+    snprintf(conf->conf_path, sizeof(conf->conf_path), "%s", conf_path);
     
     gchar buf[PATH_MAX];
     while (fgets(buf, sizeof(buf), fp)) {
@@ -96,15 +100,16 @@ KTconf *parse_config(void) {
         }
         else if (!strncmp(buf, "tmux_prefix", 11)) {
             gchar str[256] = "";
-            if (sscanf(buf, "tmux_prefix = \"%[^\"\n\r]\"", str) == 1 && *str) {
+            if (sscanf(buf, "tmux_prefix = \"%255[^\"\n\r]\"", str) == 1 && *str) {
                 snprintf(conf->tmux_prefix, sizeof(conf->tmux_prefix), "%s", str);
             }
             D printf("tmux_prefix = %s\n", conf->tmux_prefix);
         }
         else if (!strncmp(buf, "font_family", 11)) {
-            gchar str[256];
-            sscanf(buf, "font_family = \"%[^\"\n\r]\"", str);
-            snprintf(conf->font_family, sizeof(conf->font_family), "%s", str);
+            gchar str[256] = "";
+            if (sscanf(buf, "font_family = \"%255[^\"\n\r]\"", str) == 1) {
+                snprintf(conf->font_family, sizeof(conf->font_family), "%s", str);
+            }
             D printf("font_family = %s\n", conf->font_family);
         }
         else if (!strncmp(buf, "font_size", 9)) {
@@ -116,15 +121,18 @@ KTconf *parse_config(void) {
             }
         }
         else if (!strncmp(buf, "encoding", 8)) {
-            gchar str[256];
-            sscanf(buf, "encoding = \"%[^\"\n\r]\"", str);
-            snprintf(conf->encoding, sizeof(conf->encoding), "%s", str);
+            gchar str[256] = "";
+            if (sscanf(buf, "encoding = \"%255[^\"\n\r]\"", str) == 1) {
+                snprintf(conf->encoding, sizeof(conf->encoding), "%s", str);
+            }
             D printf("encoding = %s\n", conf->encoding);
         }
         else if (!strncmp(buf, "kb_conf_path", 12)) {
-            gchar str2[PATH_MAX];
-            sscanf(buf, "kb_conf_path = \"%[^\"\n\r]\"", str2); // need double quotes around path
-            snprintf(conf->kb_conf_path, sizeof(conf->kb_conf_path), "%s", str2);
+            gchar str2[4096] = "";
+            // need double quotes around path
+            if (sscanf(buf, "kb_conf_path = \"%4095[^\"\n\r]\"", str2) == 1) {
+                snprintf(conf->kb_conf_path, sizeof(conf->kb_conf_path), "%s", str2);
+            }
             D printf("kb_conf_path = %s\n", conf->kb_conf_path);
         }
         else if (!strncmp(buf, "orientation", 11)) {

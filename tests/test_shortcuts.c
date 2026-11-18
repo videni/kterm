@@ -137,7 +137,11 @@ static void test_new(void) {
     g_assert_cmpstr(item->spec, ==, "C-Space");
     shortcut_free(item);
     // what could not be read back from the file
-    const gchar *bad[][2] = { { "", "C-Spcae" }, { "a=b", "C-u" }, { "#x", "C-u" }, { "", "" } };
+    const gchar *bad[][2] = {
+        { "", "C-Spcae" }, { "a=b", "C-u" }, { "#x", "C-u" }, { "", "" },
+        // saved fine once, but read back from the file as something else
+        { "", "C-x =" }, { "", "= Enter" }, { "", "Esc =" }, { "12\"", "C-u" }, { "a\"b", "C-u" },
+    };
     for (guint i = 0; i < G_N_ELEMENTS(bad); i++) {
         item = shortcut_new(bad[i][0], bad[i][1], &error);
         g_assert_null(item);
@@ -152,8 +156,9 @@ static void test_format(void) {
     g_assert_null(problems);
     g_ptr_array_add(list, shortcut_new("拉代码", "\"git pull\" Enter", NULL));
     gchar *text = shortcuts_format("# 说明\n#  第二行\n\nC-a\nTX = C-Space\n# 中间的说明\nC-e\n", list);
-    // the comments on top are kept, the buttons follow one per line
-    g_assert_cmpstr(text, ==, "# 说明\n#  第二行\n\nC-a\nTX = C-Space\nC-e\n拉代码 = \"git pull\" Enter\n");
+    // the comments on top are kept, the buttons follow one per line, and
+    // other lines written by hand come after them
+    g_assert_cmpstr(text, ==, "# 说明\n#  第二行\n\nC-a\nTX = C-Space\nC-e\n拉代码 = \"git pull\" Enter\n\n# 中间的说明\n");
     // and read back the same
     GPtrArray *again = shortcuts_parse(text, &problems);
     g_assert_null(problems);
@@ -167,6 +172,47 @@ static void test_format(void) {
     g_assert_nonnull(strstr(text, "\nC-a\nTX = C-Space\n"));
     g_free(text);
     g_ptr_array_unref(list);
+}
+
+static void test_format_keeps_lines(void) {
+    // a line that could not be read, and a deleted button
+    const gchar *old_text = "C-a\nC-Spcae\nC-e\n";
+    GPtrArray *list = shortcuts_parse(old_text, NULL);
+    g_assert_cmpuint(list->len, ==, 2);
+    g_ptr_array_remove_index(list, 1);
+    gchar *text = shortcuts_format(old_text, list);
+    g_assert_cmpstr(text, ==, "C-a\n\nC-Spcae\n");
+    g_free(text);
+    g_ptr_array_unref(list);
+    // buttons past the limit stay in the file
+    GString *many = g_string_new(NULL);
+    for (guint i = 0; i < SHORTCUTS_MAX + 2; i++) {
+        g_string_append_printf(many, "%c\n", 'a' + (i % 26));
+    }
+    list = shortcuts_parse(many->str, NULL);
+    g_assert_cmpuint(list->len, ==, SHORTCUTS_MAX);
+    text = shortcuts_format(many->str, list);
+    // the buttons, then the two left over after a blank line
+    const gsize shown = (gsize) SHORTCUTS_MAX * 2;
+    g_assert_cmpint(strncmp(text, many->str, shown), ==, 0);
+    g_assert_cmpstr(text + shown, ==, "\n" "w\nx\n");
+    g_free(text);
+    g_ptr_array_unref(list);
+    g_string_free(many, TRUE);
+}
+
+static void test_save_unreadable(void) {
+    // something is there but cannot be read: it is not replaced
+    gchar *dir = g_dir_make_tmp("shortcuts-XXXXXX", NULL);
+    GPtrArray *list = shortcuts_parse("C-w\n", NULL);
+    GError *error = NULL;
+    g_assert_false(shortcuts_save(dir, list, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_true(g_file_test(dir, G_FILE_TEST_IS_DIR));
+    g_ptr_array_unref(list);
+    g_rmdir(dir);
+    g_free(dir);
 }
 
 static void test_save(void) {
@@ -202,5 +248,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/shortcuts/new", test_new);
     g_test_add_func("/shortcuts/format", test_format);
     g_test_add_func("/shortcuts/save", test_save);
+    g_test_add_func("/shortcuts/format-keeps-lines", test_format_keeps_lines);
+    g_test_add_func("/shortcuts/save-unreadable", test_save_unreadable);
     return g_test_run();
 }

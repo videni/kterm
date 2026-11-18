@@ -23,6 +23,7 @@
  * they are.
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include <glib/gstdio.h>
 #include "sshconf.h"
@@ -212,8 +213,9 @@ gboolean sshconf_validate(const SshHost *host, GError **error) {
         complaint = "名称只能用字母、数字和 . _ -";
     } else if (!*host->host) {
         complaint = "地址不能为空";
-    } else if (!is_plain(host->host, "._-:%")) {
-        // ":" and "%" are for IPv6 addresses
+    } else if (!is_plain(host->host, "._-:")) {
+        // ":" is for IPv6 addresses; "%" (an IPv6 zone) is left out, ssh
+        // would read it as one of its % tokens
         complaint = "地址只能是主机名或 IP";
     } else if (*host->user && !is_plain(host->user, "._-")) {
         complaint = "用户名只能用字母、数字和 . _ -";
@@ -257,7 +259,9 @@ static GPtrArray * read_lines(const gchar *path, GError **error) {
         count--;
     }
     for (guint i = 0; i < count; i++) {
-        g_ptr_array_add(lines, g_strdup(split[i]));
+        // a file with Windows line ends is written back with plain ones
+        const gsize len = strlen(split[i]);
+        g_ptr_array_add(lines, g_strndup(split[i], (len && split[i][len - 1] == '\r') ? len - 1 : len));
     }
     g_strfreev(split);
     g_free(content);
@@ -285,16 +289,20 @@ static gboolean write_lines(const gchar *path, GPtrArray *lines, GError **error)
         g_string_append(content, g_ptr_array_index(lines, i));
         g_string_append_c(content, '\n');
     }
-    // written to a temporary file and renamed: never a half-written config
-    const gboolean saved = g_file_set_contents_full(path, content->str, (gssize) content->len,
-                                                    G_FILE_SET_CONTENTS_CONSISTENT, 0600, error);
+    // written to a temporary file and renamed: never a half-written config;
+    // through a symbolic link, the file it points to is the one replaced
+    char *real = realpath(path, NULL);
+    const gchar *target = real ? real : path;
+    gboolean saved = g_file_set_contents_full(target, content->str, (gssize) content->len,
+                                              G_FILE_SET_CONTENTS_CONSISTENT, 0600, error);
     g_string_free(content, TRUE);
     // GLib keeps the mode of a file that existed; ssh refuses a config that
     // others may write to ("Bad owner or permissions"), so it is set anyway.
-    if (saved && g_chmod(path, 0600) != 0) {
-        g_set_error(error, SSHCONF_ERROR, 2, "无法设置 %s 的权限", path);
-        return FALSE;
+    if (saved && g_chmod(target, 0600) != 0) {
+        g_set_error(error, SSHCONF_ERROR, 2, "无法设置 %s 的权限", target);
+        saved = FALSE;
     }
+    free(real);
     return saved;
 }
 
@@ -433,6 +441,30 @@ static void set_option(GPtrArray *lines, guint first, guint *end, const gchar *k
 }
 
 /**
+ * @param lines Lines of the file
+ * @param name Connection name
+ * @return True if any Host line has the name among its patterns: ssh would
+ *         take that block for it, not a new one further down
+ */
+static gboolean name_taken(GPtrArray *lines, const gchar *name) {
+    gboolean taken = FALSE;
+    for (guint i = 0; i < lines->len && !taken; i++) {
+        gchar *keyword = NULL;
+        const gchar *args = NULL;
+        split_line(g_ptr_array_index(lines, i), &keyword, &args);
+        if (keyword && !strcmp(keyword, "host")) {
+            gchar *pattern = NULL;
+            while (!taken && (pattern = next_arg(&args))) {
+                taken = !strcmp(pattern, name);
+                g_free(pattern);
+            }
+        }
+        g_free(keyword);
+    }
+    return taken;
+}
+
+/**
  * Add a connection or change an existing one
  * @param path Configuration file path
  * @param old_name Name of the connection being edited, NULL for a new one
@@ -450,7 +482,7 @@ gboolean sshconf_save(const gchar *path, const gchar *old_name, const SshHost *h
     }
     guint first = 0, end = 0;
     const gboolean renamed = !old_name || strcmp(old_name, host->name);
-    if (renamed && find_block(lines, host->name, &first, &end)) {
+    if (renamed && name_taken(lines, host->name)) {
         g_set_error(error, SSHCONF_ERROR, 3, "已有名为 %s 的连接", host->name);
         g_ptr_array_unref(lines);
         return FALSE;

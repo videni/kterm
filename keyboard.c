@@ -22,7 +22,6 @@
 
 #include <gtk/gtk.h>
 #include <vte/vte.h>
-#include <string.h>
 #include "keyboard.h"
 #include "panel.h"
 #include "config.h"
@@ -82,17 +81,6 @@ static gboolean modifier_only_caps(const Keyboard *keyboard) {
 }
 
 /**
- * Show the text label of a layout variant on a key. Only the variant in
- * use is shown: Shift and the symbol key are drawn black while they are
- * on, and every key then shows what it types.
- * @param key Key structure
- * @param type Layout variant, must have a text label
- */
-static void key_set_label(Key *key, const KBtype type) {
-    gtk_button_set_label(GTK_BUTTON(key->button), key->label[type]);
-}
-
-/**
  * Set layout variant based on modifiers set
  * @param keyboard Keyboard structure
  */
@@ -116,7 +104,11 @@ static void keyboard_set_layout(const Keyboard *keyboard) {
                 gtk_button_set_label(GTK_BUTTON(key->button), NULL);
             }
         } else if (key->label[type]) {
-            key_set_label(key, type);
+            // GTK rebuilds the label whenever it is set: only the keys that
+            // change are redrawn, the rest of the e-ink screen stays still
+            if (g_strcmp0(gtk_button_get_label(GTK_BUTTON(key->button)), key->label[type])) {
+                gtk_button_set_label(GTK_BUTTON(key->button), key->label[type]);
+            }
             if (gtk_button_get_image(GTK_BUTTON(key->button))) {
                 gtk_button_set_image(GTK_BUTTON(key->button), NULL);
             }
@@ -178,27 +170,23 @@ static void keyboard_reset_modifiers(Keyboard *keyboard) {
 
 /**
  * Calculate and set key button sizes
- * @param data Keyboard structure
- * @return Always false to cancel timeout, as called with g_timeout_add();
+ * @param keyboard Keyboard structure, may be NULL
  */
-gboolean keyboard_set_size(gpointer data) {
-    Keyboard *keyboard = data;
+void keyboard_set_size(Keyboard *keyboard) {
     if G_UNLIKELY(keyboard == NULL || keyboard->key_count == 0 || keyboard->row_count == 0) {
-        return FALSE;
+        return;
     }
     GtkWidget *keyboard_box = keyboard->container;
-    // labels of the variant in use, now that every key has all of them
+    // the labels of the variant in use
     keyboard_set_layout(keyboard);
     // update geometry
     GdkScreen *screen = gdk_screen_get_default();
     gint screen_height = gdk_screen_get_height(screen);
     gint screen_width = gdk_screen_get_width(screen);
-    GtkWidget *window = gtk_widget_get_toplevel(keyboard_box);
-    GtkAllocation* alloc = g_new(GtkAllocation, 1);
-    gtk_widget_get_allocation(window, alloc);
-    gint window_width = alloc->width;
-    gint window_height = alloc->height;
-    g_free(alloc);
+    GtkAllocation alloc;
+    gtk_widget_get_allocation(gtk_widget_get_toplevel(keyboard_box), &alloc);
+    gint window_width = alloc.width;
+    gint window_height = alloc.height;
 #ifdef KINDLE
     // The window always covers the screen, but its own allocation cannot
     // be used: on the device the keys were sized from an early, narrow one
@@ -263,8 +251,8 @@ gboolean keyboard_set_size(gpointer data) {
         gtk_border_free(border);
     }
 #endif
-    // Keys are as tall as two lines of text, as when they carried a hint
-    // line above the label: a finger hits them more easily than smaller ones.
+    // Keys are as tall as two lines of text: a finger hits them more easily
+    // than smaller ones.
     PangoLayout *two_lines = gtk_widget_create_pango_layout(first, NULL);
     pango_layout_set_markup(two_lines, "<span size=\"x-small\">Xg</span>\nXg", -1);
     gint two_lines_height = 0;
@@ -319,13 +307,12 @@ gboolean keyboard_set_size(gpointer data) {
     gint kb_height = (gint) (unit_h * keyboard->row_count);
     D printf("keyboard size: %ix%i\n", kb_width, kb_height);
     gtk_widget_set_size_request(keyboard_box, -1, kb_height);
-    return FALSE;
 }
 
 /**
- * Key press event callback
- * @param key Event key structure
- * @return True on success, false otherwise
+ * Act on a key that was tapped: send it through the X keymap
+ * @param key Key structure
+ * @return True on success, false if its key is not in the keymap
  */
 static gboolean keyboard_event_press(Key *key) {
     Keyboard *keyboard = key->keyboard;
@@ -419,12 +406,10 @@ static gboolean keyboard_event_release(gpointer data) {
 }
 
 /**
- * Key release event callback
- * @param button Key button widget
+ * Type a key whose key is not in the X keymap straight into the terminal
  * @param key Key structure
  */
-static void keyboard_terminal_feed(GtkWidget *button, const Key *key) {
-    UNUSED(button);
+static void keyboard_terminal_feed(const Key *key) {
     // send characters directly via vte_terminal_feed_child()
     GtkWidget *terminal = kterm_get_terminal();
     // not while a form of the panel is being filled in: this path bypasses
@@ -439,8 +424,15 @@ static void keyboard_terminal_feed(GtkWidget *button, const Key *key) {
         // only caps lock
         if (!key->obey_caps) { kb_type = KBT_DEFAULT; }
     }
+    // as keyboard_event_press(): a variant without a key of its own types
+    // the default one
+    guint keyval = key->keyval[kb_type] ? key->keyval[kb_type] : key->keyval[KBT_DEFAULT];
+    const gunichar character = gdk_keyval_to_unicode(keyval);
+    if (!character) {
+        return;
+    }
     gchar utf[6];
-    gint utf_len = g_unichar_to_utf8(gdk_keyval_to_unicode(key->keyval[kb_type]), utf);
+    gint utf_len = g_unichar_to_utf8(character, utf);
     D printf("feed child: %i chars\n", utf_len);
     vte_terminal_feed_child(VTE_TERMINAL(terminal), utf, utf_len);
 }
@@ -492,18 +484,22 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
             }
             return TRUE;
         }
-        if (panel_is_open() && !panel_wants_keys()) {
+        // a touch that went sideways across the keyboard is no tap
+        const gboolean sideways = ABS(dx) >= KB_SWIPE_MIN_PX;
+        if (sideways || (panel_is_open() && !panel_wants_keys())) {
             // with the panel open, a tap on the keyboard puts it away and
             // types nothing; only a form of the panel is typed into
             if (!key->modifier) {
                 gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), FALSE);
             }
-            panel_close();
+            if (!sideways) {
+                panel_close();
+            }
             return TRUE;
         }
         if (!keyboard_event_press(key)) {
             // not in keymap, try workaround
-            keyboard_terminal_feed(button, key);
+            keyboard_terminal_feed(key);
         }
         if (!key->modifier) {
             g_timeout_add(KB_RELEASE_DELAY_MS, keyboard_event_release, key);

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Compact terminal layout for Kindle: 10 keys per row, text labels only.
+<!-- Compact terminal layout for Kindle: rows 10 key widths wide, text labels only.
      The symbol key is one-shot: it switches the next key to its mod1 variant. -->
 <keyboard>
   <layout id="kindle compact">

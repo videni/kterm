@@ -36,7 +36,6 @@
 #include <gtk/gtk.h>
 #include <vte/vte.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include "ime.h"
@@ -191,6 +190,10 @@ static gboolean ime_dispatch(gpointer data) {
     ImeCall *call = data;
     const gchar *property = call->property;
     const gchar *value = call->value;
+    if (!bus) {
+        // queued just before ime_shutdown()
+        property = "";
+    }
     if (trace) {
         fprintf(stderr, "ime: %s = |%s|\n", property, value);
     }
@@ -270,12 +273,19 @@ static GDBusMessage * ime_filter(GDBusConnection *connection, GDBusMessage *mess
 }
 
 /**
+ * @return True if KTERM_IME_FAKE is set: the system keyboard is only
+ *         pretended to open. For testing the layout around it on a machine
+ *         that has no such keyboard.
+ */
+static gboolean ime_fake(void) {
+    return g_getenv("KTERM_IME_FAKE") != NULL;
+}
+
+/**
  * Connect to the system bus and get ready to receive text
  * @param term Terminal widget that receives the text
  * @return True if the system keyboard can be used
  */
-static gboolean ime_fake(void);
-
 gboolean ime_init(GtkWidget *term) {
     terminal = term;
     trace = (g_getenv("KTERM_IME_TRACE") != NULL);
@@ -329,16 +339,7 @@ void ime_shutdown(void) {
 /**
  * @return True if ime_init() succeeded
  */
-/**
- * @return True if KTERM_IME_FAKE is set: the system keyboard is only
- *         pretended to open. For testing the layout around it on a machine
- *         that has no such keyboard.
- */
-static gboolean ime_fake(void) {
-    return g_getenv("KTERM_IME_FAKE") != NULL;
-}
-
-gboolean ime_available(void) {
+static gboolean ime_available(void) {
     return ime_fake() || (bus != NULL && service != NULL);
 }
 
@@ -395,7 +396,7 @@ gint ime_keyboard_height(void) {
 
 /**
  * Key event hook for the main window, used to see what the system keyboard
- * sends as X events.
+ * sends as X events. Connected only with KTERM_IME_TRACE set.
  * @return False to let the event through
  */
 gboolean ime_key_event(GtkWidget *widget, GdkEventKey *event, gpointer data) {

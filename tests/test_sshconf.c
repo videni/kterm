@@ -1,7 +1,8 @@
-/* Tests for sshconf.c: cc $(pkg-config --cflags --libs glib-2.0) -I.. test_sshconf.c ../sshconf.c */
+/* Tests for sshconf.c: cc $(pkg-config --cflags --libs glib-2.0) -I.. test_sshconf.c ../sshconf.c -o /tmp/test_sshconf */
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "sshconf.h"
 
 static gchar *path = NULL;
@@ -249,6 +250,8 @@ static void test_validate(void) {
         { "ok", "1.2.3.4", "", "65536" },
         { "ok", "1.2.3.4", "", "22x" },
         { "ok", "1.2.3.4", "", "+22" },
+        // ssh would read %w as one of its tokens and refuse the file
+        { "ok", "fe80::1%wlan0", "", "" },
     };
     for (gsize i = 0; i < G_N_ELEMENTS(bad); i++) {
         SshHost *item = ssh_host_new(bad[i][0], bad[i][1], bad[i][2], bad[i][3]);
@@ -258,7 +261,7 @@ static void test_validate(void) {
         g_error_free(error);
         ssh_host_free(item);
     }
-    SshHost *good = ssh_host_new("my-box_1.lan", "fe80::1%wlan0", "vidy.v", "65535");
+    SshHost *good = ssh_host_new("my-box_1.lan", "fe80::1", "vidy.v", "65535");
     g_assert_true(sshconf_validate(good, NULL));
     ssh_host_free(good);
 }
@@ -272,8 +275,34 @@ static void test_no_final_newline_and_crlf(void) {
     g_ptr_array_unref(hosts);
     save("b", "b", "3.3.3.3", "", "");
     gchar *text = get();
-    g_assert_cmpstr(text, ==, "Host a\r\n  HostName 1.1.1.1\r\nHost b\n  HostName 3.3.3.3\n");
+    // written back with plain line ends throughout, never mixed
+    g_assert_cmpstr(text, ==, "Host a\n  HostName 1.1.1.1\nHost b\n  HostName 3.3.3.3\n");
     g_free(text);
+}
+
+static void test_alias_is_taken(void) {
+    // "two" already leads to 1.2.3.4: ssh would never reach a new block
+    put("Host one two\n  HostName 1.2.3.4\n");
+    save_fails(NULL, "two", "5.6.7.8", "", "");
+}
+
+static void test_through_symlink(void) {
+    // a config kept elsewhere and linked in stays a link
+    gchar *dir = g_path_get_dirname(path);
+    gchar *real = g_build_filename(dir, "config.real", NULL);
+    g_assert_true(g_file_set_contents(real, "Host a\n  HostName 1.1.1.1\n", -1, NULL));
+    g_unlink(path);
+    g_assert_cmpint(symlink(real, path), ==, 0);
+    save("a", "a", "3.3.3.3", "", "");
+    g_assert_true(g_file_test(path, G_FILE_TEST_IS_SYMLINK));
+    gchar *text = NULL;
+    g_assert_true(g_file_get_contents(real, &text, NULL, NULL));
+    g_assert_cmpstr(text, ==, "Host a\n  HostName 3.3.3.3\n");
+    g_free(text);
+    g_unlink(path);
+    g_unlink(real);
+    g_free(real);
+    g_free(dir);
 }
 
 static void test_tightens_loose_mode(void) {
@@ -307,6 +336,8 @@ int main(int argc, char **argv) {
     g_test_add_func("/sshconf/delete", test_delete);
     g_test_add_func("/sshconf/validate", test_validate);
     g_test_add_func("/sshconf/no-final-newline-and-crlf", test_no_final_newline_and_crlf);
+    g_test_add_func("/sshconf/alias-is-taken", test_alias_is_taken);
+    g_test_add_func("/sshconf/through-symlink", test_through_symlink);
     const int result = g_test_run();
     g_remove(path);
     g_rmdir(ssh_dir);

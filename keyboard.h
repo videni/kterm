@@ -109,7 +109,7 @@ typedef struct Keyboard {
 
 Keyboard * build_layout(GtkWidget *parent, GError **error);
 gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key);
-gboolean keyboard_set_size(gpointer data);
+void keyboard_set_size(Keyboard *keyboard);
 void keyboard_free(Keyboard **keyboard);
 void keyboard_key_free(Key *key);
 /** Switch between the built-in keyboard and the system one; provided by kterm.c */
@@ -118,7 +118,7 @@ void kterm_hide_keyboard(void);
 void kterm_use_builtin_keyboard(void);
 /** The terminal widget; provided by kterm.c */
 GtkWidget * kterm_get_terminal(void);
-gboolean kterm_terminal_busy(void);
+gboolean kterm_terminal_has_shell(void);
 pid_t kterm_terminal_foreground(void);
 
 #endif /* keyboard_h */

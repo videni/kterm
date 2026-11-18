@@ -18,8 +18,8 @@
  * settings, comments) as the user left it.
  */
 
+#include <stdlib.h>
 #include <string.h>
-#include <glib/gstdio.h>
 #include "confedit.h"
 
 /**
@@ -89,9 +89,19 @@ gboolean confedit_save(const gchar *path, const gchar *key, const gchar *line, G
     g_mkdir_with_parents(dir, 0755);
     g_free(dir);
     gchar *text = NULL;
-    g_file_get_contents(path, &text, NULL, NULL);
+    GError *read_error = NULL;
+    if (!g_file_get_contents(path, &text, NULL, &read_error)
+        && !g_error_matches(read_error, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
+        // never replace a file that is there but could not be read
+        g_propagate_error(error, read_error);
+        return FALSE;
+    }
+    g_clear_error(&read_error);
     gchar *updated = confedit_set(text, key, line);
-    const gboolean saved = g_file_set_contents(path, updated, -1, error);
+    // through a symbolic link: the file it points to is the one replaced
+    char *real = realpath(path, NULL);
+    const gboolean saved = g_file_set_contents(real ? real : path, updated, -1, error);
+    free(real);
     g_free(updated);
     g_free(text);
     return saved;

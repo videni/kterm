@@ -18,7 +18,7 @@
 
 #include <glib.h>
 
-/** Name of the file, looked for where kterm.conf is */
+/** Name of the file, in the configuration directory (SYSCONFDIR/kterm) */
 #define SHORTCUTS_FILE "shortcuts.conf"
 /** Buttons kept; past one row they are reached by swiping the bar */
 #define SHORTCUTS_MAX 48
