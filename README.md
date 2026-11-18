@@ -37,6 +37,7 @@
 ### 和原版的区别
 
 - 在 Kindle 的 X 服务器上跑 GTK+ 3 和 VTE 0.84（来自 Alpine 的软件包，程序在 Alpine chroot 里运行）。
+- 窗口用 X 服务器的 8 位 TrueColor 格式，和屏幕同深度，不用转换。32 位窗口每次刷新都要由 X 服务器转换成灰度，在 Kindle 深色模式下慢约 50 倍，持续输出会让整台设备卡死。代价是灰度只有 8 级，界面颜色按这 8 级挑选（`KTERM_VISUAL=32` 可换回 32 位窗口）。
 - 新键盘布局 [layouts/keyboard-kindle.xml](layouts/keyboard-kindle.xml)：每行 10 个键宽，Shift / “符”两层；键宽从屏幕宽度算（直接问 X 服务器，旋转后立即正确）。
 - 触屏手势：Kindle 触屏驱动在滑动中途会多发一次右键，这里不当成按键。上滑开面板、下滑收面板，阅读模式下滑动翻屏。
 - 拼音输入：通过 lipc / D-Bus 调起系统键盘，把它输入的文字转给终端（[ime.c](ime.c)）。
