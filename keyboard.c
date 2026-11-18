@@ -494,6 +494,11 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
     static Key *pressed = NULL;
     static gdouble press_x = 0, press_y = 0;
     D printf("key button event: type %i at %.0f,%.0f\n", ev->type, ev->button.x_root, ev->button.y_root);
+    if ((ev->type == GDK_BUTTON_PRESS || ev->type == GDK_BUTTON_RELEASE) && ev->button.button != 1) {
+        // The Kindle's touch driver clicks button 3 in the middle of a
+        // swipe, while button 1 is still down. That is not a second touch.
+        return TRUE;
+    }
     if (ev->type == GDK_BUTTON_PRESS) {
         pressed = key;
         press_x = ev->button.x_root;
