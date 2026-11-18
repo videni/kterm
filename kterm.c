@@ -29,6 +29,7 @@
 #include <signal.h>
 #include <getopt.h>
 #include "keyboard.h"
+#include "panel.h"
 #ifdef KINDLE
 #include "kindle.h"
 #include "ime.h"
@@ -44,6 +45,15 @@
 KTconf *conf;
 /** Global debug */
 gboolean debug = FALSE;
+/** The terminal widget */
+static GtkWidget *main_terminal = NULL;
+
+/**
+ * @return The terminal widget
+ */
+GtkWidget * kterm_get_terminal(void) {
+    return main_terminal;
+}
 
 /**
  * Signals handler
@@ -283,6 +293,12 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
 #ifdef KINDLE
 /** How far a finger may move, in pixels, and still count as a tap */
 #define TAP_SLOP_PX 30
+/** A swipe from a screen edge starts within this many pixels of the top */
+#define EDGE_TOP_PX 64
+/** ... or of the bottom */
+#define EDGE_BOTTOM_PX 120
+/** and travels at least this far */
+#define EDGE_SWIPE_MIN_PX 96
 /** Built-in keyboard container */
 static GtkWidget *builtin_kb_box = NULL;
 /** Shown instead of the built-in keyboard while the system one is up */
@@ -305,7 +321,11 @@ void kterm_toggle_ime(void) {
         if (conf->kb_on) {
             gtk_widget_show(builtin_kb_box);
         }
-    } else if (ime_open()) {
+        return;
+    }
+    // the panel's form is filled in with the built-in keyboard
+    panel_close();
+    if (ime_open()) {
         gtk_widget_set_size_request(ime_spacer, -1, ime_keyboard_height());
         gtk_widget_hide(builtin_kb_box);
         gtk_widget_show(ime_panel);
@@ -492,6 +512,40 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
     return menu;
 }
 
+#if GTK_CHECK_VERSION(3,2,0)
+/**
+ * Build the row of general actions for the bottom of the panel
+ * @param terminal Terminal widget
+ * @param box Kterm container
+ * @return Row widget
+ */
+static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
+    GtkWidget *fontdown_button = panel_button_new("字号 −");
+    GtkWidget *fontup_button = panel_button_new("字号 +");
+    GtkWidget *kb_button = panel_button_new("隐藏键盘");
+    GtkWidget *quit_button = panel_button_new("退出");
+    g_signal_connect(fontdown_button, "clicked", G_CALLBACK(fontdown), (gpointer) terminal);
+    g_signal_connect(fontup_button, "clicked", G_CALLBACK(fontup), (gpointer) terminal);
+    // the panel goes with the keyboard: it is opened by swiping up from it
+    g_signal_connect(kb_button, "clicked", G_CALLBACK(toggle_keyboard), box);
+    g_signal_connect_swapped(kb_button, "clicked", G_CALLBACK(panel_close), NULL);
+    g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_box_pack_start(GTK_BOX(row), fontdown_button, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), fontup_button, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), kb_button, TRUE, TRUE, 0);
+#ifdef KINDLE
+    GtkWidget *rotate_button = panel_button_new("旋转");
+    g_signal_connect_swapped(rotate_button, "clicked", G_CALLBACK(panel_close), NULL);
+    g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), box);
+    gtk_box_pack_start(GTK_BOX(row), rotate_button, TRUE, TRUE, 0);
+#endif
+    gtk_box_pack_start(GTK_BOX(row), quit_button, TRUE, TRUE, 0);
+    return row;
+}
+#endif
+
 /**
  * Mouse button event callback
  * @param terminal Terminal widget
@@ -503,26 +557,54 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
     UNUSED(terminal);
     D printf("event-type: %i\n", event->type);
     D printf("event-button: %i\n", event->button);
+    D {
+        GtkWidget *grab = gtk_grab_get_current();
+        printf("event-at: %.0f,%.0f (widget %.0f,%.0f) gtk-grab: %s\n", event->x_root, event->y_root,
+               event->x, event->y, grab ? gtk_widget_get_name(grab) : "none");
+    }
 #ifdef KINDLE
     // ignore any motion events (i think we don't need selecting text as one finger motion scrolls buffer)
     if (event->type == GDK_MOTION_NOTIFY) { return TRUE; }
 #endif
 #ifdef KINDLE
-    // A tap on the terminal brings a hidden keyboard back, as tapping a text
-    // field does elsewhere on the device. A finger that moved was scrolling.
-    if (event->button == 1 && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
+    if (event->button == 1) {
         static gdouble press_x = 0, press_y = 0;
         if (event->type == GDK_BUTTON_PRESS) {
             press_x = event->x_root;
             press_y = event->y_root;
-        } else if (event->type == GDK_BUTTON_RELEASE
-                   && ABS(event->x_root - press_x) < TAP_SLOP_PX
-                   && ABS(event->y_root - press_y) < TAP_SLOP_PX) {
-            conf->kb_on = TRUE;
-            gtk_widget_show(builtin_kb_box);
+        } else if (event->type == GDK_BUTTON_RELEASE) {
+            const gdouble dx = event->x_root - press_x;
+            const gdouble dy = event->y_root - press_y;
+            const gboolean vertical = ABS(dy) >= EDGE_SWIPE_MIN_PX && ABS(dy) >= ABS(dx) * 1.5;
+            const gint screen_height = gdk_screen_get_height(gdk_screen_get_default());
+            if (vertical && dy > 0 && press_y <= EDGE_TOP_PX) {
+                // Down from the top edge is the device's own gesture for its
+                // quick settings (light, dark mode, airplane mode). A full
+                // screen application has to pass it on.
+                show_system_menu();
+                return TRUE;
+            }
+            if (vertical && dy < 0 && press_y >= screen_height - EDGE_BOTTOM_PX
+                && !conf->kb_on && !ime_is_open()) {
+                // with the keyboard hidden its swipe starts on the terminal
+                panel_open();
+                return TRUE;
+            }
+            if (!vertical && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
+                && !panel_is_open() && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
+                // A tap on the terminal brings a hidden keyboard back, as
+                // tapping a text field does elsewhere on the device.
+                conf->kb_on = TRUE;
+                gtk_widget_show(builtin_kb_box);
+            }
         }
     }
 #endif
+    if (event->button == 1 && event->type == GDK_BUTTON_RELEASE && panel_is_open()) {
+        // a touch outside the panel puts it away
+        panel_close();
+        return TRUE;
+    }
     if (event->button == BUTTON_MENU) {
 #ifdef KINDLE
         // ignore button click to disable paste (quite messy on kindle)
@@ -723,6 +805,8 @@ gint main(gint argc, gchar **argv) {
                 break;
             case 'd':
                 debug = TRUE;
+                // debug output is usually sent to a file: keep it in step
+                setvbuf(stdout, NULL, _IOLBF, 0);
                 break;
             case 'e':
                 command = optarg;
@@ -840,7 +924,16 @@ gint main(gint argc, gchar **argv) {
         exit(1);
     }
     gtk_widget_set_name(terminal, "termBox");
+    main_terminal = terminal;
+#if GTK_CHECK_VERSION(3,2,0)
+    // the panel is drawn over the terminal, which keeps its size
+    GtkWidget *overlay = gtk_overlay_new();
+    gtk_container_add(GTK_CONTAINER(overlay), terminal);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel_new(terminal, build_panel_actions(terminal, vbox)));
+    gtk_box_pack_start(GTK_BOX(vbox), overlay, TRUE, TRUE, 0);
+#else
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
+#endif
     
 #ifdef KINDLE
     builtin_kb_box = keyboard_box;

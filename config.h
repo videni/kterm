@@ -78,6 +78,9 @@
 
 /** Delay for key release event */
 #define KB_RELEASE_DELAY_MS 100
+/** How far, in pixels, a finger must travel up or down across the keyboard
+ *  to count as a swipe instead of a key press. Keys are about 85 px high. */
+#define KB_SWIPE_MIN_PX 150
 
 /** Terminal scrollback size */
 #define VTE_SCROLLBACK_LINES 200

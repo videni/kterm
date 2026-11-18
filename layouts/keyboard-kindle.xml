@@ -6,7 +6,6 @@
     <row>
       <key>
         <default display="Esc" action="escape" />
-        <mod1 display="退出" action="quit" />
       </key>
       <key>
         <default display="Ctrl" action="modifier:ctrl" />

@@ -20,6 +20,7 @@
  */
 
 #include <stdio.h>
+#include <gio/gio.h>
 #include "kindle.h"
 #include "config.h"
 
@@ -246,6 +247,36 @@ gboolean grab_keyboard_cb(GtkWidget *widget, GdkEvent *event, gpointer data) {
 }
 
 /**
+ * Open the device's quick settings, as a swipe down from the top of the
+ * screen does in its own applications.
+ * This is the lipc call "com.lab126.kppchromebar configurePillState
+ * openedBySwipe"; lipc properties are D-Bus methods on the system bus.
+ * @return True if the request was sent
+ */
+gboolean show_system_menu(void) {
+    static GDBusConnection *bus = NULL;
+    if (!bus) {
+        GError *error = NULL;
+        bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
+        if (!bus) {
+            D printf("No system bus: %s\n", error->message);
+            g_error_free(error);
+            return FALSE;
+        }
+        // losing the bus must not take the terminal down with it
+        g_dbus_connection_set_exit_on_close(bus, FALSE);
+    }
+    const gchar *service = "com.lab126.kppchromebar";
+    const gchar *method = "setconfigurePillStateStr";
+    gchar *iface = g_strdup_printf("%s.%s", service, method);
+    // not waiting for the answer: the status bar is busy drawing by then
+    g_dbus_connection_call(bus, service, "/default", iface, method, g_variant_new("(s)", "openedBySwipe"),
+                           NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL, NULL);
+    g_free(iface);
+    return TRUE;
+}
+
+/**
  * Inject custom styles (css)
  * Reason: Kindle users have limited access to style customizations.
  * This scheme may however be overriden by local styles.
@@ -266,6 +297,17 @@ void inject_styles(void) {
                                     "#ktermKbButton:selected { background: @gray; }"
                                     "#ktermKbButton:disabled { background: @gray; }"
                                     "#ktermKbButton:active { background: @gray; }"
+                                    // the panel over the terminal: black on
+                                    // white, large enough for fingers
+                                    "#ktermPanel { background-color: #ffffff; border-top: 4px solid #000000;"
+                                    " color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    "#ktermPanelButton { background: @gray; color: #000000; border: 2px solid #000000;"
+                                    " border-radius: 8px; padding: 16px 20px; min-width: 0; min-height: 0;"
+                                    " box-shadow: none; text-shadow: none; }"
+                                    "#ktermPanelButton:disabled { color: #a0a0a0; border-color: #a0a0a0; }"
+                                    "#ktermPanel entry { background: #ffffff; color: #000000; border: 2px solid #000000;"
+                                    " border-radius: 8px; padding: 12px 16px; min-height: 0; box-shadow: none; }"
+                                    "#ktermPanel separator { background: #000000; min-height: 2px; }"
                                     , -1, &error);
     if G_UNLIKELY(error) {
         D printf("Style injection failed: %s\n", error->message);

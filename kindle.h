@@ -35,5 +35,6 @@ gboolean keyboard_grab(GdkWindow *window, gboolean grab);
 
 void inject_gtkrc(void);
 void inject_styles(void);
+gboolean show_system_menu(void);
 
 #endif /* kindle_h */

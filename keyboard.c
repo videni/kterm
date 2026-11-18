@@ -24,6 +24,7 @@
 #include <vte/vte.h>
 #include <string.h>
 #include "keyboard.h"
+#include "panel.h"
 #include "config.h"
 
 #if GTK_CHECK_VERSION(3,0,0)
@@ -458,19 +459,12 @@ static gboolean keyboard_event_release(gpointer data) {
  * @param key Key structure
  */
 static void keyboard_terminal_feed(GtkWidget *button, const Key *key) {
+    UNUSED(button);
     // send characters directly via vte_terminal_feed_child()
-    GtkWidget *toplevel = gtk_widget_get_toplevel(button);
-    GList *box_list = gtk_container_get_children(GTK_CONTAINER(toplevel));
-    GtkWidget *kterm_box = box_list->data;
-    g_list_free(box_list);
-    box_list = gtk_container_get_children(GTK_CONTAINER(kterm_box));
-    GtkWidget *terminal = NULL;
-    for (GList *cur = box_list; cur != NULL; cur = cur->next) {
-        const gchar *box_name = gtk_widget_get_name(GTK_WIDGET(cur->data));
-        if (!strcmp(box_name, "termBox")) { terminal = GTK_WIDGET(cur->data); }
-    }
-    g_list_free(box_list);
-    if G_UNLIKELY(!terminal) {
+    GtkWidget *terminal = kterm_get_terminal();
+    // not while a form of the panel is being filled in: this path bypasses
+    // the keyboard focus, and the character would land in the terminal
+    if G_UNLIKELY(!terminal || panel_wants_keys()) {
         return;
     }
 
@@ -494,14 +488,47 @@ static void keyboard_terminal_feed(GtkWidget *button, const Key *key) {
  * @return True to stop processing event, false otherwise
  */
 gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
+    // A key acts when the finger leaves it, not when it lands: only then is
+    // it known whether this was a tap on the key or the start of a swipe
+    // across the keyboard.
+    static Key *pressed = NULL;
+    static gdouble press_x = 0, press_y = 0;
+    D printf("key button event: type %i at %.0f,%.0f\n", ev->type, ev->button.x_root, ev->button.y_root);
     if (ev->type == GDK_BUTTON_PRESS) {
+        pressed = key;
+        press_x = ev->button.x_root;
+        press_y = ev->button.y_root;
+        if (!key->modifier) {
+            // show the touch at once
+            gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), TRUE);
+        }
+        return TRUE;
+    } else if (ev->type == GDK_BUTTON_RELEASE) {
+        if (pressed != key) {
+            return TRUE;
+        }
+        pressed = NULL;
+        const gdouble dx = ev->button.x_root - press_x;
+        const gdouble dy = ev->button.y_root - press_y;
+        if (ABS(dy) >= KB_SWIPE_MIN_PX && ABS(dy) > ABS(dx)) {
+            if (!key->modifier) {
+                gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), FALSE);
+            }
+            // up from the keyboard opens the panel, down puts it away
+            if (dy < 0) {
+                panel_open();
+            } else {
+                panel_close();
+            }
+            return TRUE;
+        }
         if (!keyboard_event_press(key)) {
             // not in keymap, try workaround
             keyboard_terminal_feed(button, key);
         }
-        return TRUE;
-    } else if (ev->type == GDK_BUTTON_RELEASE && !key->modifier) {
-        g_timeout_add(KB_RELEASE_DELAY_MS, keyboard_event_release, key);
+        if (!key->modifier) {
+            g_timeout_add(KB_RELEASE_DELAY_MS, keyboard_event_release, key);
+        }
         return TRUE;
     }
     return FALSE;
