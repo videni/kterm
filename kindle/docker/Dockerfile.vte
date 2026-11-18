@@ -1,0 +1,5 @@
+# Build environment for kterm's own VTE: what Alpine builds its vte3 package
+# with (community/vte3/APKBUILD), GTK+ 3 only.
+FROM kterm-build:armv7
+RUN apk add --no-cache meson gperf bash linux-headers fast_float fmt-dev gnutls-dev \
+    icu-dev lz4-dev pcre2-dev simdutf-dev ncurses-dev fribidi-dev

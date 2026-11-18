@@ -29,6 +29,9 @@ install_file() {
     chmod "$3" "$2.new"
     mv "$2.new" "$2"
 }
+# kterm's own VTE (Alpine's with a few changes), found by kterm before the
+# system's; the vte3 package above brings the libraries it needs
+install_file "$PACKAGE_ROOT/payload/libvte-2.91.so.0" "$MNT/usr/local/lib/kterm/libvte-2.91.so.0" 755
 install_file "$PACKAGE_ROOT/payload/kterm" "$MNT/usr/local/bin/kterm" 755
 install_file "$PACKAGE_ROOT/bwrap-shim.sh" "$MNT/usr/local/bin/bwrap" 755
 install_file "$PACKAGE_ROOT/payload/keyboard-kindle.xml" "$MNT/usr/local/share/kterm/keyboard-kindle.xml" 644

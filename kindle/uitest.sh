@@ -30,6 +30,7 @@ start)
     docker rm -f $NAME >/dev/null 2>&1 || true
     docker run -d --name $NAME --platform linux/arm/v7 \
         -v "$BUILD:/out:ro" -v "$REPO/layouts:/layouts:ro" \
+        -v "$BUILD/vte/usr/lib:/usr/local/lib/kterm:ro" \
         -v "$KINDLE_DIR/kpm/bwrap-shim.sh:/usr/local/bin/bwrap:ro" \
         kterm-test:armv7 sleep 86400 >/dev/null
     docker exec -d $NAME Xvfb :1 -screen 0 1072x1448x24 -dpi 300 -nolisten tcp

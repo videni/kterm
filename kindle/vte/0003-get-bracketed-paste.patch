@@ -1,0 +1,54 @@
+From: kterm
+Subject: vte_terminal_get_bracketed_paste()
+
+Whether the program in the terminal has bracketed paste mode on: shells,
+line editors and tmux (for the pane it shows) turn it on while they wait
+for input. kterm offers its paste button only then.
+
+--- a/src/vtegtk.cc
++++ b/src/vtegtk.cc
+@@ -5916,6 +5916,31 @@
+ }
+ 
+ /**
++ * vte_terminal_get_bracketed_paste:
++ * @terminal: a #VteTerminal
++ *
++ * Whether the program in the terminal asked for pasted text to be marked
++ * (bracketed paste mode, DECSET 2004). Shells and other line editors ask
++ * for it while they wait for a line to be typed, and stop asking once it
++ * is entered: so it tells whether there is somewhere to paste to.
++ *
++ * Return value: %TRUE if bracketed paste mode is on
++ */
++gboolean
++vte_terminal_get_bracketed_paste(VteTerminal *terminal) noexcept
++try
++{
++        g_return_val_if_fail(VTE_IS_TERMINAL(terminal), FALSE);
++
++        return IMPL(terminal)->m_modes_private.XTERM_READLINE_BRACKETED_PASTE();
++}
++catch (...)
++{
++        vte::log_exception();
++        return FALSE;
++}
++
++/**
+  * vte_terminal_get_cursor_blink_mode:
+  * @terminal: a #VteTerminal
+  *
+--- a/src/vte/vteterminal.h
++++ b/src/vte/vteterminal.h
+@@ -344,6 +344,10 @@
+ 					VteCursorBlinkMode mode) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
+ _VTE_PUBLIC
+ VteCursorBlinkMode vte_terminal_get_cursor_blink_mode(VteTerminal *terminal) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
++
++/* Whether pasted text is to be marked: the program waits for a line */
++_VTE_PUBLIC
++gboolean vte_terminal_get_bracketed_paste(VteTerminal *terminal) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
+ 
+ /* Set cursor shape */
+ _VTE_PUBLIC

@@ -1,0 +1,28 @@
+From: kterm
+Subject: Redraw only the rows written to, not the whole terminal
+
+The rows written to while processing output are gathered in a bounding box
+that starts empty and grows with each character. It started the wrong way
+round, top at -G_MAXINT and bottom at G_MAXINT: every row on screen, so
+that any output, a single character typed, redrew the whole terminal.
+post_CMD() restarts it the right way round, empty.
+
+On an e-ink screen every redraw is a refresh of the area drawn: the whole
+terminal for each character, slower, using more power, and leaving more
+behind than the row that changed.
+
+--- a/src/vte.cc
++++ b/src/vte.cc
+@@ -136,8 +136,10 @@
+ 
+ class Terminal::ProcessingContext {
+ public:
+-        vte::grid::row_t m_bbox_top{-G_MAXINT};
+-        vte::grid::row_t m_bbox_bottom{G_MAXINT};
++        // empty: grown by each character written (see pre_GRAPHIC() and
++        // post_GRAPHIC()), as when restarted in post_CMD()
++        vte::grid::row_t m_bbox_top{G_MAXINT};
++        vte::grid::row_t m_bbox_bottom{-G_MAXINT};
+         bool m_modified{false};
+         bool m_bottom{false};
+         bool m_invalidated_text{false};
