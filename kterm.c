@@ -469,7 +469,11 @@ static void keyboard_update(GtkWidget *keyboard_box, GtkAllocation *alloc, Keybo
     static gint saved_height = -1;
     if (conf->kb_on && alloc && (alloc->width != saved_width || screen_height != saved_height)) {
         D printf("set keyboard size: %ix%i\n", alloc->width, alloc->height);
-        g_idle_add(keyboard_set_size, keyboard);
+        // At once, not from an idle callback: GTK lays the window out
+        // again before drawing it, so the keys sized for the old width
+        // (after a rotation, an empty band on the right) are never drawn,
+        // which on e-ink would stay visible for a whole refresh.
+        keyboard_set_size(keyboard);
         saved_width = alloc->width;
         saved_height = screen_height;
     }
