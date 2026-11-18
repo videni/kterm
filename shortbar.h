@@ -31,6 +31,8 @@
 #define SHORTBAR_PASTE_NAME "ktermShortPaste"
 /** Widget name of the bar's two tools: the panel, the keyboard */
 #define SHORTBAR_TOOL_NAME "ktermShortTool"
+/** Widget name of the row of shortcuts between the tools */
+#define SHORTBAR_SLOTS_NAME "ktermShortSlots"
 
 GtkWidget * shortbar_new(const gchar *path);
 void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);

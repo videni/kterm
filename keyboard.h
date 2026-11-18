@@ -125,6 +125,8 @@ void kterm_hide_keyboard(void);
 void kterm_use_builtin_keyboard(void);
 void kterm_set_preview(gboolean on);
 gboolean kterm_previewing(void);
+void kterm_preview_after_key(void);
+void kterm_key_typed(void);
 /** The terminal widget; provided by kterm.c */
 GtkWidget * kterm_get_terminal(void);
 gboolean kterm_terminal_has_shell(void);

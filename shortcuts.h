@@ -23,16 +23,20 @@
 /** Buttons kept; past one row they are reached by swiping the bar */
 #define SHORTCUTS_MAX 48
 /** Used when there is no file */
-#define SHORTCUTS_DEFAULT "C-a\nC-e\nC-u\nC-y\nC-w\nC-c\nTX = C-Space\n"
+#define SHORTCUTS_DEFAULT "C-a\nC-e\nC-u\nC-y\nC-w\nC-c\nTX = C-Space +键盘\n"
+/** Written after the keys of a prefix: while previewing, the keyboard comes
+ *  out for the one key that follows, then goes away again */
+#define SHORTCUT_KEYBOARD_MARK "+键盘"
 
 /** One button of the shortcut bar */
 typedef struct {
     gchar *label; /** Text on the button */
     gchar *spec; /** Keys as written, see keyseq.c */
     GBytes *keys; /** What a tap sends to the terminal */
+    gboolean keyboard; /** A prefix: the keyboard comes out for one key */
 } Shortcut;
 
-Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error);
+Shortcut * shortcut_new(const gchar *name, const gchar *spec, gboolean keyboard, GError **error);
 void shortcut_free(gpointer item);
 GPtrArray * shortcuts_parse(const gchar *text, gchar **problems);
 GPtrArray * shortcuts_load(const gchar *path, gchar **problems);

@@ -87,12 +87,132 @@ static void update_visibility(void) {
     gtk_widget_set_visible(bar, keyboard || kterm_previewing());
 }
 
+/*
+ * Signs of the two tools: Material icons (Google, Apache License 2.0),
+ * their SVG paths on a grid of 24 by 24
+ */
+/** "menu": the panel */
+#define ICON_MENU "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"
+/** "keyboard_hide": with the keyboard out, a tap folds it away */
+#define ICON_KEYBOARD_HIDE "M20 3H4c-1.1 0-1.99.9-1.99 2L2 15c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" \
+    "m-9 3h2v2h-2V6zm0 3h2v2h-2V9zM8 6h2v2H8V6zm0 3h2v2H8V9zm-1 2H5V9h2v2zm0-3H5V6h2v2zm9 7H8v-2h8v2z" \
+    "m0-4h-2V9h2v2zm0-3h-2V6h2v2zm3 3h-2V9h2v2zm0-3h-2V6h2v2zm-7 15l4-4H8l4 4z"
+/** "keyboard": while previewing, a tap brings it back */
+#define ICON_KEYBOARD "M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2z" \
+    "m-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2z" \
+    "m0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
+
 /**
- * Draw a tool: three bars for the panel; for the keyboard, a keyboard and
- * an arrow telling what a tap does, down (fold it away) with the keyboard
- * out, up (bring it back) while previewing. Drawn, not taken from a font:
- * the fonts that have such signs differ from one system to the next, and
- * so did their size.
+ * Read the next number of an SVG path
+ * @param p Position in the path, moved past the number
+ * @return The number, 0 if there is none
+ */
+static gdouble path_number(const gchar **p) {
+    while (**p == ' ' || **p == ',') {
+        (*p)++;
+    }
+    gchar *end = NULL;
+    const gdouble value = g_ascii_strtod(*p, &end);
+    if (end == *p) {
+        // no number: step over whatever is there, so that reading ends
+        if (**p) {
+            (*p)++;
+        }
+        return 0;
+    }
+    *p = end;
+    return value;
+}
+
+/**
+ * Add an SVG path to the cairo path: the commands of the icons drawn here
+ * (M L H V C S Z, absolute or relative), no arcs
+ * @param cr Cairo context, its matrix set to the grid of the path
+ * @param d The path
+ */
+static void svg_path(cairo_t *cr, const gchar *d) {
+    gdouble x = 0, y = 0, start_x = 0, start_y = 0;
+    // second control point of the last curve, for S
+    gdouble ctrl_x = 0, ctrl_y = 0;
+    gchar command = 0, last = 0;
+    const gchar *p = d;
+    while (*p) {
+        while (*p == ' ' || *p == ',') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        if (g_ascii_isalpha(*p)) {
+            command = *p++;
+        } else if (command == 'M') {
+            // more points after a move are lines
+            command = 'L';
+        } else if (command == 'm') {
+            command = 'l';
+        }
+        const gboolean relative = g_ascii_islower(command);
+        const gdouble ox = relative ? x : 0, oy = relative ? y : 0;
+        switch (g_ascii_toupper(command)) {
+        case 'M':
+            x = ox + path_number(&p);
+            y = oy + path_number(&p);
+            cairo_move_to(cr, x, y);
+            start_x = x;
+            start_y = y;
+            break;
+        case 'L':
+            x = ox + path_number(&p);
+            y = oy + path_number(&p);
+            cairo_line_to(cr, x, y);
+            break;
+        case 'H':
+            x = ox + path_number(&p);
+            cairo_line_to(cr, x, y);
+            break;
+        case 'V':
+            y = oy + path_number(&p);
+            cairo_line_to(cr, x, y);
+            break;
+        case 'C':
+        case 'S': {
+            gdouble x1, y1;
+            if (g_ascii_toupper(command) == 'C') {
+                x1 = ox + path_number(&p);
+                y1 = oy + path_number(&p);
+            } else if (g_ascii_toupper(last) == 'C' || g_ascii_toupper(last) == 'S') {
+                // the first control point mirrors the last one
+                x1 = 2 * x - ctrl_x;
+                y1 = 2 * y - ctrl_y;
+            } else {
+                x1 = x;
+                y1 = y;
+            }
+            ctrl_x = ox + path_number(&p);
+            ctrl_y = oy + path_number(&p);
+            x = ox + path_number(&p);
+            y = oy + path_number(&p);
+            cairo_curve_to(cr, x1, y1, ctrl_x, ctrl_y, x, y);
+            break;
+        }
+        case 'Z':
+            cairo_close_path(cr);
+            x = start_x;
+            y = start_y;
+            break;
+        default:
+            // not drawn here: stop rather than draw something wrong
+            return;
+        }
+        last = command;
+    }
+}
+
+/**
+ * Draw a tool: its sign on the bar, without a key under it, which sets the
+ * two tools apart from the shortcuts; drawn black on white, and white on
+ * black while pressed. Drawn, not taken from a font: the fonts that have
+ * such signs differ from one system to the next, and so did their look.
  * @param tool Tool widget
  * @param cr Cairo context
  * @param data Not used
@@ -108,42 +228,15 @@ static gboolean draw_tool_cb(GtkWidget *tool, cairo_t *cr, gpointer data) {
     GdkRGBA color;
     gtk_style_context_get_color(style, gtk_style_context_get_state(style), &color);
     gdk_cairo_set_source_rgba(cr, &color);
-    // a grid of 24 by 24 units over the tool, the sign in the middle of it
-    const gdouble u = MIN(w, h) / 22.0;
-    const gdouble cx = w / 2, cy = h / 2;
-    if (tool == menu_tool) {
-        for (gint i = -1; i <= 1; i++) {
-            cairo_rectangle(cr, cx - 6 * u, cy + i * 3.5 * u - 0.75 * u, 12 * u, 1.5 * u);
-        }
-        cairo_fill(cr);
-        return FALSE;
-    }
-    // the keyboard, 8 units tall, and 1.5 below it the arrow, 4 tall: the
-    // two together centred
-    const gdouble kx = cx - 6 * u, ky = cy - 6.75 * u;
-    cairo_set_line_width(cr, u);
-    cairo_rectangle(cr, kx + u / 2, ky + u / 2, 12 * u - u, 8 * u - u);
-    cairo_stroke(cr);
-    for (gint row = 0; row < 2; row++) {
-        for (gint col = 0; col < 4; col++) {
-            cairo_rectangle(cr, kx + 2 * u + col * 2.25 * u, ky + 2 * u + row * 2 * u, 1.25 * u, 1.25 * u);
-        }
-    }
-    cairo_rectangle(cr, kx + 3.5 * u, ky + 6 * u - 0.5 * u, 5 * u, 1 * u);
+    // the 24 by 24 grid of the icon, 60 % of the tool, in its middle
+    const gdouble size = MIN(w, h) * 0.6;
+    cairo_save(cr);
+    cairo_translate(cr, (w - size) / 2, (h - size) / 2);
+    cairo_scale(cr, size / 24, size / 24);
+    svg_path(cr, tool == menu_tool ? ICON_MENU : (kterm_previewing() ? ICON_KEYBOARD : ICON_KEYBOARD_HIDE));
+    cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
     cairo_fill(cr);
-    // the arrow below it
-    const gdouble top = ky + 9.5 * u, bottom = top + 4 * u;
-    if (kterm_previewing()) {
-        cairo_move_to(cr, cx, top);
-        cairo_line_to(cr, cx + 4 * u, bottom);
-        cairo_line_to(cr, cx - 4 * u, bottom);
-    } else {
-        cairo_move_to(cr, cx - 4 * u, top);
-        cairo_line_to(cr, cx + 4 * u, top);
-        cairo_line_to(cr, cx, bottom);
-    }
-    cairo_close_path(cr);
-    cairo_fill(cr);
+    cairo_restore(cr);
     return FALSE;
 }
 
@@ -350,11 +443,19 @@ static void tap(gdouble x, gdouble y) {
         // Code, a shell) is told where the pasted text starts and ends
         // the button stays: a paste undone can be pasted again
         vte_terminal_paste_text(VTE_TERMINAL(terminal), paste_text);
+        kterm_key_typed();
     } else if (index) {
         const Shortcut *item = g_ptr_array_index(items, index - 1);
         gsize size = 0;
         const gchar *keys = g_bytes_get_data(item->keys, &size);
         vte_terminal_feed_child(VTE_TERMINAL(terminal), keys, (gssize) size);
+        if (item->keyboard && kterm_previewing()) {
+            // a prefix: the keyboard comes out for the key that follows
+            kterm_set_preview(FALSE);
+            kterm_preview_after_key();
+        } else {
+            kterm_key_typed();
+        }
     }
 }
 
@@ -451,6 +552,9 @@ GtkWidget * shortbar_new(const gchar *path) {
     keyboard_tool = gtk_drawing_area_new();
     slots = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_box_set_homogeneous(GTK_BOX(slots), TRUE);
+    // the line under the bar runs under the shortcuts only: they belong
+    // together, the tools stand apart
+    gtk_widget_set_name(slots, SHORTBAR_SLOTS_NAME);
     gtk_box_pack_start(GTK_BOX(row), menu_tool, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(row), slots, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(row), keyboard_tool, FALSE, FALSE, 0);

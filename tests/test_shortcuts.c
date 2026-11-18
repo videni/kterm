@@ -95,7 +95,38 @@ static void test_defaults(void) {
     has(list, 0, "C-a", "\x01", 1);
     has(list, 3, "C-y", "\x19", 1);
     has(list, 6, "TX", "\0", 1);
+    // the tmux prefix brings the keyboard out while previewing
+    g_assert_true(((Shortcut *) g_ptr_array_index(list, 6))->keyboard);
+    g_assert_false(((Shortcut *) g_ptr_array_index(list, 0))->keyboard);
     g_ptr_array_unref(list);
+}
+
+static void test_keyboard_mark(void) {
+    gchar *problems = NULL;
+    GPtrArray *list = shortcuts_parse("TX = C-Space +键盘\nC-b +键盘\n键盘 = \"+键盘\"\nC-a\n", &problems);
+    g_assert_null(problems);
+    g_assert_cmpuint(list->len, ==, 4);
+    has(list, 0, "TX", "\0", 1);
+    g_assert_true(((Shortcut *) g_ptr_array_index(list, 0))->keyboard);
+    // without a name: the keys shown, the mark not
+    has(list, 1, "C-b", "\x02", 1);
+    g_assert_true(((Shortcut *) g_ptr_array_index(list, 1))->keyboard);
+    // in quotes it is text
+    has(list, 2, "键盘", "+键盘", strlen("+键盘"));
+    g_assert_false(((Shortcut *) g_ptr_array_index(list, 2))->keyboard);
+    g_assert_false(((Shortcut *) g_ptr_array_index(list, 3))->keyboard);
+    // written back as it was
+    gchar *text = shortcuts_format(NULL, list);
+    g_assert_nonnull(strstr(text, "\nTX = C-Space +键盘\nC-b +键盘\n键盘 = \"+键盘\"\nC-a\n"));
+    g_free(text);
+    g_ptr_array_unref(list);
+    // made in the panel's form
+    GError *error = NULL;
+    Shortcut *item = shortcut_new("TX", "C-Space", TRUE, &error);
+    g_assert_no_error(error);
+    g_assert_true(item->keyboard);
+    g_assert_cmpstr(item->spec, ==, "C-Space");
+    shortcut_free(item);
 }
 
 static void test_load(void) {
@@ -126,13 +157,13 @@ static void test_load(void) {
 
 static void test_new(void) {
     GError *error = NULL;
-    Shortcut *item = shortcut_new("", "C-u", &error);
+    Shortcut *item = shortcut_new("", "C-u", FALSE, &error);
     g_assert_no_error(error);
     // no name: the button shows the keys
     g_assert_cmpstr(item->label, ==, "C-u");
     g_assert_cmpstr(item->spec, ==, "C-u");
     shortcut_free(item);
-    item = shortcut_new("  TX ", " C-Space ", &error);
+    item = shortcut_new("  TX ", " C-Space ", FALSE, &error);
     g_assert_cmpstr(item->label, ==, "TX");
     g_assert_cmpstr(item->spec, ==, "C-Space");
     shortcut_free(item);
@@ -143,7 +174,7 @@ static void test_new(void) {
         { "", "C-x =" }, { "", "= Enter" }, { "", "Esc =" }, { "12\"", "C-u" }, { "a\"b", "C-u" },
     };
     for (guint i = 0; i < G_N_ELEMENTS(bad); i++) {
-        item = shortcut_new(bad[i][0], bad[i][1], &error);
+        item = shortcut_new(bad[i][0], bad[i][1], FALSE, &error);
         g_assert_null(item);
         g_assert_nonnull(error);
         g_clear_error(&error);
@@ -154,7 +185,7 @@ static void test_format(void) {
     gchar *problems = NULL;
     GPtrArray *list = shortcuts_parse("# 说明\n#  第二行\n\nC-a\nTX = C-Space\n# 中间的说明\nC-e\n", &problems);
     g_assert_null(problems);
-    g_ptr_array_add(list, shortcut_new("拉代码", "\"git pull\" Enter", NULL));
+    g_ptr_array_add(list, shortcut_new("拉代码", "\"git pull\" Enter", FALSE, NULL));
     gchar *text = shortcuts_format("# 说明\n#  第二行\n\nC-a\nTX = C-Space\n# 中间的说明\nC-e\n", list);
     // the comments on top are kept, the buttons follow one per line, and
     // other lines written by hand come after them
@@ -244,6 +275,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/shortcuts/bad-lines-skipped", test_bad_lines_skipped);
     g_test_add_func("/shortcuts/too-many", test_too_many);
     g_test_add_func("/shortcuts/defaults", test_defaults);
+    g_test_add_func("/shortcuts/keyboard-mark", test_keyboard_mark);
     g_test_add_func("/shortcuts/load", test_load);
     g_test_add_func("/shortcuts/new", test_new);
     g_test_add_func("/shortcuts/format", test_format);

@@ -350,6 +350,8 @@ static GtkWidget *builtin_kb_box = NULL;
 /** Reading: the keyboard stays folded away, a tap on the terminal does not
  *  bring it back. Left from the panel, or by anything that shows a keyboard. */
 static gboolean read_mode = FALSE;
+/** Back to the preview after the next key, see kterm_preview_after_key() */
+static gboolean preview_after_key = FALSE;
 /** Swipe down from the top edge over the panel, see panel_top_swipe_cb() */
 static GtkGesture *panel_top_swipe = NULL;
 
@@ -421,6 +423,7 @@ void kterm_toggle_ime(void) {
  */
 void kterm_use_builtin_keyboard(void) {
     read_mode = FALSE;
+    preview_after_key = FALSE;
     if (ime_is_open()) {
         kterm_toggle_ime();
     }
@@ -449,6 +452,7 @@ void kterm_set_preview(gboolean on) {
         kterm_toggle_ime();
     }
     read_mode = TRUE;
+    preview_after_key = FALSE;
     kterm_hide_keyboard();
     shortbar_update();
 }
@@ -458,6 +462,24 @@ void kterm_set_preview(gboolean on) {
  */
 gboolean kterm_previewing(void) {
     return read_mode;
+}
+
+/**
+ * The keyboard came out of the preview for one key, after a prefix: once
+ * that key is typed, back to the preview
+ */
+void kterm_preview_after_key(void) {
+    preview_after_key = TRUE;
+}
+
+/**
+ * A key was typed, on the keyboard or the shortcut bar (not a modifier,
+ * which waits for its key)
+ */
+void kterm_key_typed(void) {
+    if (preview_after_key && !ime_is_open() && !panel_wants_keys()) {
+        kterm_set_preview(TRUE);
+    }
 }
 
 /**
@@ -515,6 +537,8 @@ void kterm_hide_keyboard(void) {}
 void kterm_use_builtin_keyboard(void) {}
 void kterm_set_preview(gboolean on) { UNUSED(on); }
 gboolean kterm_previewing(void) { return FALSE; }
+void kterm_preview_after_key(void) {}
+void kterm_key_typed(void) {}
 #endif
 
 /**

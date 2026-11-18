@@ -319,7 +319,8 @@ void inject_styles(void) {
                                     "#ktermKbButton:checked label { color: #ffffff; }"
                                     // shortcut bar: keys like the keyboard's,
                                     // set apart from it by a line
-                                    "#ktermShortBar { background: #ffffff; border-bottom: 2px solid #000000; }"
+                                    "#ktermShortBar { background: #ffffff; }"
+                                    "#ktermShortSlots { border-bottom: 2px solid #000000; }"
                                     "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
                                     " border: 1px solid @line; border-radius: 4px; color: #2e3436;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
@@ -327,9 +328,8 @@ void inject_styles(void) {
                                     "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
                                     " border: 1px solid #000000; border-radius: 4px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
-                                    // the two tools at the ends: keys like the shortcuts, a sign drawn on them
-                                    "#ktermShortTool { background: @gray; color: #000000; margin: 3px;"
-                                    " border: 1px solid @line; border-radius: 4px; }"
+                                    // the two tools at the ends: a sign, no key under it
+                                    "#ktermShortTool { background: transparent; color: #000000; border: none; border-radius: 6px; }"
                                     "#ktermShortTool.pressed { background: #000000; color: #ffffff; }"
                                     "#ktermShortButton.pressed { background: #000000; color: #ffffff; border-color: #000000; }"
                                     "#ktermShortPaste.pressed { background: #ffffff; color: #000000; }"

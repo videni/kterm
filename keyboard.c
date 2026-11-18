@@ -565,6 +565,8 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
         if (!key->modifier) {
             g_timeout_add(KB_RELEASE_DELAY_MS, keyboard_event_release, key);
             key->unpress_source = g_timeout_add(KB_PRESSED_SHOW_MS, keyboard_unpress, key);
+            // the key after a prefix tapped in the preview: back to it
+            kterm_key_typed();
         }
         return TRUE;
     }

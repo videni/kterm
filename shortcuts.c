@@ -72,6 +72,17 @@ static const gchar * find_separator(const gchar *line) {
  * @return Button, or NULL
  */
 static Shortcut * parse_line(const gchar *line, GError **error) {
+    // "+键盘" at the end, after a blank: a prefix
+    gboolean keyboard = FALSE;
+    gchar *own = NULL;
+    const gsize mark = strlen(SHORTCUT_KEYBOARD_MARK);
+    const gsize length = strlen(line);
+    if (length > mark && g_str_has_suffix(line, SHORTCUT_KEYBOARD_MARK)
+        && g_ascii_isspace(line[length - mark - 1])) {
+        keyboard = TRUE;
+        own = g_strstrip(g_strndup(line, length - mark));
+        line = own;
+    }
     const gchar *separator = find_separator(line);
     gchar *label = NULL;
     gchar *spec = NULL;
@@ -95,6 +106,7 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
     if (!(error && *error)) {
         keys = keyseq_parse(spec, error);
     }
+    g_free(own);
     if (!keys) {
         g_free(spec);
         g_free(label);
@@ -104,6 +116,7 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
     item->label = label;
     item->spec = spec;
     item->keys = keys;
+    item->keyboard = keyboard;
     return item;
 }
 
@@ -111,31 +124,34 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
  * The line of the file for a button
  * @param label Text on the button
  * @param spec Keys as written
+ * @param keyboard TRUE for a prefix, marked SHORTCUT_KEYBOARD_MARK
  * @return Line without newline, free with g_free()
  */
-static gchar * format_line(const gchar *label, const gchar *spec) {
+static gchar * format_line(const gchar *label, const gchar *spec, gboolean keyboard) {
+    const gchar *mark = keyboard ? " " SHORTCUT_KEYBOARD_MARK : "";
     if (!strcmp(label, spec)) {
-        return g_strdup(spec);
+        return g_strdup_printf("%s%s", spec, mark);
     }
-    return g_strdup_printf("%s = %s", label, spec);
+    return g_strdup_printf("%s = %s%s", label, spec, mark);
 }
 
 /**
  * Make a button, as typed into the panel's form
  * @param name Text for the button; empty: the keys are shown
  * @param spec Keys as written, see keyseq.c
+ * @param keyboard TRUE for a prefix: the keyboard comes out for one key
  * @param error Set when the button could not be written to the file and
  *  read back the same (message in Chinese, shown to the user)
  * @return Button, or NULL
  */
-Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error) {
+Shortcut * shortcut_new(const gchar *name, const gchar *spec, gboolean keyboard, GError **error) {
     gchar *label = g_strstrip(g_strdup(name ? name : ""));
     gchar *keys_text = g_strstrip(g_strdup(spec ? spec : ""));
     if (!*label) {
         g_free(label);
         label = g_strdup(keys_text);
     }
-    gchar *line = format_line(label, keys_text);
+    gchar *line = format_line(label, keys_text, keyboard);
     Shortcut *item = NULL;
     if (strcmp(label, keys_text) && strchr(label, '=')) {
         g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "名字里不能有 = 号");
@@ -145,7 +161,7 @@ Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error) {
     } else {
         // what is saved must come back the same from the file
         item = parse_line(line, error);
-        if (item && (strcmp(item->label, label) || strcmp(item->spec, keys_text))) {
+        if (item && (strcmp(item->label, label) || strcmp(item->spec, keys_text) || item->keyboard != keyboard)) {
             shortcut_free(item);
             item = NULL;
             g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
@@ -262,7 +278,7 @@ gchar * shortcuts_format(const gchar *old_text, GPtrArray *list) {
     g_strfreev(lines);
     for (guint i = 0; i < list->len; i++) {
         const Shortcut *item = g_ptr_array_index(list, i);
-        gchar *line = format_line(item->label, item->spec);
+        gchar *line = format_line(item->label, item->spec, item->keyboard);
         g_string_append_printf(head, "%s\n", line);
         g_free(line);
     }

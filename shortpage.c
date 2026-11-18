@@ -48,6 +48,28 @@ static GtkWidget *entry_keys = NULL;
 static GtkWidget *keys_said = NULL;
 static GtkWidget *form_message = NULL;
 static GtkWidget *delete_button = NULL;
+/** Prefix switch of the form, black while on */
+static GtkWidget *keyboard_switch = NULL;
+static gboolean form_keyboard = FALSE;
+
+/**
+ * @param on TRUE: the shortcut being edited is a prefix
+ */
+static void set_form_keyboard(gboolean on) {
+    form_keyboard = on;
+    GtkStyleContext *style = gtk_widget_get_style_context(keyboard_switch);
+    if (on) {
+        gtk_style_context_add_class(style, "selected");
+    } else {
+        gtk_style_context_remove_class(style, "selected");
+    }
+}
+
+static void keyboard_switch_cb(GtkWidget *button, gpointer data) {
+    UNUSED(button);
+    UNUSED(data);
+    set_form_keyboard(!form_keyboard);
+}
 /** First button of the list page shown */
 static guint page_start = 0;
 /** Index of the button in the form, -1 for a new one */
@@ -70,6 +92,7 @@ static void show_form(gint index) {
     const gboolean named = item && g_strcmp0(item->label, item->spec) != 0;
     gtk_entry_set_text(GTK_ENTRY(entry_name), named ? item->label : "");
     gtk_entry_set_text(GTK_ENTRY(entry_keys), item ? item->spec : "");
+    set_form_keyboard(item && item->keyboard);
     gtk_label_set_text(GTK_LABEL(form_message), "");
     gtk_widget_set_visible(delete_button, item != NULL);
     panel_show_page(form_page);
@@ -134,7 +157,8 @@ static GtkWidget * build_row(guint index) {
     const Shortcut *item = g_ptr_array_index(shortbar_items(), index);
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING);
     gchar *said = keyseq_describe(item->spec, NULL);
-    gchar *markup = g_markup_printf_escaped("<b>%s</b>   %s", item->label, said ? said : item->spec);
+    gchar *markup = g_markup_printf_escaped("<b>%s</b>   %s%s", item->label, said ? said : item->spec,
+                                            item->keyboard ? "，再弹出键盘按一个键" : "");
     g_free(said);
     GtkWidget *label = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(label), markup);
@@ -241,7 +265,7 @@ static void save_cb(void) {
     GPtrArray *items = shortbar_items();
     GError *error = NULL;
     Shortcut *item = shortcut_new(gtk_entry_get_text(GTK_ENTRY(entry_name)),
-                                  gtk_entry_get_text(GTK_ENTRY(entry_keys)), &error);
+                                  gtk_entry_get_text(GTK_ENTRY(entry_keys)), form_keyboard, &error);
     if (!item) {
         gtk_label_set_text(GTK_LABEL(form_message), error->message);
         g_error_free(error);
@@ -345,6 +369,14 @@ static GtkWidget * build_form_page(void) {
     gtk_label_set_line_wrap(GTK_LABEL(keys_said), TRUE);
     gtk_grid_attach(GTK_GRID(grid), keys_said, 1, 2, 1, 1);
     g_signal_connect(entry_keys, "changed", G_CALLBACK(keys_changed_cb), NULL);
+    // a prefix (tmux's): tapped while previewing, the keyboard comes out
+    // for the key that follows it, then goes away again
+    GtkWidget *prefix_title = gtk_label_new("前缀");
+    gtk_label_set_xalign(GTK_LABEL(prefix_title), 0);
+    keyboard_switch = panel_button_new("预览时，发完弹出键盘按一个键");
+    g_signal_connect(keyboard_switch, "clicked", G_CALLBACK(keyboard_switch_cb), NULL);
+    gtk_grid_attach(GTK_GRID(grid), prefix_title, 0, 3, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), keyboard_switch, 1, 3, 1, 1);
     g_signal_connect(entry_name, "activate", G_CALLBACK(entry_activate_cb), entry_keys);
     g_signal_connect(entry_keys, "activate", G_CALLBACK(entry_activate_cb), NULL);
 
