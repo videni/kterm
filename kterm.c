@@ -31,6 +31,8 @@
 #include <getopt.h>
 #include "keyboard.h"
 #include "panel.h"
+#include "shortbar.h"
+#include "shortcuts.h"
 #ifdef KINDLE
 #include "kindle.h"
 #include "ime.h"
@@ -1261,6 +1263,18 @@ gint main(gint argc, gchar **argv) {
         ime_panel = build_ime_panel();
         gtk_box_pack_end(GTK_BOX(vbox), ime_panel, FALSE, FALSE, 0);
         g_signal_connect(window, "key-press-event", G_CALLBACK(ime_key_event), NULL);
+    }
+#endif
+#if GTK_CHECK_VERSION(3,2,0)
+    // above whichever keyboard is up
+    GtkWidget *shortbar = shortbar_new(SYSCONFDIR "/kterm/" SHORTCUTS_FILE);
+    if (shortbar) {
+        gtk_box_pack_end(GTK_BOX(vbox), shortbar, FALSE, FALSE, 0);
+        GtkWidget *system_keyboard_bar = NULL;
+#ifdef KINDLE
+        system_keyboard_bar = ime_panel;
+#endif
+        shortbar_follow(shortbar, keyboard_box, keyboard->row_count, system_keyboard_bar);
     }
 #endif
 

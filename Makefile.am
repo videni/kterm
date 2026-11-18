@@ -1,11 +1,11 @@
 bin_PROGRAMS = kterm
-kterm_SOURCES = keyboard.c kterm.c panel.c parse_config.c parse_layout.c sshconf.c
+kterm_SOURCES = keyboard.c keyseq.c kterm.c panel.c parse_config.c parse_layout.c shortbar.c shortcuts.c sshconf.c
 if KINDLE
 kterm_SOURCES += kindle.c ime.c
 endif
 
 ktermconfdir = $(sysconfdir)/kterm
-ktermconf_DATA = kterm.conf
+ktermconf_DATA = kterm.conf shortcuts.conf
 layoutsdir = $(ktermconfdir)/layouts
 layouts_DATA = layouts/keyboard.xml
 layoutsimgdir = $(layoutsdir)/img
