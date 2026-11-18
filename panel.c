@@ -51,11 +51,8 @@ static GtkWidget *terminal_widget = NULL;
 static GtkWidget *content = NULL;
 static GPtrArray *pages = NULL;
 static GtkWidget *current_page = NULL;
-/** What is below the terminal: the panel covers these... */
-static GPtrArray *covered = NULL;
-/** ...and stays above these (the system keyboard's place: another
- *  program's window, drawn over anything of ours) */
-static GPtrArray *kept = NULL;
+/** What is below the terminal: the panel sits above all of these */
+static GPtrArray *bottoms = NULL;
 static GtkWidget *home_page = NULL;
 /** Row of actions on the first page */
 static GtkWidget *home_row = NULL;
@@ -144,23 +141,14 @@ static gint height_of(GPtrArray *list) {
 }
 
 /**
- * Put the panel over the keyboard, whose keys are not needed while it is
- * open, so that the terminal stays in view. A page that is typed into sits
- * above the keyboard instead.
+ * Put the panel right above the keyboard (and the shortcut bar), which
+ * stays in view and usable, over the bottom of the terminal.
  */
 static void place(void) {
     if (!root) {
         return;
     }
-    const gint cover = height_of(covered);
-    const gint keep = height_of(kept);
-    if (current_page && g_object_get_data(G_OBJECT(current_page), "typing")) {
-        gtk_widget_set_margin_bottom(root, cover + keep);
-        gtk_widget_set_size_request(root, -1, -1);
-    } else {
-        gtk_widget_set_margin_bottom(root, keep);
-        gtk_widget_set_size_request(root, -1, cover);
-    }
+    gtk_widget_set_margin_bottom(root, height_of(bottoms));
 }
 
 static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
@@ -171,18 +159,17 @@ static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
 
 /**
  * Tell the panel about a widget below the terminal
- * @param widget Keyboard, shortcut bar, or the bar above the system keyboard
- * @param cover TRUE if the panel may be drawn over it
+ * @param widget Keyboard, shortcut bar, or the bar above the system
+ *  keyboard; NULL is ignored
  */
-void panel_add_bottom(GtkWidget *widget, gboolean cover) {
+void panel_add_bottom(GtkWidget *widget) {
     if (!widget) {
         return;
     }
-    if (!covered) {
-        covered = g_ptr_array_new();
-        kept = g_ptr_array_new();
+    if (!bottoms) {
+        bottoms = g_ptr_array_new();
     }
-    g_ptr_array_add(cover ? covered : kept, widget);
+    g_ptr_array_add(bottoms, widget);
     g_signal_connect_after(widget, "show", G_CALLBACK(bottom_changed_cb), NULL);
     g_signal_connect_after(widget, "hide", G_CALLBACK(bottom_changed_cb), NULL);
     g_signal_connect_after(widget, "notify::height-request", G_CALLBACK(bottom_changed_cb), NULL);
@@ -216,8 +203,7 @@ void panel_show_page(GtkWidget *page) {
  * Add a page
  * @param page Page widget, complete: what it shows is shown now, it is
  *  hidden until panel_show_page()
- * @param typing TRUE for a form: the keyboard types into it, the panel
- *  sits above the keyboard while it is shown
+ * @param typing TRUE for a form: the keyboard types into it
  */
 void panel_add_page(GtkWidget *page, gboolean typing) {
     if (typing) {
@@ -785,8 +771,6 @@ GtkWidget * panel_new(GtkWidget *terminal) {
 
     content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_set_border_width(GTK_CONTAINER(content), PANEL_SPACING * 2);
-    // over the keyboard the panel is as tall as it: its rows start on top
-    gtk_widget_set_valign(content, GTK_ALIGN_START);
     gtk_container_add(GTK_CONTAINER(root), content);
     pages = g_ptr_array_new();
     // the settings page first: the home page's button refers to it
@@ -815,7 +799,7 @@ void panel_add_action(GtkWidget *button, gint position) { UNUSED(button); UNUSED
 void panel_add_page(GtkWidget *page, gboolean typing) { UNUSED(page); UNUSED(typing); }
 void panel_show_page(GtkWidget *page) { UNUSED(page); }
 GtkWidget * panel_page_header(GtkWidget *page, const gchar *title) { UNUSED(page); UNUSED(title); return NULL; }
-void panel_add_bottom(GtkWidget *widget, gboolean cover) { UNUSED(widget); UNUSED(cover); }
+void panel_add_bottom(GtkWidget *widget) { UNUSED(widget); }
 void panel_add_setting(const gchar *title, GtkWidget *control) { UNUSED(title); UNUSED(control); }
 GtkWidget * panel_button_new(const gchar *label) { return gtk_button_new_with_label(label); }
 void panel_open(void) {}

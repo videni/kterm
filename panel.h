@@ -30,7 +30,7 @@ void panel_add_action(GtkWidget *button, gint position);
 void panel_add_page(GtkWidget *page, gboolean typing);
 void panel_show_page(GtkWidget *page);
 GtkWidget * panel_page_header(GtkWidget *page, const gchar *title);
-void panel_add_bottom(GtkWidget *widget, gboolean cover);
+void panel_add_bottom(GtkWidget *widget);
 void panel_add_setting(const gchar *title, GtkWidget *control);
 GtkWidget * panel_button_new(const gchar *label);
 void panel_open(void);

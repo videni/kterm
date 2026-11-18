@@ -199,12 +199,11 @@ gboolean keyboard_set_size(gpointer data) {
     gint window_width = alloc->width;
     gint window_height = alloc->height;
     g_free(alloc);
-#ifdef KINDLE
-    // The window always covers the screen, but this can run before the
-    // window manager has resized it; keys sized from the early, narrower
-    // allocation would leave the right side of the keyboard empty.
-    window_width = screen_width;
-#endif
+    // The keys fill the window, whatever the screen is said to be: right
+    // after the screen is rotated the screen size can still be the old one,
+    // and keys sized from it left the right third of the keyboard empty.
+    // A window that is still small (before the window manager has resized
+    // it) gets its keys sized again when it grows, see keyboard_update().
     gboolean is_portrait = FALSE;
     if (window_width < screen_height) {
         is_portrait = TRUE;

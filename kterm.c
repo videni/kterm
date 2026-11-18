@@ -1221,8 +1221,8 @@ gint main(gint argc, gchar **argv) {
 #endif
     gtk_widget_set_name(vbox, "ktermBox");
 #if GTK_CHECK_VERSION(3,2,0)
-    // the panel is drawn over the whole window: over the keyboard while it
-    // is open, so that the terminal keeps its size and stays in view
+    // the panel is drawn over the window, right above the keyboard: the
+    // terminal keeps its size, the program in it is not disturbed
     GtkWidget *overlay = gtk_overlay_new();
     gtk_container_add(GTK_CONTAINER(overlay), vbox);
     gtk_container_add(GTK_CONTAINER(window), overlay);
@@ -1264,7 +1264,7 @@ gint main(gint argc, gchar **argv) {
     g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
 #endif
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
-    panel_add_bottom(keyboard_box, TRUE);
+    panel_add_bottom(keyboard_box);
 #endif
     
 #ifdef KINDLE
@@ -1284,8 +1284,8 @@ gint main(gint argc, gchar **argv) {
     system_keyboard_bar = ime_panel;
 #endif
     shortbar_follow(shortbar, keyboard_box, keyboard->row_count, system_keyboard_bar);
-    panel_add_bottom(shortbar, TRUE);
-    panel_add_bottom(system_keyboard_bar, FALSE);
+    panel_add_bottom(shortbar);
+    panel_add_bottom(system_keyboard_bar);
     shortpage_init();
 #endif
 
