@@ -30,6 +30,7 @@
 #include "panel.h"
 #include "shortcuts.h"
 #include "shortbar.h"
+#include "icons.h"
 
 /** Buttons in the row when they all fit */
 #define SHORTBAR_PER_PAGE 8
@@ -87,127 +88,6 @@ static void update_visibility(void) {
     gtk_widget_set_visible(bar, keyboard || kterm_previewing());
 }
 
-/*
- * Signs of the two tools: Material icons (Google, Apache License 2.0),
- * their SVG paths on a grid of 24 by 24
- */
-/** "menu": the panel */
-#define ICON_MENU "M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"
-/** "keyboard_hide": with the keyboard out, a tap folds it away */
-#define ICON_KEYBOARD_HIDE "M20 3H4c-1.1 0-1.99.9-1.99 2L2 15c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z" \
-    "m-9 3h2v2h-2V6zm0 3h2v2h-2V9zM8 6h2v2H8V6zm0 3h2v2H8V9zm-1 2H5V9h2v2zm0-3H5V6h2v2zm9 7H8v-2h8v2z" \
-    "m0-4h-2V9h2v2zm0-3h-2V6h2v2zm3 3h-2V9h2v2zm0-3h-2V6h2v2zm-7 15l4-4H8l4 4z"
-/** "keyboard": while previewing, a tap brings it back */
-#define ICON_KEYBOARD "M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2z" \
-    "m-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2z" \
-    "m0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
-
-/**
- * Read the next number of an SVG path
- * @param p Position in the path, moved past the number
- * @return The number, 0 if there is none
- */
-static gdouble path_number(const gchar **p) {
-    while (**p == ' ' || **p == ',') {
-        (*p)++;
-    }
-    gchar *end = NULL;
-    const gdouble value = g_ascii_strtod(*p, &end);
-    if (end == *p) {
-        // no number: step over whatever is there, so that reading ends
-        if (**p) {
-            (*p)++;
-        }
-        return 0;
-    }
-    *p = end;
-    return value;
-}
-
-/**
- * Add an SVG path to the cairo path: the commands of the icons drawn here
- * (M L H V C S Z, absolute or relative), no arcs
- * @param cr Cairo context, its matrix set to the grid of the path
- * @param d The path
- */
-static void svg_path(cairo_t *cr, const gchar *d) {
-    gdouble x = 0, y = 0, start_x = 0, start_y = 0;
-    // second control point of the last curve, for S
-    gdouble ctrl_x = 0, ctrl_y = 0;
-    gchar command = 0, last = 0;
-    const gchar *p = d;
-    while (*p) {
-        while (*p == ' ' || *p == ',') {
-            p++;
-        }
-        if (!*p) {
-            break;
-        }
-        if (g_ascii_isalpha(*p)) {
-            command = *p++;
-        } else if (command == 'M') {
-            // more points after a move are lines
-            command = 'L';
-        } else if (command == 'm') {
-            command = 'l';
-        }
-        const gboolean relative = g_ascii_islower(command);
-        const gdouble ox = relative ? x : 0, oy = relative ? y : 0;
-        switch (g_ascii_toupper(command)) {
-        case 'M':
-            x = ox + path_number(&p);
-            y = oy + path_number(&p);
-            cairo_move_to(cr, x, y);
-            start_x = x;
-            start_y = y;
-            break;
-        case 'L':
-            x = ox + path_number(&p);
-            y = oy + path_number(&p);
-            cairo_line_to(cr, x, y);
-            break;
-        case 'H':
-            x = ox + path_number(&p);
-            cairo_line_to(cr, x, y);
-            break;
-        case 'V':
-            y = oy + path_number(&p);
-            cairo_line_to(cr, x, y);
-            break;
-        case 'C':
-        case 'S': {
-            gdouble x1, y1;
-            if (g_ascii_toupper(command) == 'C') {
-                x1 = ox + path_number(&p);
-                y1 = oy + path_number(&p);
-            } else if (g_ascii_toupper(last) == 'C' || g_ascii_toupper(last) == 'S') {
-                // the first control point mirrors the last one
-                x1 = 2 * x - ctrl_x;
-                y1 = 2 * y - ctrl_y;
-            } else {
-                x1 = x;
-                y1 = y;
-            }
-            ctrl_x = ox + path_number(&p);
-            ctrl_y = oy + path_number(&p);
-            x = ox + path_number(&p);
-            y = oy + path_number(&p);
-            cairo_curve_to(cr, x1, y1, ctrl_x, ctrl_y, x, y);
-            break;
-        }
-        case 'Z':
-            cairo_close_path(cr);
-            x = start_x;
-            y = start_y;
-            break;
-        default:
-            // not drawn here: stop rather than draw something wrong
-            return;
-        }
-        last = command;
-    }
-}
-
 /**
  * Draw a tool: its sign in a black frame on white, which sets the two
  * tools apart from the gray shortcuts; white on black while pressed. Drawn, not taken from a font: the fonts that have
@@ -229,13 +109,8 @@ static gboolean draw_tool_cb(GtkWidget *tool, cairo_t *cr, gpointer data) {
     gdk_cairo_set_source_rgba(cr, &color);
     // the 24 by 24 grid of the icon, 60 % of the tool, in its middle
     const gdouble size = MIN(w, h) * 0.6;
-    cairo_save(cr);
-    cairo_translate(cr, (w - size) / 2, (h - size) / 2);
-    cairo_scale(cr, size / 24, size / 24);
-    svg_path(cr, tool == menu_tool ? ICON_MENU : (kterm_previewing() ? ICON_KEYBOARD : ICON_KEYBOARD_HIDE));
-    cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
-    cairo_fill(cr);
-    cairo_restore(cr);
+    icon_draw(cr, tool == menu_tool ? ICON_MENU : (kterm_previewing() ? ICON_KEYBOARD : ICON_KEYBOARD_HIDE),
+              (w - size) / 2, (h - size) / 2, size);
     return FALSE;
 }
 

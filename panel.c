@@ -34,6 +34,7 @@
 #include <gtk/gtk.h>
 #include "config.h"
 #include "panel.h"
+#include "icons.h"
 
 #if GTK_CHECK_VERSION(3,2,0)
 
@@ -47,6 +48,8 @@
 #define ROWS_PER_PAGE 4
 /** Space around and between the panel's parts, in pixels */
 #define PANEL_SPACING 12
+/** Size of the icons on the buttons, a little above the text */
+#define PANEL_ICON_PX 54
 
 static GtkWidget *root = NULL;
 static GtkWidget *terminal_widget = NULL;
@@ -99,6 +102,25 @@ GtkWidget * panel_button_new(const gchar *label) {
     GtkWidget *button = gtk_button_new_with_label(label);
     gtk_widget_set_name(button, PANEL_BUTTON_NAME);
     gtk_widget_set_can_focus(button, FALSE);
+    return button;
+}
+
+/**
+ * A button of the panel with an icon before its label
+ * @param label Text
+ * @param icon SVG path of the icon (ICON_...)
+ * @return Button
+ */
+GtkWidget * panel_button_with_icon(const gchar *label, const gchar *icon) {
+    GtkWidget *button = gtk_button_new();
+    gtk_widget_set_name(button, PANEL_BUTTON_NAME);
+    gtk_widget_set_can_focus(button, FALSE);
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING * 2);
+    gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(box), icon_new(icon, PANEL_ICON_PX), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), gtk_label_new(label), FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(button), box);
+    gtk_widget_show_all(box);
     return button;
 }
 
@@ -628,9 +650,9 @@ static GtkWidget * build_home_page(void) {
     home_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_name(home_row, "ktermPanelActions");
     gtk_box_set_homogeneous(GTK_BOX(home_row), TRUE);
-    GtkWidget *connections = panel_button_new("连接");
-    disconnect_button = panel_button_new("断开");
-    GtkWidget *settings = panel_button_new("设置");
+    GtkWidget *connections = panel_button_with_icon("连接", ICON_LINK);
+    disconnect_button = panel_button_with_icon("断开", ICON_LINK_OFF);
+    GtkWidget *settings = panel_button_with_icon("设置", ICON_SETTINGS);
     g_signal_connect(connections, "clicked", G_CALLBACK(connections_cb), NULL);
     g_signal_connect(disconnect_button, "clicked", G_CALLBACK(disconnect_cb), NULL);
     g_signal_connect_swapped(settings, "clicked", G_CALLBACK(panel_show_page), settings_page);

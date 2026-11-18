@@ -31,6 +31,7 @@
 #include <glib-unix.h>
 #include "keyboard.h"
 #include "panel.h"
+#include "icons.h"
 #include "confedit.h"
 #include "shortbar.h"
 #include "shortpage.h"
@@ -770,7 +771,7 @@ static GtkWidget * font_size_button(const gchar *text, gint step, GtkWidget *lab
  * @param box Kterm container
  */
 static void add_panel_actions(void) {
-    GtkWidget *quit_button = panel_button_new("退出");
+    GtkWidget *quit_button = panel_button_with_icon("退出", ICON_LOGOUT);
     g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
     panel_add_action(quit_button, -1);
 
