@@ -334,7 +334,7 @@ void inject_styles(void) {
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 7pt; }"
                                     // the panel over the terminal: black on
                                     // white, large enough for fingers
-                                    "#ktermPanel { background-color: #ffffff; border-top: 4px solid #000000;"
+                                    "#ktermPanel { background-color: #ffffff; border-bottom: 4px solid #000000;"
                                     " color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermPanelButton { background: @gray; color: #000000; border: 2px solid #000000;"
                                     " border-radius: 8px; padding: 16px 20px; min-width: 0; min-height: 0;"

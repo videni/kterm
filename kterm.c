@@ -336,8 +336,11 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
 #ifdef KINDLE
 /** How far a finger may move, in pixels, and still count as a tap */
 #define TAP_SLOP_PX 30
-/** A swipe from a screen edge starts within this many pixels of the top */
-#define EDGE_TOP_PX 64
+/** A swipe from a screen edge starts within this many pixels of the top,
+ *  where a tap opens the panel. Wide: a finger coming in from the frame is
+ *  first seen some way down the screen, and a narrow band made the swipe
+ *  down to the device's menu scroll the terminal instead. */
+#define EDGE_TOP_PX 150
 /** ... or of the bottom */
 #define EDGE_BOTTOM_PX 120
 /** and travels at least this far */
@@ -347,6 +350,29 @@ static GtkWidget *builtin_kb_box = NULL;
 /** Reading: the keyboard stays folded away, a tap on the terminal does not
  *  bring it back. Left from the panel, or by anything that shows a keyboard. */
 static gboolean read_mode = FALSE;
+/** Swipe down from the top edge over the panel, see panel_top_swipe_cb() */
+static GtkGesture *panel_top_swipe = NULL;
+
+/**
+ * A swipe down from the top edge while the panel is open there: the panel
+ * is in the way of the device's own gesture for its menu, which the
+ * terminal passes on. The panel goes away and the menu comes.
+ * @param drag Gesture on the panel, seen before its buttons
+ * @param dx Horizontal travel
+ * @param dy Vertical travel, down positive
+ * @param data Not used
+ */
+static void panel_top_swipe_cb(GtkGestureDrag *drag, gdouble dx, gdouble dy, gpointer data) {
+    UNUSED(data);
+    gdouble x = 0, y = 0;
+    if (!gtk_gesture_drag_get_start_point(drag, &x, &y)) {
+        return;
+    }
+    if (y <= EDGE_TOP_PX && dy >= EDGE_SWIPE_MIN_PX && dy >= ABS(dx) * 1.5) {
+        panel_close();
+        show_system_menu();
+    }
+}
 
 /**
  * Fold the built-in keyboard away. Nothing brings it back by itself:
@@ -1175,6 +1201,12 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
             return TRUE;
         }
     }
+    if (tap && touch.y_root <= EDGE_TOP_PX && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX) {
+        // A tap at the top opens the panel there, as a tap at the top of a
+        // book shows the Kindle's menu bar. Not passed to the program.
+        panel_open();
+        return TRUE;
+    }
     if (vertical && dy > 0 && touch.y_root <= EDGE_TOP_PX) {
         // Down from the top edge is the device's own gesture for its quick
         // settings (light, dark mode, airplane mode). A full screen
@@ -1615,7 +1647,11 @@ gint main(gint argc, gchar **argv) {
     g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
 #endif
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
-    panel_add_bottom(keyboard_box, FALSE);
+#ifdef KINDLE
+    panel_top_swipe = gtk_gesture_drag_new(panel);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(panel_top_swipe), GTK_PHASE_CAPTURE);
+    g_signal_connect(panel_top_swipe, "drag-end", G_CALLBACK(panel_top_swipe_cb), NULL);
+#endif
 #endif
     
 #ifdef KINDLE
@@ -1637,8 +1673,6 @@ gint main(gint argc, gchar **argv) {
     system_keyboard_bar = ime_panel;
 #endif
     shortbar_follow(keyboard_box, keyboard ? keyboard->row_count : 0, system_keyboard_bar);
-    panel_add_bottom(shortbar, FALSE);
-    panel_add_bottom(system_keyboard_bar, TRUE);
     shortpage_init();
 #endif
 

@@ -54,12 +54,6 @@ static GtkWidget *terminal_widget = NULL;
 static GtkWidget *content = NULL;
 static GPtrArray *pages = NULL;
 static GtkWidget *current_page = NULL;
-/** Below the terminal: the keyboard and the shortcut bar, which the panel
- *  is drawn over (a form of the panel sits above them)... */
-static GPtrArray *keyboards = NULL;
-/** ...and the bar above the system keyboard: another program's window is
- *  drawn below that bar, over anything of ours, so the panel stays above */
-static GPtrArray *system_bars = NULL;
 static GtkWidget *home_page = NULL;
 /** Row of actions on the first page */
 static GtkWidget *home_row = NULL;
@@ -140,66 +134,6 @@ static void focus_terminal(void) {
 }
 
 /**
- * @param list Widgets below the terminal
- * @return Height they take on screen
- */
-static gint height_of(GPtrArray *list) {
-    gint total = 0;
-    for (guint i = 0; list && i < list->len; i++) {
-        GtkWidget *widget = g_ptr_array_index(list, i);
-        if (gtk_widget_get_visible(widget)) {
-            gint height = 0;
-            gtk_widget_get_preferred_height(widget, &height, NULL);
-            total += height;
-        }
-    }
-    return total;
-}
-
-/**
- * Put the panel at the bottom of the screen, drawn over the bottom of the
- * keyboard, which stays in view above it; a tap on the keyboard puts the
- * panel away. A form of the panel sits right above the keyboard instead,
- * which types into it.
- */
-static void place(void) {
-    if (!root) {
-        return;
-    }
-    gint margin = height_of(system_bars);
-    if (page_is_typing()) {
-        margin += height_of(keyboards);
-    }
-    gtk_widget_set_margin_bottom(root, margin);
-}
-
-static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
-    UNUSED(widget);
-    UNUSED(data);
-    place();
-}
-
-/**
- * Tell the panel about a widget below the terminal
- * @param widget Keyboard, shortcut bar, or the bar above the system
- *  keyboard; NULL is ignored
- * @param system_bar TRUE for the bar above the system keyboard
- */
-void panel_add_bottom(GtkWidget *widget, gboolean system_bar) {
-    if (!widget) {
-        return;
-    }
-    GPtrArray **list = system_bar ? &system_bars : &keyboards;
-    if (!*list) {
-        *list = g_ptr_array_new();
-    }
-    g_ptr_array_add(*list, widget);
-    g_signal_connect_after(widget, "show", G_CALLBACK(bottom_changed_cb), NULL);
-    g_signal_connect_after(widget, "hide", G_CALLBACK(bottom_changed_cb), NULL);
-    g_signal_connect_after(widget, "notify::height-request", G_CALLBACK(bottom_changed_cb), NULL);
-}
-
-/**
  * Show one page of the panel, the others hidden
  * @param page Page widget, added with panel_add_page() or one of the panel's
  */
@@ -220,7 +154,6 @@ void panel_show_page(GtkWidget *page) {
     if (terminal_widget) {
         gtk_widget_set_can_focus(terminal_widget, !page_is_typing());
     }
-    place();
 }
 
 /**
@@ -851,7 +784,9 @@ GtkWidget * panel_new(GtkWidget *terminal) {
     // terminal and keeps touches on the panel from reaching it
     root = gtk_event_box_new();
     gtk_widget_set_name(root, PANEL_NAME);
-    gtk_widget_set_valign(root, GTK_ALIGN_END);
+    // at the top, as the Kindle's own menu bar when reading: the keyboard
+    // and the newest output, at the foot of the terminal, stay in view
+    gtk_widget_set_valign(root, GTK_ALIGN_START);
     gtk_widget_set_halign(root, GTK_ALIGN_FILL);
 
     content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
