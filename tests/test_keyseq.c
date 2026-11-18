@@ -76,6 +76,41 @@ static void test_errors(void) {
     fails("M-");
 }
 
+static void test_plus_spelling(void) {
+    // the way most people write it
+    is("Ctrl+Space c", "\0c", 2);
+    is("ctrl+u", "\x15", 1);
+    is("Alt+b", "\x1b" "b", 2);
+    is("Alt+Ctrl+h", "\x1b\x08", 2);
+    fails("Ctrl+");
+    fails("Ctrl+1");
+}
+
+static void describes(const gchar *spec, const gchar *expected) {
+    GError *error = NULL;
+    gchar *text = keyseq_describe(spec, &error);
+    g_assert_no_error(error);
+    g_assert_cmpstr(text, ==, expected);
+    g_free(text);
+}
+
+static void test_describe(void) {
+    describes("C-u", "按 Ctrl+U");
+    describes("Ctrl+Space c", "按 Ctrl+空格，然后按 c（小写）");
+    describes("C-Space C", "按 Ctrl+空格，然后按 C（大写）");
+    describes("M-b", "按 Alt+b（小写）");
+    describes("\"git pull\" Enter", "输入“git pull”，然后按 回车");
+    describes("Esc : w", "按 Esc，然后按 :，然后按 w（小写）");
+    describes("BSpace Up PgDn F5", "按 退格，然后按 ↑，然后按 PgDn，然后按 F5");
+    // what does not parse is explained the same way as for keyseq_parse()
+    GError *error = NULL;
+    gchar *text = keyseq_describe("C-Spcae", &error);
+    g_assert_null(text);
+    g_assert_nonnull(error);
+    g_assert_nonnull(strstr(error->message, "Spcae"));
+    g_error_free(error);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/keyseq/ctrl", test_ctrl);
@@ -83,5 +118,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/keyseq/named-and-alt", test_named_and_alt);
     g_test_add_func("/keyseq/text", test_text);
     g_test_add_func("/keyseq/errors", test_errors);
+    g_test_add_func("/keyseq/plus-spelling", test_plus_spelling);
+    g_test_add_func("/keyseq/describe", test_describe);
     return g_test_run();
 }

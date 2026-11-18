@@ -25,7 +25,12 @@
 /** Widget name of the line telling about mistakes in the file */
 #define SHORTBAR_PROBLEM_NAME "ktermShortProblem"
 
+/** Widget name of the page number at the end of the row */
+#define SHORTBAR_PAGES_NAME "ktermShortPages"
+
 GtkWidget * shortbar_new(const gchar *path);
-void shortbar_follow(GtkWidget *bar, GtkWidget *keyboard_box, guint keyboard_rows, GtkWidget *other);
+void shortbar_follow(GtkWidget *bar, GtkWidget *keyboard, guint rows, GtkWidget *other);
+GPtrArray * shortbar_items(void);
+gboolean shortbar_save(GError **error);
 
 #endif /* shortbar_h */

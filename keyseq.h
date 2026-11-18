@@ -19,5 +19,6 @@
 #include <glib.h>
 
 GBytes * keyseq_parse(const gchar *spec, GError **error);
+gchar * keyseq_describe(const gchar *spec, GError **error);
 
 #endif /* keyseq_h */

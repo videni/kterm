@@ -47,6 +47,15 @@
 
 static GtkWidget *root = NULL;
 static GtkWidget *terminal_widget = NULL;
+/** Holds the pages, one shown at a time */
+static GtkWidget *content = NULL;
+static GPtrArray *pages = NULL;
+static GtkWidget *current_page = NULL;
+/** What is below the terminal: the panel covers these... */
+static GPtrArray *covered = NULL;
+/** ...and stays above these (the system keyboard's place: another
+ *  program's window, drawn over anything of ours) */
+static GPtrArray *kept = NULL;
 static GtkWidget *home_page = NULL;
 /** Row of actions on the first page */
 static GtkWidget *home_row = NULL;
@@ -104,7 +113,8 @@ gboolean panel_is_open(void) {
  *         nothing typed should reach the terminal
  */
 gboolean panel_wants_keys(void) {
-    return panel_is_open() && form_page && gtk_widget_get_visible(form_page);
+    return panel_is_open() && current_page
+        && g_object_get_data(G_OBJECT(current_page), "typing") != NULL;
 }
 
 /**
@@ -117,17 +127,106 @@ static void focus_terminal(void) {
 }
 
 /**
+ * @param list Widgets below the terminal
+ * @return Height they take on screen
+ */
+static gint height_of(GPtrArray *list) {
+    gint total = 0;
+    for (guint i = 0; list && i < list->len; i++) {
+        GtkWidget *widget = g_ptr_array_index(list, i);
+        if (gtk_widget_get_visible(widget)) {
+            gint height = 0;
+            gtk_widget_get_preferred_height(widget, &height, NULL);
+            total += height;
+        }
+    }
+    return total;
+}
+
+/**
+ * Put the panel over the keyboard, whose keys are not needed while it is
+ * open, so that the terminal stays in view. A page that is typed into sits
+ * above the keyboard instead.
+ */
+static void place(void) {
+    if (!root) {
+        return;
+    }
+    const gint cover = height_of(covered);
+    const gint keep = height_of(kept);
+    if (current_page && g_object_get_data(G_OBJECT(current_page), "typing")) {
+        gtk_widget_set_margin_bottom(root, cover + keep);
+        gtk_widget_set_size_request(root, -1, -1);
+    } else {
+        gtk_widget_set_margin_bottom(root, keep);
+        gtk_widget_set_size_request(root, -1, cover);
+    }
+}
+
+static void bottom_changed_cb(GtkWidget *widget, gpointer data) {
+    UNUSED(widget);
+    UNUSED(data);
+    place();
+}
+
+/**
+ * Tell the panel about a widget below the terminal
+ * @param widget Keyboard, shortcut bar, or the bar above the system keyboard
+ * @param cover TRUE if the panel may be drawn over it
+ */
+void panel_add_bottom(GtkWidget *widget, gboolean cover) {
+    if (!widget) {
+        return;
+    }
+    if (!covered) {
+        covered = g_ptr_array_new();
+        kept = g_ptr_array_new();
+    }
+    g_ptr_array_add(cover ? covered : kept, widget);
+    g_signal_connect_after(widget, "show", G_CALLBACK(bottom_changed_cb), NULL);
+    g_signal_connect_after(widget, "hide", G_CALLBACK(bottom_changed_cb), NULL);
+    g_signal_connect_after(widget, "notify::height-request", G_CALLBACK(bottom_changed_cb), NULL);
+}
+
+/**
  * Show one page of the panel, the others hidden
  * @param page Page widget
  */
 static void show_page(GtkWidget *page) {
-    GtkWidget *pages[] = { home_page, list_page, form_page, settings_page };
-    for (guint i = 0; i < G_N_ELEMENTS(pages); i++) {
-        if (pages[i] && pages[i] != page) {
-            gtk_widget_hide(pages[i]);
+    for (guint i = 0; pages && i < pages->len; i++) {
+        GtkWidget *other = g_ptr_array_index(pages, i);
+        if (other != page) {
+            gtk_widget_hide(other);
         }
     }
+    current_page = page;
     gtk_widget_show(page);
+    place();
+}
+
+/**
+ * Show a page added with panel_add_page()
+ * @param page Page widget
+ */
+void panel_show_page(GtkWidget *page) {
+    show_page(page);
+}
+
+/**
+ * Add a page
+ * @param page Page widget, complete: what it shows is shown now, it is
+ *  hidden until panel_show_page()
+ * @param typing TRUE for a form: the keyboard types into it, the panel
+ *  sits above the keyboard while it is shown
+ */
+void panel_add_page(GtkWidget *page, gboolean typing) {
+    if (typing) {
+        g_object_set_data(G_OBJECT(page), "typing", GINT_TO_POINTER(1));
+    }
+    g_ptr_array_add(pages, page);
+    gtk_box_pack_start(GTK_BOX(content), page, FALSE, FALSE, 0);
+    gtk_widget_show_all(page);
+    gtk_widget_hide(page);
 }
 
 /**
@@ -514,7 +613,7 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
  * @param title Title text
  * @return Header row, for more buttons on the right
  */
-static GtkWidget * add_header(GtkWidget *page, const gchar *title) {
+GtkWidget * panel_page_header(GtkWidget *page, const gchar *title) {
     GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
     // an arrow, as on the Kindle's own pages
     GtkWidget *back = panel_button_new("←");
@@ -557,7 +656,7 @@ static GtkWidget * build_home_page(void) {
  */
 static GtkWidget * build_settings_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
-    add_header(page, "设置");
+    panel_page_header(page, "设置");
     settings_grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(settings_grid), PANEL_SPACING);
     gtk_grid_set_column_spacing(GTK_GRID(settings_grid), PANEL_SPACING * 2);
@@ -571,7 +670,7 @@ static GtkWidget * build_settings_page(void) {
  */
 static GtkWidget * build_list_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
-    GtkWidget *header = add_header(page, "SSH 连接");
+    GtkWidget *header = panel_page_header(page, "SSH 连接");
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
@@ -645,9 +744,13 @@ static GtkWidget * build_form_page(void) {
 /**
  * Add a button to the first page's row
  * @param button Button, see panel_button_new()
+ * @param position Place in the row counted from 0, -1 for the end
  */
-void panel_add_action(GtkWidget *button) {
+void panel_add_action(GtkWidget *button, gint position) {
     gtk_box_pack_start(GTK_BOX(home_row), button, TRUE, TRUE, 0);
+    if (position >= 0) {
+        gtk_box_reorder_child(GTK_BOX(home_row), button, position);
+    }
     gtk_widget_show(button);
 }
 
@@ -680,20 +783,22 @@ GtkWidget * panel_new(GtkWidget *terminal) {
     gtk_widget_set_valign(root, GTK_ALIGN_END);
     gtk_widget_set_halign(root, GTK_ALIGN_FILL);
 
-    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_set_border_width(GTK_CONTAINER(content), PANEL_SPACING * 2);
+    // over the keyboard the panel is as tall as it: its rows start on top
+    gtk_widget_set_valign(content, GTK_ALIGN_START);
+    gtk_container_add(GTK_CONTAINER(root), content);
+    pages = g_ptr_array_new();
     // the settings page first: the home page's button refers to it
     settings_page = build_settings_page();
     home_page = build_home_page();
     list_page = build_list_page();
     form_page = build_form_page();
-    gtk_box_pack_start(GTK_BOX(content), home_page, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(content), list_page, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(content), form_page, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(content), settings_page, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(root), content);
-
-    gtk_widget_show_all(content);
+    panel_add_page(home_page, FALSE);
+    panel_add_page(list_page, FALSE);
+    panel_add_page(form_page, TRUE);
+    panel_add_page(settings_page, FALSE);
+    gtk_widget_show(content);
     show_page(home_page);
     // stays hidden through gtk_widget_show_all() on the window
     gtk_widget_set_no_show_all(root, TRUE);
@@ -706,7 +811,11 @@ GtkWidget * panel_new(GtkWidget *terminal) {
     UNUSED(terminal);
     return NULL;
 }
-void panel_add_action(GtkWidget *button) { UNUSED(button); }
+void panel_add_action(GtkWidget *button, gint position) { UNUSED(button); UNUSED(position); }
+void panel_add_page(GtkWidget *page, gboolean typing) { UNUSED(page); UNUSED(typing); }
+void panel_show_page(GtkWidget *page) { UNUSED(page); }
+GtkWidget * panel_page_header(GtkWidget *page, const gchar *title) { UNUSED(page); UNUSED(title); return NULL; }
+void panel_add_bottom(GtkWidget *widget, gboolean cover) { UNUSED(widget); UNUSED(cover); }
 void panel_add_setting(const gchar *title, GtkWidget *control) { UNUSED(title); UNUSED(control); }
 GtkWidget * panel_button_new(const gchar *label) { return gtk_button_new_with_label(label); }
 void panel_open(void) {}

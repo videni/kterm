@@ -20,18 +20,23 @@
 
 /** Name of the file, looked for where kterm.conf is */
 #define SHORTCUTS_FILE "shortcuts.conf"
-/** Two rows of buttons above the keyboard */
-#define SHORTCUTS_MAX 16
+/** Buttons kept; past one row they are reached by swiping the bar */
+#define SHORTCUTS_MAX 48
 /** Used when there is no file */
 #define SHORTCUTS_DEFAULT "C-a\nC-e\nC-u\nC-y\nC-w\nC-c\nTX = C-Space\n"
 
 /** One button of the shortcut bar */
 typedef struct {
     gchar *label; /** Text on the button */
+    gchar *spec; /** Keys as written, see keyseq.c */
     GBytes *keys; /** What a tap sends to the terminal */
 } Shortcut;
 
+Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error);
+void shortcut_free(gpointer item);
 GPtrArray * shortcuts_parse(const gchar *text, gchar **problems);
 GPtrArray * shortcuts_load(const gchar *path, gchar **problems);
+gchar * shortcuts_format(const gchar *old_text, GPtrArray *list);
+gboolean shortcuts_save(const gchar *path, GPtrArray *list, GError **error);
 
 #endif /* shortcuts_h */

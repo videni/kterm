@@ -124,6 +124,71 @@ static void test_load(void) {
     g_free(dir);
 }
 
+static void test_new(void) {
+    GError *error = NULL;
+    Shortcut *item = shortcut_new("", "C-u", &error);
+    g_assert_no_error(error);
+    // no name: the button shows the keys
+    g_assert_cmpstr(item->label, ==, "C-u");
+    g_assert_cmpstr(item->spec, ==, "C-u");
+    shortcut_free(item);
+    item = shortcut_new("  TX ", " C-Space ", &error);
+    g_assert_cmpstr(item->label, ==, "TX");
+    g_assert_cmpstr(item->spec, ==, "C-Space");
+    shortcut_free(item);
+    // what could not be read back from the file
+    const gchar *bad[][2] = { { "", "C-Spcae" }, { "a=b", "C-u" }, { "#x", "C-u" }, { "", "" } };
+    for (guint i = 0; i < G_N_ELEMENTS(bad); i++) {
+        item = shortcut_new(bad[i][0], bad[i][1], &error);
+        g_assert_null(item);
+        g_assert_nonnull(error);
+        g_clear_error(&error);
+    }
+}
+
+static void test_format(void) {
+    gchar *problems = NULL;
+    GPtrArray *list = shortcuts_parse("# 说明\n#  第二行\n\nC-a\nTX = C-Space\n# 中间的说明\nC-e\n", &problems);
+    g_assert_null(problems);
+    g_ptr_array_add(list, shortcut_new("拉代码", "\"git pull\" Enter", NULL));
+    gchar *text = shortcuts_format("# 说明\n#  第二行\n\nC-a\nTX = C-Space\n# 中间的说明\nC-e\n", list);
+    // the comments on top are kept, the buttons follow one per line
+    g_assert_cmpstr(text, ==, "# 说明\n#  第二行\n\nC-a\nTX = C-Space\nC-e\n拉代码 = \"git pull\" Enter\n");
+    // and read back the same
+    GPtrArray *again = shortcuts_parse(text, &problems);
+    g_assert_null(problems);
+    g_assert_cmpuint(again->len, ==, 4);
+    has(again, 3, "拉代码", "git pull\r", 9);
+    g_ptr_array_unref(again);
+    g_free(text);
+    // no file yet: a short note on top
+    text = shortcuts_format(NULL, list);
+    g_assert_true(g_str_has_prefix(text, "#"));
+    g_assert_nonnull(strstr(text, "\nC-a\nTX = C-Space\n"));
+    g_free(text);
+    g_ptr_array_unref(list);
+}
+
+static void test_save(void) {
+    gchar *dir = g_dir_make_tmp("shortcuts-XXXXXX", NULL);
+    gchar *path = g_build_filename(dir, "shortcuts.conf", NULL);
+    GPtrArray *list = shortcuts_parse("C-w\n", NULL);
+    GError *error = NULL;
+    g_assert_true(shortcuts_save(path, list, &error));
+    g_assert_no_error(error);
+    gchar *problems = NULL;
+    GPtrArray *again = shortcuts_load(path, &problems);
+    g_assert_null(problems);
+    g_assert_cmpuint(again->len, ==, 1);
+    has(again, 0, "C-w", "\x17", 1);
+    g_ptr_array_unref(again);
+    g_ptr_array_unref(list);
+    g_unlink(path);
+    g_rmdir(dir);
+    g_free(path);
+    g_free(dir);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/shortcuts/keys-only", test_keys_only);
@@ -134,5 +199,8 @@ int main(int argc, char **argv) {
     g_test_add_func("/shortcuts/too-many", test_too_many);
     g_test_add_func("/shortcuts/defaults", test_defaults);
     g_test_add_func("/shortcuts/load", test_load);
+    g_test_add_func("/shortcuts/new", test_new);
+    g_test_add_func("/shortcuts/format", test_format);
+    g_test_add_func("/shortcuts/save", test_save);
     return g_test_run();
 }

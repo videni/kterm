@@ -33,6 +33,7 @@
 #include "panel.h"
 #include "confedit.h"
 #include "shortbar.h"
+#include "shortpage.h"
 #include "shortcuts.h"
 #ifdef KINDLE
 #include "kindle.h"
@@ -690,17 +691,17 @@ static void add_panel_actions(GtkWidget *box) {
     panel_read_button = read_button;
     g_signal_connect(read_button, "clicked", G_CALLBACK(panel_read_clicked_cb), NULL);
     g_signal_connect_swapped(read_button, "clicked", G_CALLBACK(panel_close), NULL);
-    panel_add_action(read_button);
+    panel_add_action(read_button, -1);
     GtkWidget *rotate_button = panel_button_new("旋转");
     g_signal_connect_swapped(rotate_button, "clicked", G_CALLBACK(panel_close), NULL);
     g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), box);
-    panel_add_action(rotate_button);
+    panel_add_action(rotate_button, -1);
 #else
     UNUSED(box);
 #endif
     GtkWidget *quit_button = panel_button_new("退出");
     g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
-    panel_add_action(quit_button);
+    panel_add_action(quit_button, -1);
 
     GtkWidget *font_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 24);
     gchar *size = g_strdup_printf("%u", conf->font_size);
@@ -1219,7 +1220,15 @@ gint main(gint argc, gchar **argv) {
     GtkWidget *vbox = gtk_vbox_new(FALSE, 0);
 #endif
     gtk_widget_set_name(vbox, "ktermBox");
+#if GTK_CHECK_VERSION(3,2,0)
+    // the panel is drawn over the whole window: over the keyboard while it
+    // is open, so that the terminal keeps its size and stays in view
+    GtkWidget *overlay = gtk_overlay_new();
+    gtk_container_add(GTK_CONTAINER(overlay), vbox);
+    gtk_container_add(GTK_CONTAINER(window), overlay);
+#else
     gtk_container_add(GTK_CONTAINER(window), vbox);
+#endif
 
 #if GTK_CHECK_VERSION(3,0,0)
     GtkWidget *keyboard_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -1247,19 +1256,15 @@ gint main(gint argc, gchar **argv) {
     }
     gtk_widget_set_name(terminal, "termBox");
     main_terminal = terminal;
+    gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
 #if GTK_CHECK_VERSION(3,2,0)
-    // the panel is drawn over the terminal, which keeps its size
-    GtkWidget *overlay = gtk_overlay_new();
-    gtk_container_add(GTK_CONTAINER(overlay), terminal);
     GtkWidget *panel = panel_new(terminal);
     add_panel_actions(vbox);
 #ifdef KINDLE
     g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
 #endif
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
-    gtk_box_pack_start(GTK_BOX(vbox), overlay, TRUE, TRUE, 0);
-#else
-    gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
+    panel_add_bottom(keyboard_box, TRUE);
 #endif
     
 #ifdef KINDLE
@@ -1273,14 +1278,15 @@ gint main(gint argc, gchar **argv) {
 #if GTK_CHECK_VERSION(3,2,0)
     // above whichever keyboard is up
     GtkWidget *shortbar = shortbar_new(SYSCONFDIR "/kterm/" SHORTCUTS_FILE);
-    if (shortbar) {
-        gtk_box_pack_end(GTK_BOX(vbox), shortbar, FALSE, FALSE, 0);
-        GtkWidget *system_keyboard_bar = NULL;
+    gtk_box_pack_end(GTK_BOX(vbox), shortbar, FALSE, FALSE, 0);
+    GtkWidget *system_keyboard_bar = NULL;
 #ifdef KINDLE
-        system_keyboard_bar = ime_panel;
+    system_keyboard_bar = ime_panel;
 #endif
-        shortbar_follow(shortbar, keyboard_box, keyboard->row_count, system_keyboard_bar);
-    }
+    shortbar_follow(shortbar, keyboard_box, keyboard->row_count, system_keyboard_bar);
+    panel_add_bottom(shortbar, TRUE);
+    panel_add_bottom(system_keyboard_bar, FALSE);
+    shortpage_init();
 #endif
 
     GtkWidget *menu = build_popup(terminal, vbox);

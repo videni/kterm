@@ -27,14 +27,60 @@
  */
 
 #include <string.h>
+#include <glib/gstdio.h>
 #include "keyseq.h"
 #include "shortcuts.h"
 
-static void shortcut_free(gpointer data) {
+/**
+ * Free a button
+ * @param data Shortcut
+ */
+void shortcut_free(gpointer data) {
     Shortcut *item = data;
+    if (!item) {
+        return;
+    }
     g_free(item->label);
+    g_free(item->spec);
     g_bytes_unref(item->keys);
     g_free(item);
+}
+
+/**
+ * Make a button, as typed into the panel's form
+ * @param name Text for the button; empty: the keys are shown
+ * @param spec Keys as written, see keyseq.c
+ * @param error Set when the button could not be written to the file and
+ *  read back the same (message in Chinese, shown to the user)
+ * @return Button, or NULL
+ */
+Shortcut * shortcut_new(const gchar *name, const gchar *spec, GError **error) {
+    gchar *label = g_strstrip(g_strdup(name ? name : ""));
+    gchar *keys_text = g_strstrip(g_strdup(spec ? spec : ""));
+    if (*label && (strchr(label, '=') || *label == '#')) {
+        g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "名字里不能有 = 号，也不能以 # 开头");
+    } else if (!*label && *keys_text == '#') {
+        g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "以 # 开头的按键请起个名字");
+    }
+    GBytes *keys = NULL;
+    if (!(error && *error)) {
+        keys = keyseq_parse(keys_text, error);
+    }
+    if (!keys) {
+        g_free(label);
+        g_free(keys_text);
+        return NULL;
+    }
+    Shortcut *item = g_new0(Shortcut, 1);
+    if (*label) {
+        item->label = label;
+    } else {
+        g_free(label);
+        item->label = g_strdup(keys_text);
+    }
+    item->spec = keys_text;
+    item->keys = keys;
+    return item;
 }
 
 /**
@@ -86,13 +132,14 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
     if (!(error && *error)) {
         keys = keyseq_parse(spec, error);
     }
-    g_free(spec);
     if (!keys) {
+        g_free(spec);
         g_free(label);
         return NULL;
     }
     Shortcut *item = g_new0(Shortcut, 1);
     item->label = label;
+    item->spec = spec;
     item->keys = keys;
     return item;
 }
@@ -157,4 +204,67 @@ GPtrArray * shortcuts_load(const gchar *path, gchar **problems) {
     GPtrArray *list = shortcuts_parse(text, problems);
     g_free(text);
     return list;
+}
+
+/** On top of a file written from the panel when there was none */
+#define SHORTCUTS_NOTE "# kterm 快捷栏：一行一个按钮，写法见面板里的“快捷键”页\n\n"
+
+/**
+ * The text of the file for a list of buttons
+ * @param old_text The file as it was, or NULL; the comments on its top are
+ *  kept, everything after them is replaced
+ * @param list Buttons, in order
+ * @return New contents, free with g_free()
+ */
+gchar * shortcuts_format(const gchar *old_text, GPtrArray *list) {
+    GString *out = g_string_new(NULL);
+    if (old_text) {
+        const gchar *p = old_text;
+        while (*p) {
+            const gchar *end = strchr(p, '\n');
+            const gchar *next = end ? end + 1 : p + strlen(p);
+            gchar *line = g_strstrip(g_strndup(p, (gsize) (next - p)));
+            const gboolean note = !*line || *line == '#';
+            g_free(line);
+            if (!note) {
+                break;
+            }
+            g_string_append_len(out, p, next - p);
+            if (!end) {
+                g_string_append_c(out, '\n');
+            }
+            p = next;
+        }
+    } else {
+        g_string_append(out, SHORTCUTS_NOTE);
+    }
+    for (guint i = 0; i < list->len; i++) {
+        const Shortcut *item = g_ptr_array_index(list, i);
+        if (!strcmp(item->label, item->spec)) {
+            g_string_append_printf(out, "%s\n", item->spec);
+        } else {
+            g_string_append_printf(out, "%s = %s\n", item->label, item->spec);
+        }
+    }
+    return g_string_free(out, FALSE);
+}
+
+/**
+ * Write the buttons to the file, keeping the comments on its top
+ * @param path File; created, with its directory, if needed
+ * @param list Buttons, in order
+ * @param error Set on failure
+ * @return TRUE on success
+ */
+gboolean shortcuts_save(const gchar *path, GPtrArray *list, GError **error) {
+    gchar *dir = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0755);
+    g_free(dir);
+    gchar *old_text = NULL;
+    g_file_get_contents(path, &old_text, NULL, NULL);
+    gchar *text = shortcuts_format(old_text, list);
+    const gboolean saved = g_file_set_contents(path, text, -1, error);
+    g_free(text);
+    g_free(old_text);
+    return saved;
 }
