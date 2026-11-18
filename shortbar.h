@@ -27,7 +27,8 @@
 
 /** Widget name of the page number at the end of the row */
 #define SHORTBAR_PAGES_NAME "ktermShortPages"
-/** Widget name of the paste button, there while something was copied */
+/** Widget name of the paste button, there while something was copied and
+ *  the program waits for input */
 #define SHORTBAR_PASTE_NAME "ktermShortPaste"
 /** Widget name of the bar's two tools: the panel, the keyboard */
 #define SHORTBAR_TOOL_NAME "ktermShortTool"
@@ -43,6 +44,7 @@ void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);
 GPtrArray * shortbar_items(void);
 gboolean shortbar_save(GError **error);
 void shortbar_offer_paste(const gchar *text);
+void shortbar_paste_wanted(gboolean wanted);
 void shortbar_update(void);
 
 #endif /* shortbar_h */

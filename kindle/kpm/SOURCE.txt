@@ -3,8 +3,16 @@ Based on kterm 2.6 by Bartek Fabiszewski: https://github.com/bfabiszewski/kterm
 Changes: GTK+ 3 and VTE 0.84 on the Kindle X server, compact keyboard layout
 (split in two halves in landscape), shortcut bar with panel and keyboard
 buttons and prefix shortcuts, panel (SSH connections and disconnecting;
-settings: font size, screen orientation, refresh, shortcuts), preview mode,
-touch gestures (scrolling, long press to copy, paste button, two finger
-right click), fewer screen refreshes to save the battery, system keyboard
-(pinyin) bridge, KPM packaging. Icons: Material icons by Google (Apache 2.0).
+settings: font size, screen orientation, refresh, full refresh, shortcuts),
+preview mode (taps on the top or bottom third turn a page), touch gestures
+(scrolling, long press to copy, paste button while the program waits for
+input, two finger right click), fewer screen refreshes to save the battery,
+full refreshes clearing ghosting, system keyboard (pinyin) bridge, KPM
+packaging. Icons: Material icons by Google (Apache 2.0).
 The complete modified source accompanies this package as source.tar.gz.
+
+libvte-2.91.so.0 is VTE 0.84.0 (LGPL-3.0-or-later), from
+https://download.gnome.org/sources/vte/0.84/vte-0.84.0.tar.xz
+(sha256 0414e31583836aeb7878da25f67c515f7e8879917ecc37c92e26b83e8d8fc3e3),
+built by kindle/build-vte.sh with the patches in kindle/vte/ (both in
+source.tar.gz).

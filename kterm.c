@@ -32,6 +32,7 @@
 #include "keyboard.h"
 #include "panel.h"
 #include "icons.h"
+#include "flash.h"
 #include "refresh.h"
 #include "confedit.h"
 #include "shortbar.h"
@@ -729,19 +730,47 @@ static GtkWidget * orientation_row(void) {
 #endif
 
 #ifdef KINDLE
-/** Refresh choices of the settings page: refreshes a second (0: no limit) */
-static const struct { const gchar *label; guint rate; } refresh_choices[] = {
+/** One choice of a row on the settings page */
+typedef struct {
+    const gchar *label;
+    guint value;
+} Choice;
+
+/** A row of choices on the settings page, used at once and written to
+ *  kterm.conf */
+typedef struct {
+    const Choice *choices;
+    guint count;
+    /** Setting in conf */
+    guint *value;
+    /** Its key in kterm.conf */
+    const gchar *key;
+    /** Puts a choice to use */
+    void (*apply)(guint value);
+    GtkWidget *buttons[4];
+} ChoiceRow;
+
+/** Refreshes a second while the terminal changes on its own (0: no limit) */
+static const Choice refresh_choices[] = {
     { "省电", 1 }, { "标准", REFRESH_RATE_DEFAULT }, { "流畅", 0 },
 };
-static GtkWidget *refresh_buttons[G_N_ELEMENTS(refresh_choices)];
+static ChoiceRow refresh_row_data = { refresh_choices, G_N_ELEMENTS(refresh_choices), NULL, "refresh_rate", refresh_set_rate, { NULL } };
+
+/** Pages turned and swipes shown as a full refresh: none, those after the
+ *  terminal has been written over, all */
+static const Choice full_refresh_choices[] = {
+    { "关", FLASH_NEVER }, { "少", FLASH_WRITTEN_OVER }, { "多", FLASH_ALWAYS },
+};
+static ChoiceRow full_refresh_row_data = { full_refresh_choices, G_N_ELEMENTS(full_refresh_choices), NULL, "full_refresh", flash_set_when, { NULL } };
 
 /**
- * Draw the refresh choice in effect black
+ * Draw the choice in effect black
+ * @param row Row of choices
  */
-static void refresh_show(void) {
-    for (guint i = 0; i < G_N_ELEMENTS(refresh_choices); i++) {
-        GtkStyleContext *style = gtk_widget_get_style_context(refresh_buttons[i]);
-        if (refresh_choices[i].rate == conf->refresh_rate) {
+static void choice_show(const ChoiceRow *row) {
+    for (guint i = 0; i < row->count; i++) {
+        GtkStyleContext *style = gtk_widget_get_style_context(row->buttons[i]);
+        if (row->choices[i].value == *row->value) {
             gtk_style_context_add_class(style, "selected");
         } else {
             gtk_style_context_remove_class(style, "selected");
@@ -750,38 +779,47 @@ static void refresh_show(void) {
 }
 
 /**
- * Refresh button of the settings page: used at once, written to kterm.conf
+ * Choice button of the settings page: used at once, written to kterm.conf
  * @param button Calling widget
- * @param data Index of the choice
+ * @param data Row of choices
  */
-static void refresh_cb(GtkWidget *button, gpointer data) {
-    UNUSED(button);
-    const guint rate = refresh_choices[GPOINTER_TO_UINT(data)].rate;
-    refresh_set_rate(rate);
-    refresh_show();
-    gchar *line = g_strdup_printf("refresh_rate = %u", rate);
+static void choice_cb(GtkWidget *button, gpointer data) {
+    ChoiceRow *row = data;
+    guint i = 0;
+    while (i < row->count && row->buttons[i] != button) {
+        i++;
+    }
+    if (i == row->count) {
+        return;
+    }
+    const guint value = row->choices[i].value;
+    row->apply(value);
+    choice_show(row);
+    gchar *line = g_strdup_printf("%s = %u", row->key, value);
     GError *error = NULL;
-    if (!confedit_save(conf->conf_path, "refresh_rate", line, &error)) {
-        D printf("refresh rate not saved: %s\n", error->message);
+    if (!confedit_save(conf->conf_path, row->key, line, &error)) {
+        D printf("%s not saved: %s\n", row->key, error->message);
         g_error_free(error);
     }
     g_free(line);
 }
 
 /**
- * @return Row of the settings page choosing how often the screen follows a
- *  terminal changing on its own (not while typing: then always at once)
+ * @param row Choices
+ * @param value Setting in conf they are for
+ * @return Row of buttons of the settings page, one for each choice
  */
-static GtkWidget * refresh_row(void) {
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
-    for (guint i = 0; i < G_N_ELEMENTS(refresh_choices); i++) {
-        refresh_buttons[i] = panel_button_new(refresh_choices[i].label);
-        g_signal_connect(refresh_buttons[i], "clicked", G_CALLBACK(refresh_cb), GUINT_TO_POINTER(i));
-        gtk_box_pack_start(GTK_BOX(row), refresh_buttons[i], TRUE, TRUE, 0);
+static GtkWidget * choice_row(ChoiceRow *row, guint *value) {
+    row->value = value;
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_set_homogeneous(GTK_BOX(box), TRUE);
+    for (guint i = 0; i < row->count && i < G_N_ELEMENTS(row->buttons); i++) {
+        row->buttons[i] = panel_button_new(row->choices[i].label);
+        g_signal_connect(row->buttons[i], "clicked", G_CALLBACK(choice_cb), row);
+        gtk_box_pack_start(GTK_BOX(box), row->buttons[i], TRUE, TRUE, 0);
     }
-    refresh_show();
-    return row;
+    choice_show(row);
+    return box;
 }
 #endif
 
@@ -848,7 +886,10 @@ static void add_panel_actions(void) {
     panel_add_setting("字号", font_row);
 #ifdef KINDLE
     panel_add_setting("屏幕方向", orientation_row());
-    panel_add_setting("刷新", refresh_row());
+    // how often the screen follows a terminal changing on its own (not
+    // while typing: then always at once)
+    panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));
+    panel_add_setting("全刷", choice_row(&full_refresh_row_data, &conf->full_refresh));
 #endif
 }
 #endif
@@ -951,10 +992,16 @@ static void terminal_swipe_scroll(GtkWidget *terminal, const GdkEventButton *sou
     const gdouble top_max = gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment);
     if (terminal_has_history(terminal)) {
         // the terminal's own history: exactly as far as the finger went
-        const gdouble value = gtk_adjustment_get_value(adjustment) + (dy < 0 ? lines : -lines);
-        gtk_adjustment_set_value(adjustment, CLAMP(value, lower, top_max));
+        const gdouble old = gtk_adjustment_get_value(adjustment);
+        const gdouble value = CLAMP(old + (dy < 0 ? lines : -lines), lower, top_max);
+        if (value != old) {
+            // already at the end, nothing would be drawn to flash
+            flash_next_draw();
+            gtk_adjustment_set_value(adjustment, value);
+        }
         return;
     }
+    flash_next_draw();
     // No history here: a full screen program (tmux, less) keeps its own.
     // Finger up shows what is below, which is the wheel turning down.
     terminal_wheel(terminal, source, dy < 0 ? GDK_SCROLL_DOWN : GDK_SCROLL_UP, x, y, (guint) lines);
@@ -1019,6 +1066,7 @@ static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
         return;
     }
     // towards the left brings the next one in, like turning a page
+    flash_next_draw();
     tmux_send(terminal, dx < 0 ? "n" : "p");
 }
 #endif
@@ -1205,6 +1253,43 @@ static void selection_end(GtkWidget *terminal, const GdkEventButton *event) {
     g_free(text);
 }
 
+/** Rows of the screen before shown again after turning a page, to read on
+ *  from */
+#define PAGE_OVERLAP_ROWS 2
+
+/**
+ * A tap on the top or bottom third of the terminal while previewing: a
+ * page back or forward, a screen less two rows. The last row is left to
+ * the program: tmux's status line, whose window names are tapped.
+ * @param terminal Terminal widget
+ * @param source Release event of the tap
+ * @param x,y Where the tap was, in the terminal
+ * @return TRUE if a page was turned, FALSE if the tap is the program's
+ */
+static gboolean terminal_tap_page(GtkWidget *terminal, const GdkEventButton *source, gdouble x, gdouble y) {
+    const glong rows = vte_terminal_get_row_count(VTE_TERMINAL(terminal));
+    const glong cell = vte_terminal_get_char_height(VTE_TERMINAL(terminal));
+    const gint height = gtk_widget_get_allocated_height(terminal);
+    glong col = 0, row = 0;
+    cell_at(terminal, x, y, &col, &row);
+    if (cell <= 0 || row >= rows - 1) {
+        return FALSE;
+    }
+    gint forward = 0;
+    if (y < height / 3.0) {
+        forward = -1;
+    } else if (y >= height * 2 / 3.0) {
+        forward = 1;
+    } else {
+        return FALSE;
+    }
+    const glong lines = MAX(1, rows - PAGE_OVERLAP_ROWS);
+    D printf("page %s, %ld rows\n", forward > 0 ? "forward" : "back", lines);
+    // as a finger moving that far: up shows what is below
+    terminal_swipe_scroll(terminal, source, x, y, (gdouble) (-forward * lines * cell));
+    return TRUE;
+}
+
 /**
  * Touches on the terminal
  * @param terminal Terminal widget
@@ -1313,6 +1398,10 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
     }
     // a tap puts away the selection drawn
     vte_terminal_unselect_all(VTE_TERMINAL(terminal));
+    if (read_mode && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
+        && terminal_tap_page(terminal, event, touch.x, touch.y)) {
+        return TRUE;
+    }
     if (ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX && !read_mode
         && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
         // A tap on the terminal brings a hidden keyboard back, as tapping a
@@ -1325,6 +1414,39 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
     // the press kept back, then this release
     terminal_button(terminal, (const GdkEvent *) event, GDK_BUTTON_PRESS, 1, touch.x, touch.y, touch.state);
     return FALSE;
+}
+
+/** In the terminal's title, followed by 1 or 0: whether the program in
+ *  tmux's active pane waits for input. tmux.conf puts it there, see the
+ *  README. */
+#define PASTE_TITLE_MARK "kterm-paste:"
+
+/**
+ * The terminal changed: the paste button is offered while the program in
+ * it waits for input, which it tells by asking for pasted text to be
+ * marked (bracketed paste). The question is kterm's own VTE's, see
+ * kindle/vte/. tmux keeps bracketed paste on for itself, whatever its panes
+ * want: when tmux has the terminal, the title it gives it says, if
+ * tmux.conf asks it to.
+ */
+static void paste_target_cb(VteTerminal *terminal, gpointer data) {
+    UNUSED(data);
+    gboolean wanted = vte_terminal_get_bracketed_paste(terminal);
+    const char *title = vte_terminal_get_termprop_string_by_id(terminal, VTE_PROPERTY_ID_XTERM_TITLE, NULL);
+    const char *mark = title ? strstr(title, PASTE_TITLE_MARK) : NULL;
+    // a title left behind by a tmux no longer there does not count
+    if (mark && tmux_may_have_terminal(GTK_WIDGET(terminal))) {
+        wanted = mark[strlen(PASTE_TITLE_MARK)] == '1';
+    }
+    shortbar_paste_wanted(wanted);
+}
+
+/**
+ * The terminal's title changed, see paste_target_cb()
+ */
+static void title_cb(VteTerminal *terminal, const char *name, gpointer data) {
+    UNUSED(name);
+    paste_target_cb(terminal, data);
 }
 
 /**
@@ -1756,6 +1878,9 @@ gint main(gint argc, gchar **argv) {
 #ifdef KINDLE
     GtkWidget *menu = NULL;
     g_signal_connect(terminal, "scroll-event", G_CALLBACK(scroll_event), NULL);
+    g_signal_connect(terminal, "contents-changed", G_CALLBACK(paste_target_cb), NULL);
+    g_signal_connect(terminal, "cursor-moved", G_CALLBACK(paste_target_cb), NULL);
+    g_signal_connect(terminal, "termprop-changed::" VTE_TERMPROP_XTERM_TITLE, G_CALLBACK(title_cb), NULL);
 #else
     GtkWidget *menu = build_popup(terminal, vbox);
 #endif
@@ -1785,6 +1910,7 @@ gint main(gint argc, gchar **argv) {
     gtk_window_maximize(GTK_WINDOW(window));
 #ifdef KINDLE
     refresh_init(window, terminal);
+    flash_init(window, terminal);
 #endif
     gtk_main();
     

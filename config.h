@@ -121,6 +121,7 @@ typedef struct {
     gchar orientation;  /** Screen orientation: 'U', 'R' or 'L' */
     gchar orientation_saved;  /** Initial screen orientation: 'U', 'R' or 'L' */
     guint refresh_rate; /** Refreshes a second while the terminal changes on its own, 0: no limit */
+    guint full_refresh; /** Pages turned and swipes shown as a full refresh, see flash.h */
     guint idle_pause; /** Minutes untouched after which the screen stops following, 0: never */
 } KTconf;
 

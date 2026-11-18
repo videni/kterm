@@ -53,8 +53,10 @@ static GPtrArray *items = NULL;
 /** First button of the page shown */
 static guint page_start = 0;
 /** Text last copied from the terminal: once there is some, a paste
- *  button leads the row */
+ *  button leads the row while the program waits for input */
 static gchar *paste_text = NULL;
+/** The program in the terminal waits for input: something to paste to */
+static gboolean paste_wanted = TRUE;
 /** Where the finger went down */
 static gdouble press_x = 0;
 static gdouble press_y = 0;
@@ -66,11 +68,18 @@ static GtkWidget *other_keyboard = NULL;
 static guint keyboard_rows = 0;
 
 /**
+ * @return TRUE if the paste button is in the row
+ */
+static gboolean paste_shown(void) {
+    return paste_text && paste_wanted;
+}
+
+/**
  * @return Buttons on one page of the bar
  */
 static guint per_page(void) {
     // the two tools take one place between them
-    const guint places = SHORTBAR_PER_PAGE - 1 - (paste_text ? 1 : 0);
+    const guint places = SHORTBAR_PER_PAGE - 1 - (paste_shown() ? 1 : 0);
     // when there is more than one page, the last place says which page it is
     return items->len > places ? places - 1 : places;
 }
@@ -187,7 +196,7 @@ static void fill_row(void) {
     if (page_start >= items->len) {
         page_start = items->len ? ((items->len - 1) / count) * count : 0;
     }
-    if (paste_text) {
+    if (paste_shown()) {
         GtkWidget *paste = gtk_label_new("粘贴");
         gtk_widget_set_name(paste, SHORTBAR_PASTE_NAME);
         g_object_set_data(G_OBJECT(paste), "paste", GINT_TO_POINTER(1));
@@ -319,11 +328,21 @@ static void unpress(gboolean tapped) {
 /**
  * Show or take away the paste button, staying on the same page
  * @param text Text to paste, NULL for none
+ * @param wanted The program waits for input
  */
-static void set_paste(const gchar *text) {
+static void set_paste(const gchar *text, gboolean wanted) {
+    const gboolean shown = paste_shown();
     const guint page = page_start / per_page();
-    g_free(paste_text);
-    paste_text = g_strdup(text);
+    const gboolean new_text = text != paste_text;
+    if (new_text) {
+        gchar *copy = g_strdup(text);
+        g_free(paste_text);
+        paste_text = copy;
+    }
+    paste_wanted = wanted;
+    if (!new_text && paste_shown() == shown) {
+        return;
+    }
     page_start = page * per_page();
     fill_row();
     update_visibility();
@@ -335,7 +354,18 @@ static void set_paste(const gchar *text) {
  * @param text Text, copied
  */
 void shortbar_offer_paste(const gchar *text) {
-    set_paste(text);
+    set_paste(text, paste_wanted);
+}
+
+/**
+ * Whether the program in the terminal waits for input (a shell's prompt,
+ * Claude Code's input box): the paste button is there only then
+ * @param wanted TRUE if it waits
+ */
+void shortbar_paste_wanted(gboolean wanted) {
+    if (wanted != paste_wanted) {
+        set_paste(paste_text, wanted);
+    }
 }
 
 /**

@@ -1,7 +1,7 @@
 bin_PROGRAMS = kterm
 kterm_SOURCES = confedit.c icons.c keyboard.c keyseq.c kterm.c panel.c parse_config.c parse_layout.c refresh.c shortbar.c shortcuts.c shortpage.c sshconf.c
 if KINDLE
-kterm_SOURCES += kindle.c ime.c
+kterm_SOURCES += flash.c kindle.c ime.c
 endif
 
 ktermconfdir = $(sysconfdir)/kterm

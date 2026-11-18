@@ -79,6 +79,8 @@ AM_COND_IF(
   LIBS=$saved_LIBS
   CFLAGS=$saved_CFLAGS
 
+  dnl Xlib: messages to the Kindle's window manager (full screen refresh)
+  PKG_CHECK_MODULES([GDK_X11], [x11])
   PKG_CHECK_MODULES([DBUS], [dbus-1], [AC_DEFINE([HAVE_DBUS], [1])], [AC_MSG_WARN([screen rotation on Kindle will be disabled without dbus])])],
 
   [dnl If not Kindle

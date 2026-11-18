@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
+#include "flash.h"
 #include "refresh.h"
 
 /**
@@ -71,6 +72,7 @@ KTconf *parse_config(void) {
     conf->orientation = 0;
     conf->refresh_rate = REFRESH_RATE_DEFAULT;
     conf->idle_pause = REFRESH_IDLE_PAUSE_DEFAULT;
+    conf->full_refresh = FLASH_DEFAULT;
     
     FILE *fp;
     if ((fp = fopen(conf_path, "r")) == NULL) {
@@ -150,6 +152,13 @@ KTconf *parse_config(void) {
             guint rate = 0;
             if (sscanf(buf, "refresh_rate = %u", &rate) == 1) {
                 conf->refresh_rate = rate;
+            }
+        }
+        else if (!strncmp(buf, "full_refresh", 12)) {
+            guint when = 0;
+            if (sscanf(buf, "full_refresh = %u", &when) == 1) {
+                // larger: counts of pages, from an earlier version
+                conf->full_refresh = MIN(when, FLASH_WRITTEN_OVER);
             }
         }
         else if (!strncmp(buf, "idle_pause", 10)) {
