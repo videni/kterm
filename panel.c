@@ -66,8 +66,8 @@ static GtkWidget *home_row = NULL;
 /** On the first page while an ssh session has the terminal */
 static GtkWidget *disconnect_button = NULL;
 static GtkWidget *settings_page = NULL;
-static GtkWidget *settings_grid = NULL;
-static gint settings_count = 0;
+/** Rows of the settings page */
+static GtkWidget *settings_box = NULL;
 static GtkWidget *list_page = NULL;
 static GtkWidget *form_page = NULL;
 static GtkWidget *rows_box = NULL;
@@ -715,10 +715,9 @@ static GtkWidget * build_home_page(void) {
 static GtkWidget * build_settings_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
     panel_page_header(page, "设置", NULL);
-    settings_grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(settings_grid), PANEL_SPACING);
-    gtk_grid_set_column_spacing(GTK_GRID(settings_grid), PANEL_SPACING * 2);
-    gtk_box_pack_start(GTK_BOX(page), settings_grid, FALSE, FALSE, 0);
+    settings_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    gtk_widget_set_name(settings_box, PANEL_SETTINGS_NAME);
+    gtk_box_pack_start(GTK_BOX(page), settings_box, FALSE, FALSE, 0);
     return page;
 }
 
@@ -820,19 +819,25 @@ GtkWidget * panel_settings_page(void) {
 }
 
 /**
- * Add a row to the settings page
+ * Add a row to the settings page: what is set on the left, the widget
+ * setting it at the right edge, a line above
  * @param title What is set
  * @param control Widget that sets it, kept at its own width
  */
 void panel_add_setting(const gchar *title, GtkWidget *control) {
+    GtkWidget *line = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_name(line, PANEL_LINE_NAME);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING * 2);
     GtkWidget *label = gtk_label_new(title);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
-    gtk_widget_set_halign(control, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(settings_grid), label, 0, settings_count, 1, 1);
-    gtk_grid_attach(GTK_GRID(settings_grid), control, 1, settings_count, 1, 1);
-    settings_count++;
-    gtk_widget_show_all(label);
-    gtk_widget_show_all(control);
+    gtk_widget_set_halign(control, GTK_ALIGN_END);
+    gtk_widget_set_valign(control, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(row), label, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), control, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(settings_box), line, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(settings_box), row, FALSE, FALSE, 0);
+    gtk_widget_show_all(line);
+    gtk_widget_show_all(row);
 }
 
 /**

@@ -24,6 +24,9 @@
 #define PANEL_BUTTON_NAME "ktermPanelButton"
 /** Widget name of the back button of the panel's pages */
 #define PANEL_BACK_NAME "ktermPanelBack"
+/** Widget name of the settings page's rows, and of the lines between them */
+#define PANEL_SETTINGS_NAME "ktermSettings"
+#define PANEL_LINE_NAME "ktermSettingLine"
 
 GtkWidget * panel_new(GtkWidget *terminal);
 void panel_add_action(GtkWidget *button, gint position);

@@ -664,8 +664,9 @@ static void orientation_show(void) {
 }
 
 /**
- * Orientation button callback. The panel is put away first: the whole
- * window is laid out again for the new screen.
+ * Orientation button callback. The panel stays open on the settings page:
+ * the button drawn black tells the change was made, and the font size can
+ * be set for the new width at once.
  * @param button Calling widget
  * @param data Orientation asked for: 'U' or 'R'
  */
@@ -675,7 +676,6 @@ static void orientation_cb(GtkWidget *button, gpointer data) {
     if ((request == 'U') == is_portrait()) {
         return;
     }
-    panel_close();
     if (set_orientation(request)) {
         conf->orientation = request;
     }
