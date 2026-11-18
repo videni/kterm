@@ -82,58 +82,14 @@ static gboolean modifier_only_caps(const Keyboard *keyboard) {
 }
 
 /**
- * Markup for the hint line of a key: what shift and the symbol key turn it
- * into. Variants that add nothing (upper case of the same letter, same label)
- * are left out.
- * @param key Key structure
- * @return Newly allocated markup, or NULL if the key needs no hint
- */
-static gchar * key_hint_markup(const Key *key) {
-    const gchar *base = key->label[KBT_DEFAULT];
-    const gchar *hints[2] = { key->label[KBT_SHIFT], key->label[KBT_MOD1] };
-    if (!base) {
-        return NULL;
-    }
-    gchar *upper = g_utf8_strup(base, -1);
-    GString *line = g_string_new(NULL);
-    for (guint i = 0; i < G_N_ELEMENTS(hints); i++) {
-        if (!hints[i] || !strcmp(hints[i], base) || !strcmp(hints[i], upper)) {
-            continue;
-        }
-        if (i > 0 && hints[0] && !strcmp(hints[i], hints[0])) {
-            continue;
-        }
-        gchar *escaped = g_markup_escape_text(hints[i], -1);
-        g_string_append_printf(line, "%s%s", line->len ? "  " : "", escaped);
-        g_free(escaped);
-    }
-    g_free(upper);
-    return g_string_free(line, line->len == 0);
-}
-
-/**
- * Show the text label of a layout variant on a key. In the default variant
- * a small line above it tells what the other variants produce, because
- * nothing else on screen does.
+ * Show the text label of a layout variant on a key. Only the variant in
+ * use is shown: Shift and the symbol key are drawn black while they are
+ * on, and every key then shows what it types.
  * @param key Key structure
  * @param type Layout variant, must have a text label
  */
 static void key_set_label(Key *key, const KBtype type) {
     gtk_button_set_label(GTK_BUTTON(key->button), key->label[type]);
-    GtkWidget *child = gtk_bin_get_child(GTK_BIN(key->button));
-    if (!GTK_IS_LABEL(child)) {
-        return;
-    }
-    gchar *hint = (type == KBT_DEFAULT) ? key_hint_markup(key) : NULL;
-    if (hint) {
-        gchar *text = g_markup_escape_text(key->label[type], -1);
-        gchar *markup = g_strdup_printf("<span size=\"x-small\" foreground=\"#606060\">%s</span>\n%s", hint, text);
-        gtk_label_set_markup(GTK_LABEL(child), markup);
-        gtk_label_set_justify(GTK_LABEL(child), GTK_JUSTIFY_CENTER);
-        g_free(markup);
-        g_free(text);
-        g_free(hint);
-    }
 }
 
 /**
@@ -231,8 +187,7 @@ gboolean keyboard_set_size(gpointer data) {
         return FALSE;
     }
     GtkWidget *keyboard_box = keyboard->container;
-    // The parser labels keys one variant at a time; the hint lines need all
-    // variants, so (re)apply the labels once the layout is complete.
+    // labels of the variant in use, now that every key has all of them
     keyboard_set_layout(keyboard);
     // update geometry
     GdkScreen *screen = gdk_screen_get_default();
@@ -300,10 +255,8 @@ gboolean keyboard_set_size(gpointer data) {
         gtk_border_free(border);
     }
 #endif
-    // Keys with a hint line are taller than keys without. Reserve that
-    // height always: if the keyboard changed height with the variant shown,
-    // the terminal would be resized on every shift or symbol key press, and
-    // programs such as vi drop their command line when that happens.
+    // Keys are as tall as two lines of text, as when they carried a hint
+    // line above the label: a finger hits them more easily than smaller ones.
     PangoLayout *two_lines = gtk_widget_create_pango_layout(first, NULL);
     pango_layout_set_markup(two_lines, "<span size=\"x-small\">Xg</span>\nXg", -1);
     gint two_lines_height = 0;
