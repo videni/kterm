@@ -90,6 +90,7 @@ typedef struct Key {
     gboolean fill; /** Button may expand to fill free space */
     gboolean extended; /** Button only present in landscape view */
     struct Keyboard *keyboard; /** Pointer to keyboard structure */
+    guint unpress_source; /** Timer drawing the key released again, 0 if none */
 } Key;
 
 /**

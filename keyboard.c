@@ -368,8 +368,6 @@ static gboolean keyboard_event_press(Key *key) {
 static gboolean keyboard_event_release(gpointer data) {
     Key *key = data;
     Keyboard *keyboard = key->keyboard;
-    GtkWidget *button = key->button;
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), FALSE);
     KBtype kb_type = kbstate_to_kbtype(keyboard->modifier_mask);
     if (modifier_only_caps(keyboard) && !key->obey_caps) {
         kb_type = KBT_DEFAULT;
@@ -438,6 +436,18 @@ static void keyboard_terminal_feed(const Key *key) {
 }
 
 /**
+ * Timer callback: draw a key tapped a moment ago released again
+ * @param data Key structure
+ * @return G_SOURCE_REMOVE
+ */
+static gboolean keyboard_unpress(gpointer data) {
+    Key *key = data;
+    key->unpress_source = 0;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(key->button), FALSE);
+    return G_SOURCE_REMOVE;
+}
+
+/**
  * Key event callback
  * @param button Key button widget
  * @param ev Gdk event
@@ -461,7 +471,12 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
         press_x = ev->button.x_root;
         press_y = ev->button.y_root;
         if (!key->modifier) {
-            // show the touch at once
+            // show the touch at once; a key tapped again while still drawn
+            // pressed stays so
+            if (key->unpress_source) {
+                g_source_remove(key->unpress_source);
+                key->unpress_source = 0;
+            }
             gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), TRUE);
         }
         return TRUE;
@@ -503,6 +518,7 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
         }
         if (!key->modifier) {
             g_timeout_add(KB_RELEASE_DELAY_MS, keyboard_event_release, key);
+            key->unpress_source = g_timeout_add(KB_PRESSED_SHOW_MS, keyboard_unpress, key);
         }
         return TRUE;
     }
@@ -515,6 +531,7 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
  */
 void keyboard_key_free(Key *key) {
     if (key) {
+        if (key->unpress_source) { g_source_remove(key->unpress_source); }
         if (key->button && GTK_IS_WIDGET(key->button)) { gtk_widget_destroy(key->button); }
         for (gint i = 0; i < KBT_COUNT; i++) {
             if (key->image[i] && GTK_IS_WIDGET(key->image[i])) { gtk_widget_destroy(key->image[i]); }

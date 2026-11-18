@@ -78,6 +78,11 @@
 
 /** Delay for key release event */
 #define KB_RELEASE_DELAY_MS 100
+/** A key tapped stays drawn pressed (black) this long after the finger
+ *  leaves it. The e-ink screen is slower than a fast typist: the keys of
+ *  the last few taps are all black at once, and each tap can be seen to
+ *  have been taken, even when the screen catches up only later. */
+#define KB_PRESSED_SHOW_MS 400
 /** How far, in pixels, a finger must travel up or down across the keyboard
  *  to count as a swipe instead of a key press. Keys are about 85 px high. */
 #define KB_SWIPE_MIN_PX 110

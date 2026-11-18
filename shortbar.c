@@ -143,6 +143,80 @@ static void turn_page(gint step) {
 }
 
 /**
+ * @param x,y Position in the bar
+ * @return The button there, NULL if none
+ */
+static GtkWidget * button_at(gdouble x, gdouble y) {
+    GtkWidget *hit = NULL;
+    GList *buttons = gtk_container_get_children(GTK_CONTAINER(row));
+    for (GList *l = buttons; l && !hit; l = l->next) {
+        GtkWidget *button = l->data;
+        gint bx = 0, by = 0;
+        if ((g_object_get_data(G_OBJECT(button), "index") || g_object_get_data(G_OBJECT(button), "paste"))
+            && gtk_widget_translate_coordinates(bar, button, (gint) x, (gint) y, &bx, &by)
+            && bx >= 0 && by >= 0 && bx < gtk_widget_get_allocated_width(button)
+            && by < gtk_widget_get_allocated_height(button)) {
+            hit = button;
+        }
+    }
+    g_list_free(buttons);
+    return hit;
+}
+
+/** The button under the finger, drawn pressed */
+static GtkWidget *pressed_button = NULL;
+
+/**
+ * Draw a button released again
+ * @param data Button, referenced
+ * @return G_SOURCE_REMOVE
+ */
+static gboolean unpress_cb(gpointer data) {
+    g_object_set_data(G_OBJECT(data), "unpress", NULL);
+    gtk_style_context_remove_class(gtk_widget_get_style_context(GTK_WIDGET(data)), "pressed");
+    g_object_unref(data);
+    return G_SOURCE_REMOVE;
+}
+
+/**
+ * Draw the button under the finger pressed, as the keys are
+ * @param button Button, NULL for none
+ */
+static void press(GtkWidget *button) {
+    pressed_button = button;
+    if (!button) {
+        return;
+    }
+    // tapped again while still drawn pressed: stays so
+    const guint pending = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "unpress"));
+    if (pending) {
+        g_source_remove(pending);
+        g_object_set_data(G_OBJECT(button), "unpress", NULL);
+        g_object_unref(button);
+    }
+    gtk_style_context_add_class(gtk_widget_get_style_context(button), "pressed");
+}
+
+/**
+ * The finger has left the bar: the button pressed is drawn as before, at
+ * once, or for a tap a moment later, as the keys are (KB_PRESSED_SHOW_MS)
+ * @param tapped TRUE for a tap
+ */
+static void unpress(gboolean tapped) {
+    if (!pressed_button) {
+        return;
+    }
+    g_object_ref(pressed_button);
+    if (tapped) {
+        const guint source = g_timeout_add(KB_PRESSED_SHOW_MS, unpress_cb, pressed_button);
+        g_object_set_data(G_OBJECT(pressed_button), "unpress", GUINT_TO_POINTER(source));
+    } else {
+        unpress_cb(pressed_button);
+    }
+    pressed_button = NULL;
+}
+
+/**
  * Show or take away the paste button, staying on the same page
  * @param text Text to paste, NULL for none
  */
@@ -175,18 +249,7 @@ static void tap(gdouble x, gdouble y) {
     if (!terminal || panel_wants_keys()) {
         return;
     }
-    GtkWidget *hit = NULL;
-    GList *buttons = gtk_container_get_children(GTK_CONTAINER(row));
-    for (GList *l = buttons; l && !hit; l = l->next) {
-        GtkWidget *button = l->data;
-        gint bx = 0, by = 0;
-        if (gtk_widget_translate_coordinates(bar, button, (gint) x, (gint) y, &bx, &by)
-            && bx >= 0 && by >= 0 && bx < gtk_widget_get_allocated_width(button)
-            && by < gtk_widget_get_allocated_height(button)) {
-            hit = button;
-        }
-    }
-    g_list_free(buttons);
+    GtkWidget *hit = button_at(x, y);
     if (!hit) {
         return;
     }
@@ -218,6 +281,7 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
         press_x = event->x;
         press_y = event->y;
         pressed = TRUE;
+        press(button_at(press_x, press_y));
         return TRUE;
     }
     if (event->type != GDK_BUTTON_RELEASE || !pressed) {
@@ -226,6 +290,8 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
     pressed = FALSE;
     const gdouble dx = event->x - press_x;
     const gdouble dy = event->y - press_y;
+    const gboolean tapped = ABS(dx) < SHORTBAR_SWIPE_PX && ABS(dy) < SHORTBAR_SWIPE_PX;
+    unpress(tapped && !(panel_is_open() && !panel_wants_keys()));
     if (ABS(dx) >= SHORTBAR_SWIPE_PX && ABS(dx) > ABS(dy)) {
         // towards the left brings the next page in, like turning a page
         turn_page(dx < 0 ? 1 : -1);

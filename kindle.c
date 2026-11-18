@@ -283,6 +283,10 @@ gboolean show_system_menu(void) {
  */
 void inject_styles(void) {
 #if GTK_CHECK_VERSION(3,0,0)
+    // No animations: on e-ink each frame of one (a key fading back from
+    // black, say) is one more refresh of the screen, in grays nobody asked
+    // for.
+    g_object_set(gtk_settings_get_default(), "gtk-enable-animations", FALSE, NULL);
     GError *error = NULL;
     GtkCssProvider *provider = gtk_css_provider_new();
     if (!provider) { return; }
@@ -304,8 +308,10 @@ void inject_styles(void) {
                                     "#ktermKbButton:active { background: @gray; }"
                                     // Shift, Ctrl, Alt, the symbol key: black while
                                     // on, until the next key uses them
-                                    "#ktermKbButton.modifier:checked { background: #000000; color: #ffffff; }"
-                                    "#ktermKbButton.modifier:checked label { color: #ffffff; }"
+                                    // a key held down, or a modifier latched: black, as the
+                                    // Kindle's own keyboard draws a key pressed
+                                    "#ktermKbButton:checked { background: #000000; color: #ffffff; }"
+                                    "#ktermKbButton:checked label { color: #ffffff; }"
                                     // shortcut bar: keys like the keyboard's,
                                     // set apart from it by a line
                                     "#ktermShortBar { background: #ffffff; border-bottom: 2px solid #000000; }"
@@ -316,6 +322,8 @@ void inject_styles(void) {
                                     "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0;"
                                     " border: 1px solid #000000; border-radius: 4px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    "#ktermShortButton.pressed { background: #000000; color: #ffffff; border-color: #000000; }"
+                                    "#ktermShortPaste.pressed { background: #ffffff; color: #000000; }"
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
                                     "#ktermShortProblem { color: #000000; padding: 4px 8px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 7pt; }"
