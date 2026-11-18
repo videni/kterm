@@ -1,8 +1,10 @@
 kterm for Kindle, GPL-3.0.
 Based on kterm 2.6 by Bartek Fabiszewski: https://github.com/bfabiszewski/kterm
-Changes: GTK+ 3 and VTE 0.84 on the Kindle X server, compact keyboard layout,
-shortcut bar, swipe-up panel (SSH connections and disconnecting, preview
-mode; settings: font size, screen orientation, shortcuts), touch gestures
-(scrolling, long press to copy, paste button, two finger right click),
-system keyboard (pinyin) bridge, KPM packaging.
+Changes: GTK+ 3 and VTE 0.84 on the Kindle X server, compact keyboard layout
+(split in two halves in landscape), shortcut bar with panel and keyboard
+buttons and prefix shortcuts, panel (SSH connections and disconnecting;
+settings: font size, screen orientation, refresh, shortcuts), preview mode,
+touch gestures (scrolling, long press to copy, paste button, two finger
+right click), fewer screen refreshes to save the battery, system keyboard
+(pinyin) bridge, KPM packaging. Icons: Material icons by Google (Apache 2.0).
 The complete modified source accompanies this package as source.tar.gz.
