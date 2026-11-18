@@ -1,6 +1,7 @@
 kterm for Kindle, GPL-3.0.
 Based on kterm 2.6 by Bartek Fabiszewski: https://github.com/bfabiszewski/kterm
 Changes: GTK+ 3 and VTE 0.84 on the Kindle X server, compact keyboard layout,
-shortcut bar, swipe-up panel (SSH connections, shortcuts, font size, reading
-mode, rotation), system keyboard (pinyin) bridge, KPM packaging.
+shortcut bar, swipe-up panel (SSH connections and disconnecting, reading
+mode; settings: font size, screen orientation, shortcuts), system keyboard
+(pinyin) bridge, KPM packaging.
 The complete modified source accompanies this package as source.tar.gz.

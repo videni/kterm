@@ -222,7 +222,7 @@ GPtrArray * shortcuts_load(const gchar *path, gchar **problems) {
 }
 
 /** On top of a file written from the panel when there was none */
-#define SHORTCUTS_NOTE "# kterm 快捷栏：一行一个按钮，写法见面板里的“快捷键”页\n\n"
+#define SHORTCUTS_NOTE "# kterm 快捷栏：一行一个按钮，写法见面板里的“设置 → 快捷键”页\n\n"
 
 /**
  * The text of the file for a list of buttons

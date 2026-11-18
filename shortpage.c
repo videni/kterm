@@ -305,7 +305,7 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
 
 static GtkWidget * build_list_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING);
-    GtkWidget *header = panel_page_header(page, "快捷键");
+    GtkWidget *header = panel_page_header(page, "快捷键", panel_settings_page());
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
@@ -372,16 +372,15 @@ static GtkWidget * build_form_page(void) {
 }
 
 /**
- * Add the shortcuts pages to the panel, and their button to its first page
- * (second place, after the connections). Needs panel_new() and
- * shortbar_new() done.
+ * Add the shortcuts pages to the panel, and the row leading to them to its
+ * settings page. Needs panel_new() and shortbar_new() done.
  */
 void shortpage_init(void) {
     list_page = build_list_page();
     form_page = build_form_page();
     panel_add_page(list_page, FALSE);
     panel_add_page(form_page, TRUE);
-    GtkWidget *open = panel_button_new("快捷键");
+    GtkWidget *open = panel_button_new("编辑 ›");
     g_signal_connect(open, "clicked", G_CALLBACK(open_cb), NULL);
-    panel_add_action(open, 1);
+    panel_add_setting("快捷键", open);
 }

@@ -20,6 +20,11 @@ NAME=kterm-ui
 X="docker exec -e DISPLAY=:1 $NAME"
 case "$1" in
 start)
+    if ! docker image inspect kterm-test:armv7 >/dev/null 2>&1; then
+        # needs kterm-build:armv7, made by build.sh
+        docker build --platform linux/arm/v7 -t kterm-test:armv7 \
+            -f "$KINDLE_DIR/docker/Dockerfile.test" "$KINDLE_DIR/docker"
+    fi
     docker rm -f $NAME >/dev/null 2>&1 || true
     docker run -d --name $NAME --platform linux/arm/v7 \
         -v "$BUILD:/out:ro" -v "$REPO/layouts:/layouts:ro" \

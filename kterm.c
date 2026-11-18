@@ -641,6 +641,62 @@ static void panel_read_clicked_cb(GtkWidget *button, gpointer data) {
 
 /** The panel's reading button */
 static GtkWidget *panel_read_button = NULL;
+
+/** Orientation buttons of the settings page */
+static GtkWidget *portrait_button = NULL;
+static GtkWidget *landscape_button = NULL;
+
+/**
+ * @return TRUE if the screen is upright (or its orientation unknown)
+ */
+static gboolean is_portrait(void) {
+    return conf->orientation != 'R' && conf->orientation != 'L';
+}
+
+/**
+ * Mark the orientation the screen is in: its button is drawn black
+ */
+static void orientation_show(void) {
+    GtkWidget *on = is_portrait() ? portrait_button : landscape_button;
+    GtkWidget *off = is_portrait() ? landscape_button : portrait_button;
+    gtk_style_context_add_class(gtk_widget_get_style_context(on), "selected");
+    gtk_style_context_remove_class(gtk_widget_get_style_context(off), "selected");
+}
+
+/**
+ * Orientation button callback. The panel is put away first: the whole
+ * window is laid out again for the new screen.
+ * @param button Calling widget
+ * @param data Orientation asked for: 'U' or 'R'
+ */
+static void orientation_cb(GtkWidget *button, gpointer data) {
+    UNUSED(button);
+    const gchar request = (gchar) GPOINTER_TO_INT(data);
+    if ((request == 'U') == is_portrait()) {
+        return;
+    }
+    panel_close();
+    if (set_orientation(request)) {
+        conf->orientation = request;
+    }
+    orientation_show();
+}
+
+/**
+ * @return Row of the settings page choosing the screen orientation
+ */
+static GtkWidget * orientation_row(void) {
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
+    portrait_button = panel_button_new("竖屏");
+    landscape_button = panel_button_new("横屏");
+    g_signal_connect(portrait_button, "clicked", G_CALLBACK(orientation_cb), GINT_TO_POINTER('U'));
+    g_signal_connect(landscape_button, "clicked", G_CALLBACK(orientation_cb), GINT_TO_POINTER('R'));
+    gtk_box_pack_start(GTK_BOX(row), portrait_button, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), landscape_button, TRUE, TRUE, 0);
+    orientation_show();
+    return row;
+}
 #endif
 
 /** Font sizes offered on the settings page */
@@ -696,11 +752,8 @@ static void add_panel_actions(void) {
     panel_read_button = read_button;
     g_signal_connect(read_button, "clicked", G_CALLBACK(panel_read_clicked_cb), NULL);
     g_signal_connect_swapped(read_button, "clicked", G_CALLBACK(panel_close), NULL);
-    panel_add_action(read_button, -1);
-    GtkWidget *rotate_button = panel_button_new("旋转");
-    g_signal_connect_swapped(rotate_button, "clicked", G_CALLBACK(panel_close), NULL);
-    g_signal_connect(rotate_button, "clicked", G_CALLBACK(screen_rotate), NULL);
-    panel_add_action(rotate_button, -1);
+    // after connecting and disconnecting, before the settings
+    panel_add_action(read_button, 2);
 #endif
     GtkWidget *quit_button = panel_button_new("退出");
     g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
@@ -715,6 +768,9 @@ static void add_panel_actions(void) {
     gtk_box_pack_start(GTK_BOX(font_row), size_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(font_row), font_size_button("+", 1, size_label), FALSE, FALSE, 0);
     panel_add_setting("字号", font_row);
+#ifdef KINDLE
+    panel_add_setting("屏幕方向", orientation_row());
+#endif
 }
 #endif
 

@@ -14,10 +14,12 @@
  */
 
 /*
- * The panel opened by swiping up. It opens on a row of actions; some lead
- * to pages of their own, each with a way back: the saved ssh connections
- * (with the form to add or edit one), the shortcuts (shortpage.c) and the
- * settings.
+ * The panel opened by swiping up. It opens on a row of actions, the ones
+ * used often: the saved ssh connections (a page of their own, with the form
+ * to add or edit one), hanging up the ssh session in the terminal, reading
+ * mode, the settings page and quitting. The settings page holds what is
+ * changed rarely: the font size, the screen orientation and the shortcuts
+ * (shortpage.c, a page below it). Each page has a way back.
  *
  * It is drawn inside the main window rather than as a window of its own:
  * the terminal keeps its size, so the program running in it is not
@@ -61,6 +63,8 @@ static GPtrArray *system_bars = NULL;
 static GtkWidget *home_page = NULL;
 /** Row of actions on the first page */
 static GtkWidget *home_row = NULL;
+/** On the first page while an ssh session has the terminal */
+static GtkWidget *disconnect_button = NULL;
 static GtkWidget *settings_page = NULL;
 static GtkWidget *settings_grid = NULL;
 static gint settings_count = 0;
@@ -88,6 +92,7 @@ static gchar *editing_name = NULL;
 static gboolean delete_armed = FALSE;
 
 static void show_list(void);
+static pid_t ssh_session(void);
 
 /**
  * Create a button in the panel's style.
@@ -206,6 +211,9 @@ void panel_show_page(GtkWidget *page) {
         }
     }
     current_page = page;
+    if (page == home_page && disconnect_button) {
+        gtk_widget_set_visible(disconnect_button, ssh_session() != 0);
+    }
     gtk_widget_show(page);
     // While a form is shown, keys such as Tab must not move the focus to
     // the terminal, where the rest of what is typed would run.
@@ -259,10 +267,13 @@ void panel_open(void) {
 }
 
 /**
- * Back to the first page
+ * Back button callback
+ * @param button Calling widget
+ * @param parent Page to go back to, NULL for the first page
  */
-static void show_home(void) {
-    panel_show_page(home_page);
+static void back_cb(GtkWidget *button, gpointer parent) {
+    UNUSED(button);
+    panel_show_page(parent ? GTK_WIDGET(parent) : home_page);
     focus_terminal();
 }
 
@@ -303,6 +314,29 @@ static gboolean is_ssh(pid_t pgid) {
     g_free(name);
     g_free(path);
     return ssh;
+}
+
+/**
+ * @return Process group of the ssh client that has the terminal, 0 if
+ *         there is none
+ */
+static pid_t ssh_session(void) {
+    const pid_t foreground = kterm_terminal_foreground();
+    return (foreground && is_ssh(foreground)) ? foreground : 0;
+}
+
+/**
+ * Disconnect button callback: hang up the ssh session in the terminal.
+ * Only the client here ends, as when its window is closed, and the shell
+ * it was started from is back; the far machine only sees the connection
+ * go (programs left running in tmux there keep running).
+ */
+static void disconnect_cb(void) {
+    const pid_t session = ssh_session();
+    if (session) {
+        kill(-session, SIGHUP);
+    }
+    panel_close();
 }
 
 /**
@@ -351,12 +385,12 @@ static void connect_cb(GtkWidget *button, gpointer data) {
     // Typed while something else has the terminal, the command would go to
     // that program: inside an ssh session it would run on the far machine,
     // which does not know the names saved here.
-    const pid_t foreground = kterm_terminal_foreground();
-    if (foreground && is_ssh(foreground)) {
+    const pid_t session = ssh_session();
+    if (session) {
         // Another connection is open: picking one switches to it. The open
         // session is hung up, as when its window is closed, and the new
         // command is typed once the shell is back.
-        kill(-foreground, SIGHUP);
+        kill(-session, SIGHUP);
         g_free(switch_command);
         switch_command = g_strdup_printf(SSH_COMMAND, host->name);
         switch_tries = 0;
@@ -366,7 +400,7 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         panel_close();
         return;
     }
-    if (foreground) {
+    if (kterm_terminal_foreground()) {
         // some other program (an editor, a pager): not ours to end
         gtk_label_set_text(GTK_LABEL(empty_label), "终端里有程序在运行，先退出它再连接。");
         gtk_widget_show(empty_label);
@@ -630,14 +664,15 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
  * Start a page with its back button and title
  * @param page Page widget
  * @param title Title text
+ * @param parent Page the back button goes to, NULL for the first page
  * @return Header row, for more buttons on the right
  */
-GtkWidget * panel_page_header(GtkWidget *page, const gchar *title) {
+GtkWidget * panel_page_header(GtkWidget *page, const gchar *title, GtkWidget *parent) {
     GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
     // an arrow, as on the Kindle's own pages
     GtkWidget *back = panel_button_new("←");
     gtk_widget_set_name(back, PANEL_BACK_NAME);
-    g_signal_connect(back, "clicked", G_CALLBACK(show_home), NULL);
+    g_signal_connect(back, "clicked", G_CALLBACK(back_cb), parent);
     GtkWidget *label = gtk_label_new(NULL);
     gchar *markup = g_markup_printf_escaped("<b>%s</b>", title);
     gtk_label_set_markup(GTK_LABEL(label), markup);
@@ -651,7 +686,8 @@ GtkWidget * panel_page_header(GtkWidget *page, const gchar *title) {
 
 /**
  * Build the first page: a row of actions. There is no close button: a touch
- * on the terminal puts the panel away.
+ * on the terminal puts the panel away. Quitting, added last, ends at the
+ * far right, away from disconnecting.
  * @return Page widget
  */
 static GtkWidget * build_home_page(void) {
@@ -660,10 +696,13 @@ static GtkWidget * build_home_page(void) {
     gtk_widget_set_name(home_row, "ktermPanelActions");
     gtk_box_set_homogeneous(GTK_BOX(home_row), TRUE);
     GtkWidget *connections = panel_button_new("连接");
+    disconnect_button = panel_button_new("断开");
     GtkWidget *settings = panel_button_new("设置");
     g_signal_connect(connections, "clicked", G_CALLBACK(connections_cb), NULL);
+    g_signal_connect(disconnect_button, "clicked", G_CALLBACK(disconnect_cb), NULL);
     g_signal_connect_swapped(settings, "clicked", G_CALLBACK(panel_show_page), settings_page);
     gtk_box_pack_start(GTK_BOX(home_row), connections, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(home_row), disconnect_button, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(home_row), settings, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(page), home_row, FALSE, FALSE, 0);
     return page;
@@ -675,7 +714,7 @@ static GtkWidget * build_home_page(void) {
  */
 static GtkWidget * build_settings_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
-    panel_page_header(page, "设置");
+    panel_page_header(page, "设置", NULL);
     settings_grid = gtk_grid_new();
     gtk_grid_set_row_spacing(GTK_GRID(settings_grid), PANEL_SPACING);
     gtk_grid_set_column_spacing(GTK_GRID(settings_grid), PANEL_SPACING * 2);
@@ -689,7 +728,7 @@ static GtkWidget * build_settings_page(void) {
  */
 static GtkWidget * build_list_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
-    GtkWidget *header = panel_page_header(page, "SSH 连接");
+    GtkWidget *header = panel_page_header(page, "SSH 连接", NULL);
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
@@ -774,13 +813,21 @@ void panel_add_action(GtkWidget *button, gint position) {
 }
 
 /**
+ * @return The settings page, for pages opened from it to go back to
+ */
+GtkWidget * panel_settings_page(void) {
+    return settings_page;
+}
+
+/**
  * Add a row to the settings page
  * @param title What is set
- * @param control Widget that sets it
+ * @param control Widget that sets it, kept at its own width
  */
 void panel_add_setting(const gchar *title, GtkWidget *control) {
     GtkWidget *label = gtk_label_new(title);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_widget_set_halign(control, GTK_ALIGN_START);
     gtk_grid_attach(GTK_GRID(settings_grid), label, 0, settings_count, 1, 1);
     gtk_grid_attach(GTK_GRID(settings_grid), control, 1, settings_count, 1, 1);
     settings_count++;
