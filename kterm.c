@@ -1642,6 +1642,10 @@ gint main(gint argc, gchar **argv) {
 #endif
     // signals
     g_signal_connect(window, "delete_event", G_CALLBACK(gtk_main_quit), NULL);
+    // touches on the keyboard between its keys, see keyboard_gap_event()
+    gtk_widget_add_events(window, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+    g_signal_connect(window, "button-press-event", G_CALLBACK(keyboard_gap_event), keyboard_box);
+    g_signal_connect(window, "button-release-event", G_CALLBACK(keyboard_gap_event), keyboard_box);
     g_signal_connect(terminal, "child-exited", G_CALLBACK(terminal_exit), NULL);
     g_signal_connect(terminal, "button-press-event", G_CALLBACK(button_event), menu);
     g_signal_connect(terminal, "button-release-event", G_CALLBACK(button_event), menu);

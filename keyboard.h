@@ -115,6 +115,7 @@ typedef struct Keyboard {
 
 Keyboard * build_layout(GtkWidget *parent, GError **error);
 gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key);
+gboolean keyboard_gap_event(GtkWidget *window, GdkEvent *ev, GtkWidget *keyboard_box);
 void keyboard_set_size(Keyboard *keyboard);
 void keyboard_free(Keyboard **keyboard);
 void keyboard_key_free(Key *key);

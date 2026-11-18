@@ -569,6 +569,57 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
 }
 
 /**
+ * Touch on the keyboard between keys: the gap in the middle of the split
+ * keyboard, the room beside a row. It goes to the window, as there is no
+ * key there to take it; a swipe from it opens or puts away the panel as
+ * one from a key does, a tap puts the panel away.
+ * @param window Toplevel window
+ * @param ev Gdk event
+ * @param keyboard_box Keyboard widget
+ * @return True if the touch was on the keyboard
+ */
+gboolean keyboard_gap_event(GtkWidget *window, GdkEvent *ev, GtkWidget *keyboard_box) {
+    static gboolean pressed = FALSE;
+    static gdouble press_x = 0, press_y = 0;
+    if ((ev->type != GDK_BUTTON_PRESS && ev->type != GDK_BUTTON_RELEASE) || ev->button.button != 1) {
+        // the touch driver's mid-swipe button 3: not a touch of its own
+        return pressed;
+    }
+    if (ev->type == GDK_BUTTON_PRESS) {
+        if (ev->button.window != gtk_widget_get_window(window) || !gtk_widget_get_visible(keyboard_box)) {
+            return FALSE;
+        }
+        gint x = 0, y = 0;
+        gtk_widget_translate_coordinates(window, keyboard_box, (gint) ev->button.x, (gint) ev->button.y, &x, &y);
+        GtkAllocation alloc;
+        gtk_widget_get_allocation(keyboard_box, &alloc);
+        if (x < 0 || y < 0 || x >= alloc.width || y >= alloc.height) {
+            return FALSE;
+        }
+        pressed = TRUE;
+        press_x = ev->button.x_root;
+        press_y = ev->button.y_root;
+        return TRUE;
+    }
+    if (!pressed) {
+        return FALSE;
+    }
+    pressed = FALSE;
+    const gdouble dx = ev->button.x_root - press_x;
+    const gdouble dy = ev->button.y_root - press_y;
+    if (ABS(dy) >= KB_SWIPE_MIN_PX && ABS(dy) > ABS(dx)) {
+        if (dy < 0) {
+            panel_open();
+        } else {
+            panel_close();
+        }
+    } else if (ABS(dx) < KB_SWIPE_MIN_PX && panel_is_open() && !panel_wants_keys()) {
+        panel_close();
+    }
+    return TRUE;
+}
+
+/**
  * Free key structure
  * @param key Key structure
  */
