@@ -132,6 +132,49 @@ void shortbar_update(void) {
 }
 
 /**
+ * Mark a prefix shortcut (the keyboard comes out for the key after it): a
+ * triangle in the bottom right corner, in the color of the text (white on
+ * the key pressed, framed in black there)
+ * @param button Shortcut's label
+ * @param cr Cairo context, at the label
+ * @param data Not used
+ * @return FALSE
+ */
+static gboolean draw_prefix_mark_cb(GtkWidget *button, cairo_t *cr, gpointer data) {
+    UNUSED(data);
+    GtkStyleContext *style = gtk_widget_get_style_context(button);
+    GdkRGBA color;
+    gtk_style_context_get_color(style, gtk_style_context_get_state(style), &color);
+    gdk_cairo_set_source_rgba(cr, &color);
+    // the key is drawn inside the gap around it (the margin of its style)
+    GtkBorder margin = {0, 0, 0, 0};
+    gtk_style_context_get_margin(style, gtk_style_context_get_state(style), &margin);
+    const gdouble w = gtk_widget_get_allocated_width(button) - margin.right;
+    const gdouble h = gtk_widget_get_allocated_height(button) - margin.bottom;
+    const gdouble side = SHORTBAR_PREFIX_MARK_PX;
+    // the corner rounded as the button's is
+    const gdouble round = 4;
+    cairo_move_to(cr, w, h - side);
+    cairo_line_to(cr, w, h - round);
+    cairo_curve_to(cr, w, h, w, h, w - round, h);
+    cairo_line_to(cr, w - side, h);
+    cairo_close_path(cr);
+    cairo_fill(cr);
+    if (gtk_style_context_has_class(style, "pressed")) {
+        // white on the black key, the triangle would melt into the white
+        // around it and the key look cut off: its edges keep a black line
+        cairo_set_source_rgb(cr, 0, 0, 0);
+        cairo_set_line_width(cr, 2);
+        cairo_move_to(cr, w - 1, h - side);
+        cairo_line_to(cr, w - 1, h - round);
+        cairo_curve_to(cr, w - 1, h - 1, w - 1, h - 1, w - round, h - 1);
+        cairo_line_to(cr, w - side, h - 1);
+        cairo_stroke(cr);
+    }
+    return FALSE;
+}
+
+/**
  * Fill the row with the buttons of the page shown
  */
 static void fill_row(void) {
@@ -160,6 +203,9 @@ static void fill_row(void) {
         gtk_widget_set_name(button, SHORTBAR_BUTTON_NAME);
         gtk_label_set_ellipsize(GTK_LABEL(button), PANGO_ELLIPSIZE_END);
         g_object_set_data(G_OBJECT(button), "index", GUINT_TO_POINTER(i + 1));
+        if (item->keyboard) {
+            g_signal_connect_after(button, "draw", G_CALLBACK(draw_prefix_mark_cb), NULL);
+        }
         gtk_box_pack_start(GTK_BOX(slots), button, TRUE, TRUE, 0);
     }
     if (items->len > count) {

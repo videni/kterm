@@ -35,6 +35,8 @@
 #define SHORTBAR_SLOTS_NAME "ktermShortSlots"
 /** Gap around a tool, as around the keys of the shortcuts */
 #define SHORTBAR_TOOL_MARGIN 3
+/** Side of the triangle in the corner of a prefix shortcut */
+#define SHORTBAR_PREFIX_MARK_PX 26
 
 GtkWidget * shortbar_new(const gchar *path);
 void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);
