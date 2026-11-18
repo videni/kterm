@@ -24,6 +24,8 @@
  */
 
 #include <string.h>
+#include <signal.h>
+#include <sys/types.h>
 #include <gtk/gtk.h>
 #include "config.h"
 #include "panel.h"
@@ -155,21 +157,71 @@ static gchar * describe(const SshHost *host) {
  * @param button Calling widget
  * @param data Index of the connection
  */
+/** Command to type once the session being left has ended */
+static gchar *switch_command = NULL;
+static guint switch_tries = 0;
+
+/**
+ * @param pgid Process group
+ * @return TRUE if its leader is the ssh client
+ */
+static gboolean is_ssh(pid_t pgid) {
+    gchar *path = g_strdup_printf("/proc/%d/comm", (int) pgid);
+    gchar *name = NULL;
+    const gboolean ssh = g_file_get_contents(path, &name, NULL, NULL) && !strcmp(g_strstrip(name), "ssh");
+    g_free(name);
+    g_free(path);
+    return ssh;
+}
+
+/**
+ * Timer callback: type the pending ssh command as soon as the shell has
+ * the terminal back. Given up after three seconds; nothing is typed then.
+ * @param data Not used
+ * @return FALSE when done
+ */
+static gboolean switch_when_idle(gpointer data) {
+    UNUSED(data);
+    if (kterm_terminal_busy() && ++switch_tries < 30) {
+        return TRUE;
+    }
+    if (!kterm_terminal_busy() && switch_command && terminal_widget) {
+        vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), switch_command, -1);
+    }
+    g_free(switch_command);
+    switch_command = NULL;
+    return FALSE;
+}
+
 static void connect_cb(GtkWidget *button, gpointer data) {
     UNUSED(button);
     const guint index = GPOINTER_TO_UINT(data);
     if (!hosts || index >= hosts->len || !terminal_widget) {
         return;
     }
-    if (kterm_terminal_busy()) {
-        // The command would be typed into whatever is running: inside an
-        // ssh session it would run on the far machine, which does not know
-        // the names saved here.
-        gtk_label_set_text(GTK_LABEL(empty_label), "终端里有程序在运行（比如已连着的 ssh）。先退出它（exit），再点连接。");
+    const SshHost *host = g_ptr_array_index(hosts, index);
+    // Typed while something else has the terminal, the command would go to
+    // that program: inside an ssh session it would run on the far machine,
+    // which does not know the names saved here.
+    const pid_t foreground = kterm_terminal_foreground();
+    if (foreground && is_ssh(foreground)) {
+        // Another connection is open: picking one switches to it. The open
+        // session is hung up, as when its window is closed, and the new
+        // command is typed once the shell is back.
+        kill(-foreground, SIGHUP);
+        g_free(switch_command);
+        switch_command = g_strdup_printf("\x15ssh %s\r", host->name);
+        switch_tries = 0;
+        g_timeout_add(100, switch_when_idle, NULL);
+        panel_close();
+        return;
+    }
+    if (foreground) {
+        // some other program (an editor, a pager): not ours to end
+        gtk_label_set_text(GTK_LABEL(empty_label), "终端里有程序在运行，先退出它再连接。");
         gtk_widget_show(empty_label);
         return;
     }
-    const SshHost *host = g_ptr_array_index(hosts, index);
     // ^U first: anything half typed on the command line would otherwise be
     // run together with the command. Names are validated to be plain words.
     gchar *command = g_strdup_printf("\x15ssh %s\r", host->name);

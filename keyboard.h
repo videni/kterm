@@ -118,5 +118,6 @@ void kterm_hide_keyboard(void);
 /** The terminal widget; provided by kterm.c */
 GtkWidget * kterm_get_terminal(void);
 gboolean kterm_terminal_busy(void);
+pid_t kterm_terminal_foreground(void);
 
 #endif /* keyboard_h */

@@ -59,6 +59,8 @@ GtkWidget * kterm_get_terminal(void) {
 /** Process started in the terminal (the shell), 0 if unknown */
 static GPid main_child = 0;
 
+pid_t kterm_terminal_foreground(void);
+
 /**
  * @return TRUE if something other than the shell kterm started has the
  *         terminal: a program is running in it (an ssh session, an editor),
@@ -66,15 +68,23 @@ static GPid main_child = 0;
  *         FALSE if the shell is waiting for a command, or if it is unknown.
  */
 gboolean kterm_terminal_busy(void) {
+    return kterm_terminal_foreground() != 0;
+}
+
+/**
+ * @return Process group that has the terminal when it is not the shell
+ *         kterm started; 0 if the shell has it or if it is unknown.
+ */
+pid_t kterm_terminal_foreground(void) {
     if (!main_terminal || main_child <= 0) {
-        return FALSE;
+        return 0;
     }
     VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(main_terminal));
     if (!pty) {
-        return FALSE;
+        return 0;
     }
     const pid_t foreground = tcgetpgrp(vte_pty_get_fd(pty));
-    return foreground > 0 && foreground != (pid_t) main_child;
+    return (foreground > 0 && foreground != (pid_t) main_child) ? foreground : 0;
 }
 
 /**
