@@ -209,9 +209,8 @@ static void svg_path(cairo_t *cr, const gchar *d) {
 }
 
 /**
- * Draw a tool: its sign on the bar, without a key under it, which sets the
- * two tools apart from the shortcuts; drawn black on white, and white on
- * black while pressed. Drawn, not taken from a font: the fonts that have
+ * Draw a tool: its sign in a black frame on white, which sets the two
+ * tools apart from the gray shortcuts; white on black while pressed. Drawn, not taken from a font: the fonts that have
  * such signs differ from one system to the next, and so did their look.
  * @param tool Tool widget
  * @param cr Cairo context
@@ -562,6 +561,12 @@ GtkWidget * shortbar_new(const gchar *path) {
         gtk_widget_set_name(*tool, SHORTBAR_TOOL_NAME);
         g_object_set_data(G_OBJECT(*tool), "tool", GINT_TO_POINTER(1));
         g_signal_connect(*tool, "draw", G_CALLBACK(draw_tool_cb), NULL);
+        // the gap around the shortcuts' keys, so that the frames line up
+        // (margins in the style are not applied to a drawing area)
+        gtk_widget_set_margin_top(*tool, SHORTBAR_TOOL_MARGIN);
+        gtk_widget_set_margin_bottom(*tool, SHORTBAR_TOOL_MARGIN);
+        gtk_widget_set_margin_start(*tool, SHORTBAR_TOOL_MARGIN);
+        gtk_widget_set_margin_end(*tool, SHORTBAR_TOOL_MARGIN);
     }
     update_keyboard_tool();
     gtk_widget_show_all(box);
@@ -617,9 +622,10 @@ static void follow_height_cb(GObject *object, GParamSpec *spec, gpointer data) {
     }
     if (height > 0) {
         gtk_widget_set_size_request(row, -1, height);
-        // the tools are half a place wide: as wide as tall
-        gtk_widget_set_size_request(menu_tool, height, -1);
-        gtk_widget_set_size_request(keyboard_tool, height, -1);
+        // the tools are half a place wide: square
+        const gint side = MAX(height - 2 * SHORTBAR_TOOL_MARGIN, 1);
+        gtk_widget_set_size_request(menu_tool, side, -1);
+        gtk_widget_set_size_request(keyboard_tool, side, -1);
     }
 }
 

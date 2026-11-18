@@ -33,6 +33,8 @@
 #define SHORTBAR_TOOL_NAME "ktermShortTool"
 /** Widget name of the row of shortcuts between the tools */
 #define SHORTBAR_SLOTS_NAME "ktermShortSlots"
+/** Gap around a tool, as around the keys of the shortcuts */
+#define SHORTBAR_TOOL_MARGIN 3
 
 GtkWidget * shortbar_new(const gchar *path);
 void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);
