@@ -287,11 +287,16 @@ void inject_styles(void) {
     GtkCssProvider *provider = gtk_css_provider_new();
     if (!provider) { return; }
     gtk_css_provider_load_from_data(provider,
-                                    "@define-color gray #f0f0f0;"
+                                    // The window has 8 levels of gray (see
+                                    // kterm.c): #d8d8d8 shows as the light
+                                    // gray of the keys, #b0b0b0 as their
+                                    // borders; lighter values come out white.
+                                    "@define-color gray #d8d8d8;"
+                                    "@define-color line #b0b0b0;"
                                     // Theme padding and minimum width would make
                                     // multi-letter keys (Ctrl, Shift) wider than
                                     // their slot and push the row off screen.
-                                    "#ktermKbButton { background: @gray; padding: 0; min-width: 0; min-height: 0;"
+                                    "#ktermKbButton { background: @gray; padding: 0; min-width: 0; min-height: 0; border-color: @line;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermKbButton:hover { background: @gray; }"
                                     "#ktermKbButton:selected { background: @gray; }"
@@ -305,7 +310,7 @@ void inject_styles(void) {
                                     // set apart from it by a line
                                     "#ktermShortBar { background: #ffffff; border-bottom: 2px solid #000000; }"
                                     "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0;"
-                                    " border: 1px solid #c0c0c0; border-radius: 4px; color: #2e3436;"
+                                    " border: 1px solid @line; border-radius: 4px; color: #2e3436;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
                                     "#ktermShortProblem { color: #000000; padding: 4px 8px;"

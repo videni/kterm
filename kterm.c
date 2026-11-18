@@ -1253,11 +1253,30 @@ gint main(gint argc, gchar **argv) {
     gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
 #if GTK_CHECK_VERSION(3,0,0)
     // The Kindle root window is 8-bit StaticGray, which GTK+ 3 cannot draw
-    // to. The X server also offers a 32-bit TrueColor visual; use that and
-    // let the server convert to gray.
-    GdkVisual *rgba_visual = gdk_screen_get_rgba_visual(gtk_widget_get_screen(window));
-    if (rgba_visual) {
-        gtk_widget_set_visual(window, rgba_visual);
+    // to. The X server also offers TrueColor visuals. The 8-bit one has the
+    // depth of the screen, so what is drawn goes to it as it is. A 32-bit
+    // window has to be converted by the server at every change: in the
+    // Kindle's dark mode that conversion is about 50 times as slow, and a
+    // terminal printing steadily kept the X server busy until the whole
+    // device froze. The cost is the gray scale: red, green and blue share
+    // the 8 bits, so grays come out in 8 levels (the styles in kindle.c
+    // pick colours that land on the right ones). KTERM_VISUAL=32 brings
+    // back the 32-bit window.
+    GdkVisual *visual = NULL;
+    if (g_strcmp0(g_getenv("KTERM_VISUAL"), "32")) {
+        GList *visuals = gdk_screen_list_visuals(gtk_widget_get_screen(window));
+        for (GList *l = visuals; l && !visual; l = l->next) {
+            if (gdk_visual_get_depth(l->data) == 8 && gdk_visual_get_visual_type(l->data) == GDK_VISUAL_TRUE_COLOR) {
+                visual = l->data;
+            }
+        }
+        g_list_free(visuals);
+    }
+    if (!visual) {
+        visual = gdk_screen_get_rgba_visual(gtk_widget_get_screen(window));
+    }
+    if (visual) {
+        gtk_widget_set_visual(window, visual);
     }
 #endif
 #endif

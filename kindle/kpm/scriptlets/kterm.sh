@@ -6,5 +6,5 @@
 # DontUseFBInk
 
 # Library icon: terminal with a shell inside the Alpine chroot.
-# To close: type "exit", or press 符 and then 退出 on the keyboard.
+# To close: type "exit", or swipe up from the keyboard and tap 退出.
 exec /var/local/kmc/bin/kpm launch kterm-vte > /tmp/kterm.log 2>&1
