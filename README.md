@@ -1,5 +1,86 @@
-[![Build Status](https://travis-ci.com/bfabiszewski/kterm.svg?branch=master)](https://travis-ci.com/bfabiszewski/kterm) [![Coverity Status](https://img.shields.io/coverity/scan/10306.svg)](https://scan.coverity.com/projects/bfabiszewski-kterm)
-# \# kterm
+# kterm for Kindle
+
+越狱 Kindle 上的终端，触屏好用。基于 [kterm](https://github.com/bfabiszewski/kterm)，在 Kindle Paperwhite 4 上日常使用。
+
+<p>
+<img src="docs/keyboard.png" width="360" alt="终端和键盘">
+<img src="docs/panel.png" width="360" alt="上滑打开的面板">
+</p>
+
+## 能做什么
+
+- **适合敲命令的键盘**：Esc、Ctrl、Tab、方向键和数字都在第一屏。Shift 出大写和 `!@#`，“符”键出 F1–F12 和各种符号。按下的 Shift、Ctrl、Alt、“符”会变黑，用完自动恢复。
+- **中文输入**：点“中”调出 Kindle 自带的拼音键盘。
+- **快捷栏**：键盘上方一排按钮，点一下发一串按键，比如 `C-a`、`C-u`、tmux 前缀。可以在面板里添加、修改、删除；按钮多了左右滑动翻页。
+- **上滑面板**：在键盘上往上滑打开，点键盘或终端就收起。
+  - **连接**：保存 SSH 服务器，点一下就连上；正在连着别的也能直接切过去。
+  - **快捷键**：管理快捷栏。
+  - **设置**：字号，改了会记住。
+  - **阅读**：收起键盘专心看输出，上下滑动翻屏；在 tmux 里左右滑动切窗口。
+  - **旋转**：横屏 / 竖屏。
+  - **退出**
+- **一键安装**：KPM 安装包，装完图书馆里多一个“终端”。
+
+## 安装
+
+需要：已越狱的 Kindle，装好 [KPM](https://hackerdude.tech) 和 Alpine 镜像（`/mnt/us/alpine`）。
+
+1. 从 [Releases](../../releases) 下载 `kterm-vte_<版本>_kindlehf.kpkg`，拷到 Kindle 根目录。
+2. 在 Kindle 上执行：`kpm -y install file:///mnt/us/kterm-vte_<版本>_kindlehf.kpkg`
+   第一次会在 Alpine 里装 GTK+ 3 和 VTE（约 60 MB），需要联网。
+3. 在图书馆里打开“终端”。
+
+---
+
+## 技术说明
+
+### 和原版的区别
+
+- 在 Kindle 的 X 服务器上跑 GTK+ 3 和 VTE 0.84（来自 Alpine 的软件包，程序在 Alpine chroot 里运行）。
+- 新键盘布局 [layouts/keyboard-kindle.xml](layouts/keyboard-kindle.xml)：每行 10 个键宽，Shift / “符”两层；键宽从屏幕宽度算（直接问 X 服务器，旋转后立即正确）。
+- 触屏手势：Kindle 触屏驱动在滑动中途会多发一次右键，这里不当成按键。上滑开面板、下滑收面板，阅读模式下滑动翻屏。
+- 拼音输入：通过 lipc / D-Bus 调起系统键盘，把它输入的文字转给终端（[ime.c](ime.c)）。
+- 面板（[panel.c](panel.c)）：SSH 连接直接存在 `~/.ssh/config` 的 Host 块里（[sshconf.c](sshconf.c)），只改动对应的那几行，所以命令行、scp、git 也能用同一份配置。
+- 快捷栏（[shortbar.c](shortbar.c)、[shortpage.c](shortpage.c)）：按钮存在 `shortcuts.conf`；按键写法由 [keyseq.c](keyseq.c) 解析，表单里会实时用中文说明这串按键会做什么。
+- 字号保存到 `kterm.conf`（[confedit.c](confedit.c)，只替换那一行，保留注释）。
+
+### 配置文件（设备上，Alpine 里）
+
+| 文件 | 内容 |
+|---|---|
+| `/usr/local/etc/kterm/kterm.conf` | 字号、tmux 前缀（`tmux_prefix`，阅读模式切窗口用）等 |
+| `/usr/local/etc/kterm/shortcuts.conf` | 快捷栏按钮，写法见文件里的注释 |
+| `~/.ssh/config` | 保存的 SSH 连接 |
+
+`shortcuts.conf` 一行一个按钮，`#` 开头的行是注释：
+
+```
+# 按钮显示 C-u，发 Ctrl+u
+C-u
+# 按钮显示 TX，发 Ctrl+Space（tmux 前缀）
+TX = C-Space
+# 引号里是文字，Enter 是回车
+拉代码 = "git pull" Enter
+```
+
+### 构建和打包
+
+需要 Docker（用 Alpine armv7 镜像交叉编译）、`rsvg-convert`、Python 3。
+
+```sh
+sh kindle/build.sh      # 编译，输出 build/kterm
+sh kindle/package.sh    # 打包，输出 build/kterm-vte_<版本>_kindlehf.kpkg（含完整源码，GPL）
+```
+
+- `kindle/kpm/`：安装包内容（manifest、安装 / 卸载 / 启动脚本、图标）。
+- `kindle/uitest.sh`：不用 Kindle，在 Docker 里的虚拟 X 屏幕上运行界面，可以点击、滑动、截图。
+- `kindle/shot.sh`：通过 SSH 抓 Kindle 屏幕截图（`KINDLE=root@<地址>`）。
+- `tests/`：按键写法、快捷栏文件、配置改写、SSH 配置的单元测试（只依赖 GLib），例如：
+  `cc $(pkg-config --cflags --libs glib-2.0) -I. tests/test_keyseq.c keyseq.c -o /tmp/t && /tmp/t`
+
+---
+
+## 原版 kterm 说明（upstream）
 
 This is a simple GTK+ terminal emulator with embedded virtual keyboard. It is based on VteTerminal library. Some initial settings may be defined in [kterm.conf](kterm.conf) file. Keyboard layouts are defined in [xml config](layouts/keyboard.xml) files. The keyboard config files follow the same rules as matchbox keyboard configs (backward compatible with kterm 1.x which used embedded matchbox keyboard).
 

@@ -1,0 +1,4 @@
+# kterm under a virtual X server, for trying the user interface without the
+# Kindle: Xvfb at the Kindle's resolution, a tool to click and drag, fonts.
+FROM kterm-build:armv7
+RUN apk add --no-cache xvfb xdotool imagemagick font-dejavu font-wqy-zenhei dbus bash openssh-client openssh-server tmux

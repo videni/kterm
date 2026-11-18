@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <!-- Library cover for the Kindle home screen (2:3, greyscale e-ink). -->
+  <rect width="600" height="900" fill="#ffffff"/>
+  <!-- terminal window -->
+  <rect x="50" y="150" width="500" height="410" rx="44" fill="#111111"/>
+  <path d="M50 238 V194 a44 44 0 0 1 44 -44 H506 a44 44 0 0 1 44 44 V238 Z" fill="#4d4d4d"/>
+  <circle cx="108" cy="194" r="15" fill="#ffffff"/>
+  <circle cx="160" cy="194" r="15" fill="#ffffff"/>
+  <circle cx="212" cy="194" r="15" fill="#ffffff"/>
+  <!-- prompt: >_ -->
+  <polyline points="140,318 250,398 140,478" fill="none" stroke="#ffffff"
+            stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="296" y="446" width="170" height="40" rx="20" fill="#ffffff"/>
+  <text x="300" y="712" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-weight="bold" font-size="104" fill="#111111">Terminal</text>
+  <text x="300" y="800" text-anchor="middle" font-family="Menlo, monospace"
+        font-size="46" fill="#4d4d4d">kterm · Alpine</text>
+</svg>
