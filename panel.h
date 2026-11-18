@@ -22,6 +22,8 @@
 #define PANEL_NAME "ktermPanel"
 /** Widget name of the panel's buttons, for styling */
 #define PANEL_BUTTON_NAME "ktermPanelButton"
+/** Widget name of the back button of the panel's pages */
+#define PANEL_BACK_NAME "ktermPanelBack"
 
 GtkWidget * panel_new(GtkWidget *terminal);
 void panel_add_action(GtkWidget *button);

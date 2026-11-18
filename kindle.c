@@ -314,6 +314,10 @@ void inject_styles(void) {
                                     " border-radius: 8px; padding: 16px 20px; min-width: 0; min-height: 0;"
                                     " box-shadow: none; text-shadow: none; }"
                                     "#ktermPanelButton:disabled { color: #a0a0a0; border-color: #a0a0a0; }"
+                                    // the back arrow: no frame, large, like the Kindle's
+                                    "#ktermPanelBack { background: transparent; color: #000000; border: none;"
+                                    " box-shadow: none; text-shadow: none; padding: 4px 24px 4px 0;"
+                                    " min-width: 0; min-height: 0; font-size: 16pt; }"
                                     "#ktermPanelActions #ktermPanelButton { padding: 16px 2px; }"
                                     "#ktermPanel entry { background: #ffffff; color: #000000; border: 2px solid #000000;"
                                     " border-radius: 8px; padding: 12px 16px; min-height: 0; box-shadow: none; }"

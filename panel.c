@@ -516,7 +516,9 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
  */
 static GtkWidget * add_header(GtkWidget *page, const gchar *title) {
     GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
-    GtkWidget *back = panel_button_new("‹ 返回");
+    // an arrow, as on the Kindle's own pages
+    GtkWidget *back = panel_button_new("←");
+    gtk_widget_set_name(back, PANEL_BACK_NAME);
     g_signal_connect(back, "clicked", G_CALLBACK(show_home), NULL);
     GtkWidget *label = gtk_label_new(NULL);
     gchar *markup = g_markup_printf_escaped("<b>%s</b>", title);
