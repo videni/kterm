@@ -16,7 +16,8 @@
 /*
  * The panel opened by swiping up. It opens on a row of actions, the ones
  * used often: the saved ssh connections (a page of their own, with the form
- * to add or edit one), hanging up the ssh session in the terminal, reading
+ * to add or edit one, and the machines of the local network found to add),
+ * hanging up the ssh session in the terminal, reading
  * mode, the settings page and quitting. The settings page holds what is
  * changed rarely: the font size, the screen orientation and the shortcuts
  * (shortpage.c, a page below it). Each page has a way back.
@@ -87,6 +88,12 @@ static guint page_start = 0;
 static gchar *editing_name = NULL;
 /** Delete was pressed once and waits for the second press */
 static gboolean delete_armed = FALSE;
+/** Page of the machines found in the local network */
+static GtkWidget *found_page = NULL;
+static GtkWidget *found_rows = NULL;
+static GtkWidget *found_label = NULL;
+/** A search is under way */
+static gboolean searching = FALSE;
 
 static void show_list(void);
 static pid_t ssh_session(void);
@@ -390,6 +397,116 @@ static void show_form(const SshHost *host) {
 }
 
 /**
+ * A machine found in the local network was picked: the form, filled in.
+ * It is reached by its name there (vidy-macbookpro.local), whatever
+ * address the router gives it; sshconf.c has kterm-mdns find it. One
+ * already saved is edited instead.
+ * @param button Calling widget, holding "host" and "port"
+ */
+static void found_cb(GtkWidget *button) {
+    const gchar *address = g_object_get_data(G_OBJECT(button), "host");
+    const gchar *port = g_object_get_data(G_OBJECT(button), "port");
+    for (guint i = 0; hosts && i < hosts->len; i++) {
+        const SshHost *saved = g_ptr_array_index(hosts, i);
+        if (!g_ascii_strcasecmp(saved->host, address)) {
+            show_form(saved);
+            return;
+        }
+    }
+    // its first label is the name to type: ssh vidy-macbookpro
+    gchar *name = g_strndup(address, strcspn(address, "."));
+    show_form(NULL);
+    gtk_entry_set_text(GTK_ENTRY(entry_name), name);
+    gtk_entry_set_text(GTK_ENTRY(entry_host), address);
+    gtk_entry_set_text(GTK_ENTRY(entry_port), strcmp(port, "22") ? port : "");
+    // the user name on that machine is the one thing not found
+    gtk_widget_grab_focus(entry_user);
+    g_free(name);
+}
+
+/**
+ * The search is over: a row for each machine found
+ * @param source kterm-mdns
+ * @param result Its output: instance, host, port, address, tab separated
+ * @param data Not used
+ */
+static void search_done(GObject *source, GAsyncResult *result, gpointer data) {
+    UNUSED(data);
+    searching = FALSE;
+    gchar *output = NULL;
+    GError *error = NULL;
+    if (!g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &output, NULL, &error)) {
+        gtk_label_set_text(GTK_LABEL(found_label), error->message);
+        g_error_free(error);
+        return;
+    }
+    gchar **lines = g_strsplit(output ? output : "", "\n", -1);
+    guint count = 0;
+    for (gchar **line = lines; *line; line++) {
+        gchar **fields = g_strsplit(*line, "\t", 4);
+        if (g_strv_length(fields) == 4 && count < ROWS_PER_PAGE) {
+            gboolean saved = FALSE;
+            for (guint i = 0; hosts && i < hosts->len && !saved; i++) {
+                saved = !g_ascii_strcasecmp(((SshHost *) g_ptr_array_index(hosts, i))->host, fields[1]);
+            }
+            gchar *markup = g_markup_printf_escaped("<b>%s</b>   %s%s", fields[1], fields[0],
+                                                    saved ? "   （已保存）" : "");
+            GtkWidget *label = gtk_label_new(NULL);
+            gtk_label_set_markup(GTK_LABEL(label), markup);
+            gtk_label_set_xalign(GTK_LABEL(label), 0);
+            gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+            g_free(markup);
+            GtkWidget *row = gtk_button_new();
+            gtk_widget_set_name(row, PANEL_BUTTON_NAME);
+            gtk_widget_set_can_focus(row, FALSE);
+            gtk_container_add(GTK_CONTAINER(row), label);
+            g_object_set_data_full(G_OBJECT(row), "host", g_strdup(fields[1]), g_free);
+            g_object_set_data_full(G_OBJECT(row), "port", g_strdup(fields[2]), g_free);
+            g_signal_connect(row, "clicked", G_CALLBACK(found_cb), NULL);
+            gtk_box_pack_start(GTK_BOX(found_rows), row, FALSE, FALSE, 0);
+            count++;
+        }
+        g_strfreev(fields);
+    }
+    g_strfreev(lines);
+    g_free(output);
+    gtk_widget_show_all(found_rows);
+    gtk_label_set_text(GTK_LABEL(found_label), count
+                       ? "点一台机器，填上用户名保存。换了 IP 也能连上。"
+                       : "没找到。Mac 要在 系统设置 → 通用 → 共享 里打开“远程登录”，并和 Kindle 连着同一个 Wi-Fi。");
+}
+
+/**
+ * Search button callback: the machines of the local network that take ssh
+ * connections (the _ssh._tcp service, which a Mac with remote login on
+ * offers), asked by kterm-mdns
+ */
+static void search_cb(void) {
+    GList *old_rows = gtk_container_get_children(GTK_CONTAINER(found_rows));
+    for (GList *cur = old_rows; cur != NULL; cur = cur->next) {
+        gtk_widget_destroy(GTK_WIDGET(cur->data));
+    }
+    g_list_free(old_rows);
+    panel_show_page(found_page);
+    focus_terminal();
+    if (searching) {
+        return;
+    }
+    GError *error = NULL;
+    GSubprocess *search = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+                                           &error, "kterm-mdns", "browse", "_ssh._tcp", NULL);
+    if (!search) {
+        gtk_label_set_text(GTK_LABEL(found_label), error->message);
+        g_error_free(error);
+        return;
+    }
+    searching = TRUE;
+    gtk_label_set_text(GTK_LABEL(found_label), "正在查找局域网里的机器…");
+    g_subprocess_communicate_utf8_async(search, NULL, NULL, search_done, NULL);
+    g_object_unref(search);
+}
+
+/**
  * Edit button callback
  * @param button Calling widget
  * @param data Index of the connection
@@ -686,13 +803,16 @@ static GtkWidget * build_list_page(void) {
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
+    GtkWidget *search = panel_button_new("查找");
     GtkWidget *add = panel_button_new("新建");
     g_signal_connect(prev_button, "clicked", G_CALLBACK(page_cb), GINT_TO_POINTER(-1));
     g_signal_connect(next_button, "clicked", G_CALLBACK(page_cb), GINT_TO_POINTER(1));
+    g_signal_connect(search, "clicked", G_CALLBACK(search_cb), NULL);
     g_signal_connect(add, "clicked", G_CALLBACK(new_cb), NULL);
     gtk_box_pack_start(GTK_BOX(header), prev_button, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), page_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), next_button, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(header), search, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(header), add, FALSE, FALSE, 0);
 
     rows_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
@@ -702,6 +822,25 @@ static GtkWidget * build_list_page(void) {
 
     gtk_box_pack_start(GTK_BOX(page), rows_box, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(page), empty_label, FALSE, FALSE, 0);
+    return page;
+}
+
+/**
+ * Build the page of the machines found in the local network
+ * @return Page widget
+ */
+static GtkWidget * build_found_page(void) {
+    GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    GtkWidget *header = panel_page_header(page, "局域网里的机器", list_page);
+    GtkWidget *again = panel_button_new("再找");
+    g_signal_connect(again, "clicked", G_CALLBACK(search_cb), NULL);
+    gtk_box_pack_start(GTK_BOX(header), again, FALSE, FALSE, 0);
+    found_rows = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    found_label = gtk_label_new(NULL);
+    gtk_label_set_xalign(GTK_LABEL(found_label), 0);
+    gtk_label_set_line_wrap(GTK_LABEL(found_label), TRUE);
+    gtk_box_pack_start(GTK_BOX(page), found_rows, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(page), found_label, FALSE, FALSE, 0);
     return page;
 }
 
@@ -820,8 +959,10 @@ GtkWidget * panel_new(GtkWidget *terminal) {
     home_page = build_home_page();
     list_page = build_list_page();
     form_page = build_form_page();
+    found_page = build_found_page();
     panel_add_page(home_page, FALSE);
     panel_add_page(list_page, FALSE);
+    panel_add_page(found_page, FALSE);
     panel_add_page(form_page, TRUE);
     panel_add_page(settings_page, FALSE);
     gtk_widget_show(content);

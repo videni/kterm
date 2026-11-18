@@ -33,6 +33,8 @@ install_file() {
 # system's; the vte3 package above brings the libraries it needs
 install_file "$PACKAGE_ROOT/payload/libvte-2.91.so.0" "$MNT/usr/local/lib/kterm/libvte-2.91.so.0" 755
 install_file "$PACKAGE_ROOT/payload/kterm" "$MNT/usr/local/bin/kterm" 755
+# finds the machines of the local network for ssh (ProxyCommand)
+install_file "$PACKAGE_ROOT/payload/kterm-mdns" "$MNT/usr/local/bin/kterm-mdns" 755
 install_file "$PACKAGE_ROOT/bwrap-shim.sh" "$MNT/usr/local/bin/bwrap" 755
 install_file "$PACKAGE_ROOT/payload/keyboard-kindle.xml" "$MNT/usr/local/share/kterm/keyboard-kindle.xml" 644
 # The shortcut bar's buttons: a starting point to edit, never replaced.

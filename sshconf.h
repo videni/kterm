@@ -28,6 +28,11 @@ typedef struct {
     gchar *port; /** Port, may be empty */
 } SshHost;
 
+/** How ssh reaches a machine named in the local network ("name.local"):
+ *  kterm-mdns finds its address, see kterm-mdns.c */
+#define SSHCONF_MDNS_PROXY "/usr/local/bin/kterm-mdns connect %h %p"
+
+gboolean sshconf_is_local(const gchar *host);
 SshHost * ssh_host_new(const gchar *name, const gchar *host, const gchar *user, const gchar *port);
 void ssh_host_free(SshHost *host);
 gchar * sshconf_default_path(void);

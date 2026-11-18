@@ -1258,9 +1258,10 @@ static void selection_end(GtkWidget *terminal, const GdkEventButton *event) {
 #define PAGE_OVERLAP_ROWS 2
 
 /**
- * A tap on the top or bottom third of the terminal while previewing: a
- * page back or forward, a screen less two rows. The last row is left to
- * the program: tmux's status line, whose window names are tapped.
+ * A tap on the top or bottom third of the terminal (the keyboard is not
+ * part of it), previewing or not: a page back or forward, a screen less
+ * two rows. The middle third and the last row are left to the program:
+ * tmux's status line, whose window names are tapped.
  * @param terminal Terminal widget
  * @param source Release event of the tap
  * @param x,y Where the tap was, in the terminal
@@ -1398,7 +1399,7 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
     }
     // a tap puts away the selection drawn
     vte_terminal_unselect_all(VTE_TERMINAL(terminal));
-    if (read_mode && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
+    if (ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
         && terminal_tap_page(terminal, event, touch.x, touch.y)) {
         return TRUE;
     }

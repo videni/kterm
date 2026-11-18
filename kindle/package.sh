@@ -23,7 +23,7 @@ assert "@ICON@" in text
 open(dst, "w", encoding="utf-8").write(text.replace("@ICON@", base64.b64encode(open(icon, "rb").read()).decode()))' \
     "$PKG/scriptlets/kterm.sh" "$STAGE/icon.png" "$STAGE/scriptlets/kterm.sh"
 rm "$STAGE/icon.png"
-cp "$BUILD/kterm" "$REPO/layouts/keyboard-kindle.xml" "$REPO/shortcuts.conf" "$STAGE/payload/"
+cp "$BUILD/kterm" "$BUILD/kterm-mdns" "$REPO/layouts/keyboard-kindle.xml" "$REPO/shortcuts.conf" "$STAGE/payload/"
 # kterm's own VTE (kindle/build-vte.sh), under its soname
 cp -L "$BUILD/vte/usr/lib/libvte-2.91.so.0" "$STAGE/payload/"
 # GPL: the source this binary was built from travels with it.

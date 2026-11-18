@@ -1,5 +1,6 @@
 /* Tests for sshconf.c: cc $(pkg-config --cflags --libs glib-2.0) -I.. test_sshconf.c ../sshconf.c -o /tmp/test_sshconf */
 #include <glib.h>
+#include <string.h>
 #include <glib/gstdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -305,6 +306,35 @@ static void test_through_symlink(void) {
     g_free(dir);
 }
 
+static void test_local_name_proxy(void) {
+    put("Host mac\n    HostName 192.168.1.232\n    User vidy\n"
+        "\nHost ts\n    HostName mac.tail.ts.net\n    ProxyCommand /usr/bin/tailscale nc %h %p\n");
+    // a name of the local network: kterm-mdns finds it
+    save("mac", "mac", "vidy-macbookpro.local", "vidy", "");
+    gchar *text = get();
+    g_assert_nonnull(strstr(text, "    HostName vidy-macbookpro.local\n    ProxyCommand " SSHCONF_MDNS_PROXY "\n    User vidy\n"));
+    g_free(text);
+    // saved again: still one line
+    save("mac", "mac", "vidy-macbookpro.local", "vidy", "");
+    text = get();
+    g_assert_null(strstr(strstr(text, "kterm-mdns") + 1, "kterm-mdns"));
+    g_free(text);
+    // back to an address: the line goes
+    save("mac", "mac", "192.168.1.232", "vidy", "");
+    text = get();
+    g_assert_null(strstr(text, "kterm-mdns"));
+    // the user's own ProxyCommand stays
+    g_assert_nonnull(strstr(text, "ProxyCommand /usr/bin/tailscale nc %h %p"));
+    g_free(text);
+    save("ts", "ts", "mac.tail.ts.net", "vidy", "");
+    text = get();
+    g_assert_nonnull(strstr(text, "ProxyCommand /usr/bin/tailscale nc %h %p"));
+    g_free(text);
+    g_assert_true(sshconf_is_local("a.local"));
+    g_assert_true(sshconf_is_local("a.local."));
+    g_assert_false(sshconf_is_local("a.localhost"));
+}
+
 static void test_tightens_loose_mode(void) {
     // ssh refuses a config others may write to; a save has to repair it
     put("Host a\n    HostName 1.1.1.1\n");
@@ -338,6 +368,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/sshconf/no-final-newline-and-crlf", test_no_final_newline_and_crlf);
     g_test_add_func("/sshconf/alias-is-taken", test_alias_is_taken);
     g_test_add_func("/sshconf/through-symlink", test_through_symlink);
+    g_test_add_func("/sshconf/local-name-proxy", test_local_name_proxy);
     const int result = g_test_run();
     g_remove(path);
     g_rmdir(ssh_dir);

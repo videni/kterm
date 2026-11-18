@@ -11,6 +11,6 @@ if [ -f "$ENTRY" ] && cmp -s "$ENTRY" "$PACKAGE_ROOT/scriptlets/kterm.sh"; then
 fi
 if [ -f "$ALPINE" ] && sh "$ALPINE" -c true; then
     MNT=$(cd /tmp && pwd -P)/alpine
-    rm -f "$MNT/usr/local/bin/kterm" "$MNT/usr/local/bin/bwrap"
+    rm -f "$MNT/usr/local/bin/kterm" "$MNT/usr/local/bin/kterm-mdns" "$MNT/usr/local/bin/bwrap"
     rm -rf "$MNT/usr/local/share/kterm" "$MNT/usr/local/lib/kterm"
 fi

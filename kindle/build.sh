@@ -38,5 +38,5 @@ fi
 make >/tmp/mk.log 2>&1 || { grep -B2 -A8 "error" /tmp/mk.log | head -80; exit 1; }
 # deprecation warnings come with upstream'"'"'s GTK+ 2 compatible code
 grep "warning:" /tmp/mk.log | grep -v "deprecated" | head -40 || true
-cp kterm /out/kterm && echo BUILD_OK
+cp kterm /out/kterm && cp kterm-mdns /out/kterm-mdns && echo BUILD_OK
 '

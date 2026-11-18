@@ -16,6 +16,12 @@ bind() {
     mount -o bind "$1" "$2"
 }
 bind /var/tmp/.X11-unix "$MNT/tmp/.X11-unix"
+
+# The machines of the local network are found by multicast DNS (kterm-mdns):
+# their answers come from port 5353, which the Kindle's firewall drops like
+# everything it did not ask for by a connection. Let them in on Wi-Fi.
+iptables -C INPUT -i wlan0 -p udp --sport 5353 -j ACCEPT 2>/dev/null \
+    || iptables -A INPUT -i wlan0 -p udp --sport 5353 -j ACCEPT 2>/dev/null
 bind /var/run/dbus "$MNT/run/dbus"
 bind /usr/java/lib/fonts "$MNT/usr/share/fonts/kindle"
 # Fonts the user dropped into the Kindle's own .fonts folder.

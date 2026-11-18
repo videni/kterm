@@ -21,6 +21,11 @@
  * The file belongs to the user. Only the lines of the block being changed
  * are touched; comments, other options, wildcard and Match blocks stay as
  * they are.
+ *
+ * A machine named in the local network ("vidy-macbookpro.local") is
+ * reached through kterm-mdns (ProxyCommand), which finds its address
+ * wherever the router put it this time. That line comes and goes with the
+ * name; a ProxyCommand of the user's own stays.
  */
 
 #include <stdlib.h>
@@ -143,6 +148,31 @@ static gchar * line_value(const gchar *line, const gchar *wanted) {
     }
     g_free(keyword);
     return value;
+}
+
+/**
+ * @param host HostName
+ * @return TRUE for a name of the local network, found by multicast DNS
+ */
+gboolean sshconf_is_local(const gchar *host) {
+    return host && (g_str_has_suffix(host, ".local") || g_str_has_suffix(host, ".local."));
+}
+
+/**
+ * @param lines Configuration lines
+ * @param first Index of the Host line
+ * @param end Index after the block
+ * @param wanted Lower case keyword
+ * @return First argument of the option in the block, NULL if it has none
+ */
+static gchar * block_value(GPtrArray *lines, guint first, guint end, const gchar *wanted) {
+    for (guint i = first + 1; i < end; i++) {
+        gchar *value = line_value(g_ptr_array_index(lines, i), wanted);
+        if (value) {
+            return value;
+        }
+    }
+    return NULL;
 }
 
 /**
@@ -555,6 +585,13 @@ gboolean sshconf_save(const gchar *path, const gchar *old_name, const SshHost *h
     }
     guint insert_at = first + 1;
     set_option(lines, first, &end, "HostName", host->host, indent, &insert_at);
+    gchar *proxy = block_value(lines, first, end, "proxycommand");
+    if (sshconf_is_local(host->host)) {
+        set_option(lines, first, &end, "ProxyCommand", SSHCONF_MDNS_PROXY, indent, &insert_at);
+    } else if (proxy && strstr(proxy, "kterm-mdns")) {
+        set_option(lines, first, &end, "ProxyCommand", "", indent, &insert_at);
+    }
+    g_free(proxy);
     set_option(lines, first, &end, "User", host->user, indent, &insert_at);
     set_option(lines, first, &end, "Port", host->port, indent, &insert_at);
     g_free(indent);
