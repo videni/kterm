@@ -32,6 +32,7 @@
 #include "keyboard.h"
 #include "panel.h"
 #include "icons.h"
+#include "refresh.h"
 #include "confedit.h"
 #include "shortbar.h"
 #include "shortpage.h"
@@ -174,6 +175,10 @@ static void set_terminal_cursor(VteTerminal *terminal, gchar cursor_shape) {
             break;
     }
     vte_terminal_set_cursor_shape(terminal, shape);
+#ifdef KINDLE
+    // each blink would be a refresh of the e-ink screen
+    vte_terminal_set_cursor_blink_mode(terminal, VTE_CURSOR_BLINK_OFF);
+#endif
 }
 #endif
 
@@ -723,6 +728,63 @@ static GtkWidget * orientation_row(void) {
 }
 #endif
 
+#ifdef KINDLE
+/** Refresh choices of the settings page: refreshes a second (0: no limit) */
+static const struct { const gchar *label; guint rate; } refresh_choices[] = {
+    { "省电", 1 }, { "标准", REFRESH_RATE_DEFAULT }, { "流畅", 0 },
+};
+static GtkWidget *refresh_buttons[G_N_ELEMENTS(refresh_choices)];
+
+/**
+ * Draw the refresh choice in effect black
+ */
+static void refresh_show(void) {
+    for (guint i = 0; i < G_N_ELEMENTS(refresh_choices); i++) {
+        GtkStyleContext *style = gtk_widget_get_style_context(refresh_buttons[i]);
+        if (refresh_choices[i].rate == conf->refresh_rate) {
+            gtk_style_context_add_class(style, "selected");
+        } else {
+            gtk_style_context_remove_class(style, "selected");
+        }
+    }
+}
+
+/**
+ * Refresh button of the settings page: used at once, written to kterm.conf
+ * @param button Calling widget
+ * @param data Index of the choice
+ */
+static void refresh_cb(GtkWidget *button, gpointer data) {
+    UNUSED(button);
+    const guint rate = refresh_choices[GPOINTER_TO_UINT(data)].rate;
+    refresh_set_rate(rate);
+    refresh_show();
+    gchar *line = g_strdup_printf("refresh_rate = %u", rate);
+    GError *error = NULL;
+    if (!confedit_save(conf->conf_path, "refresh_rate", line, &error)) {
+        D printf("refresh rate not saved: %s\n", error->message);
+        g_error_free(error);
+    }
+    g_free(line);
+}
+
+/**
+ * @return Row of the settings page choosing how often the screen follows a
+ *  terminal changing on its own (not while typing: then always at once)
+ */
+static GtkWidget * refresh_row(void) {
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
+    for (guint i = 0; i < G_N_ELEMENTS(refresh_choices); i++) {
+        refresh_buttons[i] = panel_button_new(refresh_choices[i].label);
+        g_signal_connect(refresh_buttons[i], "clicked", G_CALLBACK(refresh_cb), GUINT_TO_POINTER(i));
+        gtk_box_pack_start(GTK_BOX(row), refresh_buttons[i], TRUE, TRUE, 0);
+    }
+    refresh_show();
+    return row;
+}
+#endif
+
 /** Font sizes offered on the settings page */
 #define FONT_SIZE_MIN 4
 #define FONT_SIZE_MAX 30
@@ -786,6 +848,7 @@ static void add_panel_actions(void) {
     panel_add_setting("字号", font_row);
 #ifdef KINDLE
     panel_add_setting("屏幕方向", orientation_row());
+    panel_add_setting("刷新", refresh_row());
 #endif
 }
 #endif
@@ -1720,6 +1783,9 @@ gint main(gint argc, gchar **argv) {
     }
     g_signal_connect(keyboard_box, "size-allocate", G_CALLBACK(keyboard_update), keyboard);
     gtk_window_maximize(GTK_WINDOW(window));
+#ifdef KINDLE
+    refresh_init(window, terminal);
+#endif
     gtk_main();
     
     clean_on_exit(keyboard);

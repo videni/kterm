@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "config.h"
+#include "refresh.h"
 
 /**
  * Parse kterm config
@@ -68,6 +69,8 @@ KTconf *parse_config(void) {
     snprintf(conf->kb_conf_path, sizeof(conf->kb_conf_path), "%s", KB_FULL_PATH);
     snprintf(conf->tmux_prefix, sizeof(conf->tmux_prefix), "%s", "C-b");
     conf->orientation = 0;
+    conf->refresh_rate = REFRESH_RATE_DEFAULT;
+    conf->idle_pause = REFRESH_IDLE_PAUSE_DEFAULT;
     
     FILE *fp;
     if ((fp = fopen(conf_path, "r")) == NULL) {
@@ -141,6 +144,18 @@ KTconf *parse_config(void) {
             if (orientation == 'U' || orientation == 'R' || orientation == 'L') {
                 conf->orientation = orientation;
                 D printf("orientation = %c\n", conf->orientation);
+            }
+        }
+        else if (!strncmp(buf, "refresh_rate", 12)) {
+            guint rate = 0;
+            if (sscanf(buf, "refresh_rate = %u", &rate) == 1) {
+                conf->refresh_rate = rate;
+            }
+        }
+        else if (!strncmp(buf, "idle_pause", 10)) {
+            guint minutes = 0;
+            if (sscanf(buf, "idle_pause = %u", &minutes) == 1) {
+                conf->idle_pause = minutes;
             }
         }
         else if (!strncmp(buf, "cursor_shape", 12)) {
