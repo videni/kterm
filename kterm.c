@@ -301,6 +301,17 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
 #define EDGE_SWIPE_MIN_PX 96
 /** Built-in keyboard container */
 static GtkWidget *builtin_kb_box = NULL;
+
+/**
+ * Fold the built-in keyboard away. Nothing brings it back by itself:
+ * the user does, with a tap on the terminal or from the panel.
+ */
+void kterm_hide_keyboard(void) {
+    if (builtin_kb_box && conf->kb_on) {
+        conf->kb_on = FALSE;
+        gtk_widget_hide(builtin_kb_box);
+    }
+}
 /** Shown instead of the built-in keyboard while the system one is up */
 static GtkWidget *ime_panel = NULL;
 /** Empty area of ime_panel that the system keyboard window covers */
@@ -359,6 +370,7 @@ static GtkWidget * build_ime_panel(void) {
 }
 #else
 void kterm_toggle_ime(void) {}
+void kterm_hide_keyboard(void) {}
 #endif
 
 /**
@@ -519,12 +531,21 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
  * @param box Kterm container
  * @return Row widget
  */
+static void panel_kb_label_cb(GtkWidget *panel, gpointer kb_button) {
+    UNUSED(panel);
+    gtk_button_set_label(GTK_BUTTON(kb_button), conf->kb_on ? "隐藏键盘" : "显示键盘");
+}
+
+/** The panel's keyboard button, its label follows the keyboard's state */
+static GtkWidget *panel_kb_button = NULL;
+
 static GtkWidget * build_panel_actions(GtkWidget *terminal, GtkWidget *box) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     GtkWidget *fontdown_button = panel_button_new("字号 −");
     GtkWidget *fontup_button = panel_button_new("字号 +");
     GtkWidget *kb_button = panel_button_new("隐藏键盘");
+    panel_kb_button = kb_button;
     GtkWidget *quit_button = panel_button_new("退出");
     g_signal_connect(fontdown_button, "clicked", G_CALLBACK(fontdown), (gpointer) terminal);
     g_signal_connect(fontup_button, "clicked", G_CALLBACK(fontup), (gpointer) terminal);
@@ -567,9 +588,16 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
     if (event->type == GDK_MOTION_NOTIFY) { return TRUE; }
 #endif
 #ifdef KINDLE
+    // The touch driver clicks button 3 during a swipe, while button 1 is
+    // still down: that touch is scrolling, whatever distance it ends at.
+    static gboolean swiping = FALSE;
+    if (event->button == 3 && event->type == GDK_BUTTON_PRESS) {
+        swiping = TRUE;
+    }
     if (event->button == 1) {
         static gdouble press_x = 0, press_y = 0;
         if (event->type == GDK_BUTTON_PRESS) {
+            swiping = FALSE;
             press_x = event->x_root;
             press_y = event->y_root;
         } else if (event->type == GDK_BUTTON_RELEASE) {
@@ -590,7 +618,7 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
                 panel_open();
                 return TRUE;
             }
-            if (!vertical && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
+            if (!vertical && !swiping && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
                 && !panel_is_open() && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
                 // A tap on the terminal brings a hidden keyboard back, as
                 // tapping a text field does elsewhere on the device.
@@ -929,7 +957,9 @@ gint main(gint argc, gchar **argv) {
     // the panel is drawn over the terminal, which keeps its size
     GtkWidget *overlay = gtk_overlay_new();
     gtk_container_add(GTK_CONTAINER(overlay), terminal);
-    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel_new(terminal, build_panel_actions(terminal, vbox)));
+    GtkWidget *panel = panel_new(terminal, build_panel_actions(terminal, vbox));
+    g_signal_connect(panel, "show", G_CALLBACK(panel_kb_label_cb), panel_kb_button);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
     gtk_box_pack_start(GTK_BOX(vbox), overlay, TRUE, TRUE, 0);
 #else
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);

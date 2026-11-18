@@ -393,7 +393,7 @@ static gboolean keyboard_event_press(Key *key) {
         gtk_main_quit();
         return TRUE;
     }
-    if (keyval == KTERM_KEY_IME) {
+    if (keyval == KTERM_KEY_IME || keyval == KTERM_KEY_HIDE) {
         // acts on release, see keyboard_event_release()
         return TRUE;
     }
@@ -440,6 +440,10 @@ static gboolean keyboard_event_release(gpointer data) {
         // Switching hides this keyboard. Doing it on press would lose the
         // release event and leave the key drawn as held down.
         kterm_toggle_ime();
+        return FALSE;
+    }
+    if (keyval == KTERM_KEY_HIDE) {
+        kterm_hide_keyboard();
         return FALSE;
     }
 

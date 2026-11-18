@@ -68,6 +68,9 @@ struct kbmodlookup {
 /** Pseudo keyval of the "ime" action: switches to the system keyboard
  *  (the device's input method) instead of sending a key. */
 #define KTERM_KEY_IME 0x0110fff1
+/** Pseudo keyval of the "hide" action: folds the keyboard away. It comes
+ *  back with a tap on the terminal or from the panel. */
+#define KTERM_KEY_HIDE 0x0110fff2
 /** Basic size of key button in internal units */
 #define KEY_UNIT 1000
 
@@ -111,6 +114,7 @@ void keyboard_free(Keyboard **keyboard);
 void keyboard_key_free(Key *key);
 /** Switch between the built-in keyboard and the system one; provided by kterm.c */
 void kterm_toggle_ime(void);
+void kterm_hide_keyboard(void);
 /** The terminal widget; provided by kterm.c */
 GtkWidget * kterm_get_terminal(void);
 
