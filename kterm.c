@@ -625,7 +625,9 @@ static void orientation_show(void) {
 /**
  * Orientation button callback. The panel stays open on the settings page:
  * the button drawn black tells the change was made, and the font size can
- * be set for the new width at once.
+ * be set for the new width at once. The orientation is written to
+ * kterm.conf: kterm starts in it the next time. On leaving, the Kindle is
+ * still turned back as it was, for its own screens.
  * @param button Calling widget
  * @param data Orientation asked for: 'U' or 'R'
  */
@@ -637,6 +639,13 @@ static void orientation_cb(GtkWidget *button, gpointer data) {
     }
     if (set_orientation(request)) {
         conf->orientation = request;
+        gchar *line = g_strdup_printf("orientation = %c", request);
+        GError *error = NULL;
+        if (!confedit_save(conf->conf_path, "orientation", line, &error)) {
+            D printf("orientation not saved: %s\n", error->message);
+            g_error_free(error);
+        }
+        g_free(line);
     }
     orientation_show();
 }
