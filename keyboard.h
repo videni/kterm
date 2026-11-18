@@ -62,6 +62,12 @@ struct kbmodlookup {
 #define KEYS_MAX 500
 /** Max count of keyboard rows */
 #define ROWS_MAX 10
+/** Pseudo keyval of the "quit" action: closes kterm instead of sending a key.
+ *  Unicode keysym range, private-use code point, never produced by a real key. */
+#define KTERM_KEY_QUIT 0x0110fff0
+/** Pseudo keyval of the "ime" action: switches to the system keyboard
+ *  (the device's input method) instead of sending a key. */
+#define KTERM_KEY_IME 0x0110fff1
 /** Basic size of key button in internal units */
 #define KEY_UNIT 1000
 
@@ -103,5 +109,7 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key);
 gboolean keyboard_set_size(gpointer data);
 void keyboard_free(Keyboard **keyboard);
 void keyboard_key_free(Key *key);
+/** Switch between the built-in keyboard and the system one; provided by kterm.c */
+void kterm_toggle_ime(void);
 
 #endif /* keyboard_h */

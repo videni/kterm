@@ -73,7 +73,9 @@ static struct kbsymlookup kbspecial[] = {
     { GDK_KEY_F9, "f9" },
     { GDK_KEY_F10, "f10" },
     { GDK_KEY_F11, "f11" },
-    { GDK_KEY_F12 , "f12" }
+    { GDK_KEY_F12 , "f12" },
+    { KTERM_KEY_QUIT, "quit" },
+    { KTERM_KEY_IME, "ime" }
 #else
     { GDK_BackSpace, "backspace" },
     { GDK_Tab, "tab" },
@@ -108,7 +110,9 @@ static struct kbsymlookup kbspecial[] = {
     { GDK_F9, "f9" },
     { GDK_F10, "f10" },
     { GDK_F11, "f11" },
-    { GDK_F12 , "f12" }
+    { GDK_F12 , "f12" },
+    { KTERM_KEY_QUIT, "quit" },
+    { KTERM_KEY_IME, "ime" }
 #endif
 };
 

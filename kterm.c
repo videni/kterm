@@ -31,6 +31,7 @@
 #include "keyboard.h"
 #ifdef KINDLE
 #include "kindle.h"
+#include "ime.h"
 #endif
 #include "config.h"
 
@@ -76,6 +77,7 @@ static void clean_on_exit(Keyboard *keyboard) {
 #ifdef KINDLE
     keyboard_grab(NULL, FALSE);
     orientation_restore();
+    ime_shutdown();
 #endif
     keyboard_free(&keyboard);
     g_free(conf);
@@ -278,6 +280,67 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
     set_terminal_colors(terminal, !conf->color_reversed);
 }
 
+#ifdef KINDLE
+/** How far a finger may move, in pixels, and still count as a tap */
+#define TAP_SLOP_PX 30
+/** Built-in keyboard container */
+static GtkWidget *builtin_kb_box = NULL;
+/** Shown instead of the built-in keyboard while the system one is up */
+static GtkWidget *ime_panel = NULL;
+/** Empty area of ime_panel that the system keyboard window covers */
+static GtkWidget *ime_spacer = NULL;
+
+/**
+ * Switch between the built-in keyboard and the system keyboard.
+ * The system keyboard is a separate window drawn over the bottom of ours,
+ * so the same height is kept free below the terminal while it is open.
+ */
+void kterm_toggle_ime(void) {
+    if (!ime_panel) {
+        return;
+    }
+    if (ime_is_open()) {
+        ime_close();
+        gtk_widget_hide(ime_panel);
+        if (conf->kb_on) {
+            gtk_widget_show(builtin_kb_box);
+        }
+    } else if (ime_open()) {
+        gtk_widget_set_size_request(ime_spacer, -1, ime_keyboard_height());
+        gtk_widget_hide(builtin_kb_box);
+        gtk_widget_show(ime_panel);
+    }
+}
+
+/**
+ * Build the panel that replaces the built-in keyboard while the system
+ * keyboard is open: one button to come back, and room for that keyboard.
+ * @return Panel widget, hidden
+ */
+static GtkWidget * build_ime_panel(void) {
+#if GTK_CHECK_VERSION(3,2,0)
+    GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+#else
+    GtkWidget *panel = gtk_vbox_new(FALSE, 0);
+#endif
+    GtkWidget *back = gtk_button_new_with_label("返回终端键盘");
+    gtk_widget_set_name(back, "ktermKbButton");
+    // focus must stay on the terminal, that is where the keys go
+    gtk_widget_set_can_focus(back, FALSE);
+    g_signal_connect_swapped(back, "clicked", G_CALLBACK(kterm_toggle_ime), NULL);
+    ime_spacer = gtk_label_new(NULL);
+    gtk_box_pack_start(GTK_BOX(panel), back, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(panel), ime_spacer, FALSE, FALSE, 0);
+    gtk_widget_show(back);
+    gtk_widget_show(ime_spacer);
+    // stays hidden through gtk_widget_show_all() on the window
+    gtk_widget_set_no_show_all(panel, TRUE);
+    return panel;
+}
+#else
+void kterm_toggle_ime(void) {}
+#endif
+
 /**
  * Keyboard widget size allocation signal handler.
  * Updates keyboard size
@@ -443,6 +506,22 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
 #ifdef KINDLE
     // ignore any motion events (i think we don't need selecting text as one finger motion scrolls buffer)
     if (event->type == GDK_MOTION_NOTIFY) { return TRUE; }
+#endif
+#ifdef KINDLE
+    // A tap on the terminal brings a hidden keyboard back, as tapping a text
+    // field does elsewhere on the device. A finger that moved was scrolling.
+    if (event->button == 1 && !conf->kb_on && builtin_kb_box && !ime_is_open()) {
+        static gdouble press_x = 0, press_y = 0;
+        if (event->type == GDK_BUTTON_PRESS) {
+            press_x = event->x_root;
+            press_y = event->y_root;
+        } else if (event->type == GDK_BUTTON_RELEASE
+                   && ABS(event->x_root - press_x) < TAP_SLOP_PX
+                   && ABS(event->y_root - press_y) < TAP_SLOP_PX) {
+            conf->kb_on = TRUE;
+            gtk_widget_show(builtin_kb_box);
+        }
+    }
 #endif
     if (event->button == BUTTON_MENU) {
 #ifdef KINDLE
@@ -692,6 +771,18 @@ gint main(gint argc, gchar **argv) {
     GError *error = NULL;
     gtk_init(&argc, &argv);
 
+#if defined(KINDLE) && GTK_CHECK_VERSION(3,0,0)
+    // GTK+ 3 assumes 96 dpi unless an Xft.dpi resource says otherwise, and
+    // the Kindle sets none. Derive the real value from the panel size so
+    // that point sizes and millimetre based key sizes come out right.
+    GdkScreen *default_screen = gdk_screen_get_default();
+    const gint screen_width_mm = gdk_screen_get_width_mm(default_screen);
+    if (screen_width_mm > 0) {
+        const gdouble dpi = gdk_screen_get_width(default_screen) * 25.4 / screen_width_mm;
+        g_object_set(gtk_settings_get_default(), "gtk-xft-dpi", (gint) (dpi * 1024), NULL);
+    }
+#endif
+
     install_signal_handlers();
     
     // window
@@ -705,6 +796,15 @@ gint main(gint argc, gchar **argv) {
     // modify buttons style (gtk+ 3)
     inject_styles();
     gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
+#if GTK_CHECK_VERSION(3,0,0)
+    // The Kindle root window is 8-bit StaticGray, which GTK+ 3 cannot draw
+    // to. The X server also offers a 32-bit TrueColor visual; use that and
+    // let the server convert to gray.
+    GdkVisual *rgba_visual = gdk_screen_get_rgba_visual(gtk_widget_get_screen(window));
+    if (rgba_visual) {
+        gtk_widget_set_visual(window, rgba_visual);
+    }
+#endif
 #endif
     // box
 #if GTK_CHECK_VERSION(3,2,0)
@@ -742,6 +842,15 @@ gint main(gint argc, gchar **argv) {
     gtk_widget_set_name(terminal, "termBox");
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
     
+#ifdef KINDLE
+    builtin_kb_box = keyboard_box;
+    if (ime_init(terminal)) {
+        ime_panel = build_ime_panel();
+        gtk_box_pack_end(GTK_BOX(vbox), ime_panel, FALSE, FALSE, 0);
+        g_signal_connect(window, "key-press-event", G_CALLBACK(ime_key_event), NULL);
+    }
+#endif
+
     GtkWidget *menu = build_popup(terminal, vbox);
     // signals
     g_signal_connect(window, "delete_event", G_CALLBACK(gtk_main_quit), NULL);

@@ -257,7 +257,11 @@ void inject_styles(void) {
     if (!provider) { return; }
     gtk_css_provider_load_from_data(provider,
                                     "@define-color gray #f0f0f0;"
-                                    "#ktermKbButton { background: @gray; }"
+                                    // Theme padding and minimum width would make
+                                    // multi-letter keys (Ctrl, Shift) wider than
+                                    // their slot and push the row off screen.
+                                    "#ktermKbButton { background: @gray; padding: 0; min-width: 0; min-height: 0;"
+                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermKbButton:hover { background: @gray; }"
                                     "#ktermKbButton:selected { background: @gray; }"
                                     "#ktermKbButton:disabled { background: @gray; }"
