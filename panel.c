@@ -532,7 +532,8 @@ static GtkWidget * add_header(GtkWidget *page, const gchar *title) {
 }
 
 /**
- * Build the first page: a row of actions, the panel's close button last
+ * Build the first page: a row of actions. There is no close button: a touch
+ * on the terminal puts the panel away.
  * @return Page widget
  */
 static GtkWidget * build_home_page(void) {
@@ -542,14 +543,10 @@ static GtkWidget * build_home_page(void) {
     gtk_box_set_homogeneous(GTK_BOX(home_row), TRUE);
     GtkWidget *connections = panel_button_new("连接");
     GtkWidget *settings = panel_button_new("设置");
-    GtkWidget *close = panel_button_new("关闭");
     g_signal_connect(connections, "clicked", G_CALLBACK(connections_cb), NULL);
     g_signal_connect_swapped(settings, "clicked", G_CALLBACK(show_page), settings_page);
-    g_signal_connect(close, "clicked", G_CALLBACK(panel_close), NULL);
     gtk_box_pack_start(GTK_BOX(home_row), connections, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(home_row), settings, TRUE, TRUE, 0);
-    // actions added later go between these and the close button
-    gtk_box_pack_end(GTK_BOX(home_row), close, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(page), home_row, FALSE, FALSE, 0);
     return page;
 }
@@ -646,7 +643,7 @@ static GtkWidget * build_form_page(void) {
 }
 
 /**
- * Add a button to the first page's row, before its close button
+ * Add a button to the first page's row
  * @param button Button, see panel_button_new()
  */
 void panel_add_action(GtkWidget *button) {
