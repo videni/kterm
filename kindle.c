@@ -327,6 +327,10 @@ void inject_styles(void) {
                                     "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
                                     " border: 1px solid #000000; border-radius: 4px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    // the two tools at the ends: keys like the shortcuts, a sign drawn on them
+                                    "#ktermShortTool { background: @gray; color: #000000; margin: 3px;"
+                                    " border: 1px solid @line; border-radius: 4px; }"
+                                    "#ktermShortTool.pressed { background: #000000; color: #ffffff; }"
                                     "#ktermShortButton.pressed { background: #000000; color: #ffffff; border-color: #000000; }"
                                     "#ktermShortPaste.pressed { background: #ffffff; color: #000000; }"
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"

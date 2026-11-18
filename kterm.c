@@ -336,8 +336,8 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
 #ifdef KINDLE
 /** How far a finger may move, in pixels, and still count as a tap */
 #define TAP_SLOP_PX 30
-/** A swipe from a screen edge starts within this many pixels of the top,
- *  where a tap opens the panel. Wide: a finger coming in from the frame is
+/** A swipe from a screen edge starts within this many pixels of the top.
+ *  Wide: a finger coming in from the frame is
  *  first seen some way down the screen, and a narrow band made the swipe
  *  down to the device's menu scroll the terminal instead. */
 #define EDGE_TOP_PX 150
@@ -428,6 +428,36 @@ void kterm_use_builtin_keyboard(void) {
         conf->kb_on = TRUE;
         gtk_widget_show(builtin_kb_box);
     }
+    shortbar_update();
+}
+
+/**
+ * Preview: every keyboard folded away, the shortcut bar alone at the foot
+ * of the screen. Touches on the terminal only scroll, switch tmux windows
+ * or are passed to the program. Left, the built-in keyboard is back.
+ * @param on TRUE to preview
+ */
+void kterm_set_preview(gboolean on) {
+    if (on == read_mode) {
+        return;
+    }
+    if (!on) {
+        kterm_use_builtin_keyboard();
+        return;
+    }
+    if (ime_is_open()) {
+        kterm_toggle_ime();
+    }
+    read_mode = TRUE;
+    kterm_hide_keyboard();
+    shortbar_update();
+}
+
+/**
+ * @return TRUE while previewing
+ */
+gboolean kterm_previewing(void) {
+    return read_mode;
 }
 
 /**
@@ -483,6 +513,8 @@ static GtkWidget * build_ime_panel(void) {
 void kterm_toggle_ime(void) {}
 void kterm_hide_keyboard(void) {}
 void kterm_use_builtin_keyboard(void) {}
+void kterm_set_preview(gboolean on) { UNUSED(on); }
+gboolean kterm_previewing(void) { return FALSE; }
 #endif
 
 /**
@@ -600,33 +632,6 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
 
 #if GTK_CHECK_VERSION(3,2,0)
 #ifdef KINDLE
-static void panel_read_label_cb(GtkWidget *panel, gpointer read_button) {
-    UNUSED(panel);
-    gtk_button_set_label(GTK_BUTTON(read_button), read_mode ? "退出预览" : "预览");
-}
-
-/**
- * The panel's reading button. Reading mode folds every keyboard away and
- * keeps it away: touches on the terminal only scroll, switch tmux windows
- * or are passed to the program. Pressed again, the keyboard is back.
- */
-static void panel_read_clicked_cb(GtkWidget *button, gpointer data) {
-    UNUSED(button);
-    UNUSED(data);
-    if (read_mode) {
-        kterm_use_builtin_keyboard();
-        return;
-    }
-    if (ime_is_open()) {
-        kterm_toggle_ime();
-    }
-    kterm_hide_keyboard();
-    read_mode = TRUE;
-}
-
-/** The panel's reading button */
-static GtkWidget *panel_read_button = NULL;
-
 /** Orientation buttons of the settings page */
 static GtkWidget *portrait_button = NULL;
 static GtkWidget *landscape_button = NULL;
@@ -741,14 +746,6 @@ static GtkWidget * font_size_button(const gchar *text, gint step, GtkWidget *lab
  * @param box Kterm container
  */
 static void add_panel_actions(void) {
-#ifdef KINDLE
-    GtkWidget *read_button = panel_button_new("预览");
-    panel_read_button = read_button;
-    g_signal_connect(read_button, "clicked", G_CALLBACK(panel_read_clicked_cb), NULL);
-    g_signal_connect_swapped(read_button, "clicked", G_CALLBACK(panel_close), NULL);
-    // after connecting and disconnecting, before the settings
-    panel_add_action(read_button, 2);
-#endif
     GtkWidget *quit_button = panel_button_new("退出");
     g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
     panel_add_action(quit_button, -1);
@@ -1201,12 +1198,6 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
             return TRUE;
         }
     }
-    if (tap && touch.y_root <= EDGE_TOP_PX && ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX) {
-        // A tap at the top opens the panel there, as a tap at the top of a
-        // book shows the Kindle's menu bar. Not passed to the program.
-        panel_open();
-        return TRUE;
-    }
     if (vertical && dy > 0 && touch.y_root <= EDGE_TOP_PX) {
         // Down from the top edge is the device's own gesture for its quick
         // settings (light, dark mode, airplane mode). A full screen
@@ -1643,9 +1634,6 @@ gint main(gint argc, gchar **argv) {
 #if GTK_CHECK_VERSION(3,2,0)
     GtkWidget *panel = panel_new(terminal);
     add_panel_actions();
-#ifdef KINDLE
-    g_signal_connect(panel, "show", G_CALLBACK(panel_read_label_cb), panel_read_button);
-#endif
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
 #ifdef KINDLE
     panel_top_swipe = gtk_gesture_drag_new(panel);

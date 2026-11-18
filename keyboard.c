@@ -534,11 +534,14 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
             if (!key->modifier) {
                 gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), FALSE);
             }
-            // up from the keyboard opens the panel, down puts it away
+            // up from the keyboard opens the panel; down puts it away, or
+            // with no panel, folds the keyboard away (preview)
             if (dy < 0) {
                 panel_open();
-            } else {
+            } else if (panel_is_open()) {
                 panel_close();
+            } else {
+                kterm_set_preview(TRUE);
             }
             return TRUE;
         }
@@ -571,8 +574,8 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
 /**
  * Touch on the keyboard between keys: the gap in the middle of the split
  * keyboard, the room beside a row. It goes to the window, as there is no
- * key there to take it; a swipe from it opens or puts away the panel as
- * one from a key does, a tap puts the panel away.
+ * key there to take it; a swipe from it acts as one from a key does, a
+ * tap puts the panel away.
  * @param window Toplevel window
  * @param ev Gdk event
  * @param keyboard_box Keyboard widget
@@ -610,8 +613,10 @@ gboolean keyboard_gap_event(GtkWidget *window, GdkEvent *ev, GtkWidget *keyboard
     if (ABS(dy) >= KB_SWIPE_MIN_PX && ABS(dy) > ABS(dx)) {
         if (dy < 0) {
             panel_open();
-        } else {
+        } else if (panel_is_open()) {
             panel_close();
+        } else {
+            kterm_set_preview(TRUE);
         }
     } else if (ABS(dx) < KB_SWIPE_MIN_PX && panel_is_open() && !panel_wants_keys()) {
         panel_close();

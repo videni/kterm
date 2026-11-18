@@ -123,6 +123,8 @@ void keyboard_key_free(Key *key);
 void kterm_toggle_ime(void);
 void kterm_hide_keyboard(void);
 void kterm_use_builtin_keyboard(void);
+void kterm_set_preview(gboolean on);
+gboolean kterm_previewing(void);
 /** The terminal widget; provided by kterm.c */
 GtkWidget * kterm_get_terminal(void);
 gboolean kterm_terminal_has_shell(void);

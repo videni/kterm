@@ -40,6 +40,12 @@
 static GtkWidget *bar = NULL;
 static GtkWidget *problem_label = NULL;
 static GtkWidget *row = NULL;
+/** Places for the shortcuts, between the two tools */
+static GtkWidget *slots = NULL;
+/** At the ends of the row, half a place wide: the panel... */
+static GtkWidget *menu_tool = NULL;
+/** ...and the keyboard: folds it away (preview) or brings it back */
+static GtkWidget *keyboard_tool = NULL;
 static gchar *file_path = NULL;
 /** Buttons, in order */
 static GPtrArray *items = NULL;
@@ -62,13 +68,15 @@ static guint keyboard_rows = 0;
  * @return Buttons on one page of the bar
  */
 static guint per_page(void) {
-    const guint places = SHORTBAR_PER_PAGE - (paste_text ? 1 : 0);
+    // the two tools take one place between them
+    const guint places = SHORTBAR_PER_PAGE - 1 - (paste_text ? 1 : 0);
     // when there is more than one page, the last place says which page it is
     return items->len > places ? places - 1 : places;
 }
 
 /**
- * Show the bar while a keyboard is shown and there is something on it
+ * Show the bar while a keyboard is shown, and while previewing: there it
+ * stays alone at the foot of the screen, its tools and shortcuts at hand
  */
 static void update_visibility(void) {
     if (!bar || !keyboard_box) {
@@ -76,15 +84,91 @@ static void update_visibility(void) {
     }
     const gboolean keyboard = gtk_widget_get_visible(keyboard_box)
         || (other_keyboard && gtk_widget_get_visible(other_keyboard));
-    const gboolean something = items->len > 0 || paste_text || gtk_widget_get_visible(problem_label);
-    gtk_widget_set_visible(bar, keyboard && something);
+    gtk_widget_set_visible(bar, keyboard || kterm_previewing());
+}
+
+/**
+ * Draw a tool: three bars for the panel; for the keyboard, a keyboard and
+ * an arrow telling what a tap does, down (fold it away) with the keyboard
+ * out, up (bring it back) while previewing. Drawn, not taken from a font:
+ * the fonts that have such signs differ from one system to the next, and
+ * so did their size.
+ * @param tool Tool widget
+ * @param cr Cairo context
+ * @param data Not used
+ * @return FALSE
+ */
+static gboolean draw_tool_cb(GtkWidget *tool, cairo_t *cr, gpointer data) {
+    UNUSED(data);
+    GtkStyleContext *style = gtk_widget_get_style_context(tool);
+    const gdouble w = gtk_widget_get_allocated_width(tool);
+    const gdouble h = gtk_widget_get_allocated_height(tool);
+    gtk_render_background(style, cr, 0, 0, w, h);
+    gtk_render_frame(style, cr, 0, 0, w, h);
+    GdkRGBA color;
+    gtk_style_context_get_color(style, gtk_style_context_get_state(style), &color);
+    gdk_cairo_set_source_rgba(cr, &color);
+    // a grid of 24 by 24 units over the tool, the sign in the middle of it
+    const gdouble u = MIN(w, h) / 22.0;
+    const gdouble cx = w / 2, cy = h / 2;
+    if (tool == menu_tool) {
+        for (gint i = -1; i <= 1; i++) {
+            cairo_rectangle(cr, cx - 6 * u, cy + i * 3.5 * u - 0.75 * u, 12 * u, 1.5 * u);
+        }
+        cairo_fill(cr);
+        return FALSE;
+    }
+    // the keyboard, 8 units tall, and 1.5 below it the arrow, 4 tall: the
+    // two together centred
+    const gdouble kx = cx - 6 * u, ky = cy - 6.75 * u;
+    cairo_set_line_width(cr, u);
+    cairo_rectangle(cr, kx + u / 2, ky + u / 2, 12 * u - u, 8 * u - u);
+    cairo_stroke(cr);
+    for (gint row = 0; row < 2; row++) {
+        for (gint col = 0; col < 4; col++) {
+            cairo_rectangle(cr, kx + 2 * u + col * 2.25 * u, ky + 2 * u + row * 2 * u, 1.25 * u, 1.25 * u);
+        }
+    }
+    cairo_rectangle(cr, kx + 3.5 * u, ky + 6 * u - 0.5 * u, 5 * u, 1 * u);
+    cairo_fill(cr);
+    // the arrow below it
+    const gdouble top = ky + 9.5 * u, bottom = top + 4 * u;
+    if (kterm_previewing()) {
+        cairo_move_to(cr, cx, top);
+        cairo_line_to(cr, cx + 4 * u, bottom);
+        cairo_line_to(cr, cx - 4 * u, bottom);
+    } else {
+        cairo_move_to(cr, cx - 4 * u, top);
+        cairo_line_to(cr, cx + 4 * u, top);
+        cairo_line_to(cr, cx, bottom);
+    }
+    cairo_close_path(cr);
+    cairo_fill(cr);
+    return FALSE;
+}
+
+/**
+ * Draw the keyboard tool again, for the state it changes
+ */
+static void update_keyboard_tool(void) {
+    if (keyboard_tool) {
+        gtk_widget_queue_draw(keyboard_tool);
+    }
+}
+
+/**
+ * The keyboard was folded away or brought back: the bar follows
+ */
+void shortbar_update(void) {
+    update_keyboard_tool();
+    update_visibility();
 }
 
 /**
  * Fill the row with the buttons of the page shown
  */
 static void fill_row(void) {
-    GList *old = gtk_container_get_children(GTK_CONTAINER(row));
+    GList *old = gtk_container_get_children(GTK_CONTAINER(slots));
     for (GList *l = old; l; l = l->next) {
         gtk_widget_destroy(GTK_WIDGET(l->data));
     }
@@ -97,7 +181,7 @@ static void fill_row(void) {
         GtkWidget *paste = gtk_label_new("粘贴");
         gtk_widget_set_name(paste, SHORTBAR_PASTE_NAME);
         g_object_set_data(G_OBJECT(paste), "paste", GINT_TO_POINTER(1));
-        gtk_box_pack_start(GTK_BOX(row), paste, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(slots), paste, TRUE, TRUE, 0);
     }
     for (guint i = page_start; i < items->len && i < page_start + count; i++) {
         const Shortcut *item = g_ptr_array_index(items, i);
@@ -109,21 +193,21 @@ static void fill_row(void) {
         gtk_widget_set_name(button, SHORTBAR_BUTTON_NAME);
         gtk_label_set_ellipsize(GTK_LABEL(button), PANGO_ELLIPSIZE_END);
         g_object_set_data(G_OBJECT(button), "index", GUINT_TO_POINTER(i + 1));
-        gtk_box_pack_start(GTK_BOX(row), button, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(slots), button, TRUE, TRUE, 0);
     }
     if (items->len > count) {
         // the last page may be short: keep the places, so that the page
         // number stays at the end of the row
         for (guint i = items->len - page_start; i < count; i++) {
-            gtk_box_pack_start(GTK_BOX(row), gtk_label_new(NULL), TRUE, TRUE, 0);
+            gtk_box_pack_start(GTK_BOX(slots), gtk_label_new(NULL), TRUE, TRUE, 0);
         }
         gchar *text = g_strdup_printf("%u/%u", page_start / count + 1, (items->len + count - 1) / count);
         GtkWidget *pages = gtk_label_new(text);
         gtk_widget_set_name(pages, SHORTBAR_PAGES_NAME);
         g_free(text);
-        gtk_box_pack_start(GTK_BOX(row), pages, TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(slots), pages, TRUE, TRUE, 0);
     }
-    gtk_widget_show_all(row);
+    gtk_widget_show_all(slots);
 }
 
 /**
@@ -148,11 +232,14 @@ static void turn_page(gint step) {
  */
 static GtkWidget * button_at(gdouble x, gdouble y) {
     GtkWidget *hit = NULL;
-    GList *buttons = gtk_container_get_children(GTK_CONTAINER(row));
+    GList *buttons = gtk_container_get_children(GTK_CONTAINER(slots));
+    buttons = g_list_prepend(buttons, menu_tool);
+    buttons = g_list_append(buttons, keyboard_tool);
     for (GList *l = buttons; l && !hit; l = l->next) {
         GtkWidget *button = l->data;
         gint bx = 0, by = 0;
-        if ((g_object_get_data(G_OBJECT(button), "index") || g_object_get_data(G_OBJECT(button), "paste"))
+        if ((g_object_get_data(G_OBJECT(button), "index") || g_object_get_data(G_OBJECT(button), "paste")
+             || g_object_get_data(G_OBJECT(button), "tool"))
             && gtk_widget_translate_coordinates(bar, button, (gint) x, (gint) y, &bx, &by)
             && bx >= 0 && by >= 0 && bx < gtk_widget_get_allocated_width(button)
             && by < gtk_widget_get_allocated_height(button)) {
@@ -254,7 +341,11 @@ static void tap(gdouble x, gdouble y) {
         return;
     }
     const guint index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(hit), "index"));
-    if (g_object_get_data(G_OBJECT(hit), "paste")) {
+    if (hit == menu_tool) {
+        panel_open();
+    } else if (hit == keyboard_tool) {
+        kterm_set_preview(!kterm_previewing());
+    } else if (g_object_get_data(G_OBJECT(hit), "paste")) {
         // as if pasted from a menu: a program that asked for it (Claude
         // Code, a shell) is told where the pasted text starts and ends
         // the button stays: a paste undone can be pasted again
@@ -353,9 +444,22 @@ GtkWidget * shortbar_new(const gchar *path) {
     gtk_label_set_ellipsize(GTK_LABEL(problem_label), PANGO_ELLIPSIZE_START);
     gtk_widget_set_no_show_all(problem_label, TRUE);
     gtk_box_pack_start(GTK_BOX(box), problem_label, FALSE, FALSE, 0);
+    // [panel] shortcuts, all as wide [keyboard]
     row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
+    menu_tool = gtk_drawing_area_new();
+    keyboard_tool = gtk_drawing_area_new();
+    slots = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_set_homogeneous(GTK_BOX(slots), TRUE);
+    gtk_box_pack_start(GTK_BOX(row), menu_tool, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), slots, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(row), keyboard_tool, FALSE, FALSE, 0);
+    for (GtkWidget **tool = (GtkWidget *[]) { menu_tool, keyboard_tool, NULL }; *tool; tool++) {
+        gtk_widget_set_name(*tool, SHORTBAR_TOOL_NAME);
+        g_object_set_data(G_OBJECT(*tool), "tool", GINT_TO_POINTER(1));
+        g_signal_connect(*tool, "draw", G_CALLBACK(draw_tool_cb), NULL);
+    }
+    update_keyboard_tool();
     gtk_widget_show_all(box);
     // shown and hidden with the keyboard only, see update_visibility()
     gtk_widget_set_no_show_all(bar, TRUE);
@@ -409,6 +513,9 @@ static void follow_height_cb(GObject *object, GParamSpec *spec, gpointer data) {
     }
     if (height > 0) {
         gtk_widget_set_size_request(row, -1, height);
+        // the tools are half a place wide: as wide as tall
+        gtk_widget_set_size_request(menu_tool, height, -1);
+        gtk_widget_set_size_request(keyboard_tool, height, -1);
     }
 }
 

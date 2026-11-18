@@ -29,11 +29,14 @@
 #define SHORTBAR_PAGES_NAME "ktermShortPages"
 /** Widget name of the paste button, there while something was copied */
 #define SHORTBAR_PASTE_NAME "ktermShortPaste"
+/** Widget name of the bar's two tools: the panel, the keyboard */
+#define SHORTBAR_TOOL_NAME "ktermShortTool"
 
 GtkWidget * shortbar_new(const gchar *path);
 void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);
 GPtrArray * shortbar_items(void);
 gboolean shortbar_save(GError **error);
 void shortbar_offer_paste(const gchar *text);
+void shortbar_update(void);
 
 #endif /* shortbar_h */
