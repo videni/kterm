@@ -55,14 +55,13 @@ typedef struct {
     gpointer data;
 } Incoming;
 
+/** Most lines of the text shown: more loses its middle */
+#define VOICEBAR_LINES 4
+
 static GtkWidget *terminal_widget = NULL;
 static GtkWidget *bar = NULL;
-/** The text, on one line */
-static GtkWidget *text_area = NULL;
 /** Enter: out of the scrolled back view, put in and run */
 static GtkWidget *run_button = NULL;
-/** Shown in place of the text for a while, NULL for none */
-static gchar *message = NULL;
 /** Text waiting in the box */
 static GString *staged = NULL;
 /** Enter after it when it is put in */
@@ -105,8 +104,6 @@ static void show_bar(const gchar *note) {
         gtk_widget_hide(bar);
         return;
     }
-    g_free(message);
-    message = g_strdup(note);
     // the phone asked for Enter: that button is the one to press
     GtkStyleContext *style = gtk_widget_get_style_context(run_button);
     if (staged_run) {
@@ -115,8 +112,8 @@ static void show_bar(const gchar *note) {
         gtk_style_context_remove_class(style, "primary");
     }
     D printf("voicebar: show \"%s\"\n", staged->str);
+    notice_set_text(bar, note ? note : staged->str);
     notice_show(bar);
-    gtk_widget_queue_draw(text_area);
 }
 
 static void clear_staged(void) {
@@ -255,73 +252,6 @@ void voicebar_clear(void) {
     }
 }
 
-/**
- * Too long for its room, the text loses its middle, a bit right of the
- * centre: most of how it starts and some of how it ends stay in view
- * @param layout Layout to set the text in
- * @param text Text, on one line
- * @param width Room, Pango units
- */
-static void fit_text(PangoLayout *layout, const gchar *text, gint width) {
-    gint w = 0;
-    pango_layout_set_text(layout, text, -1);
-    pango_layout_get_size(layout, &w, NULL);
-    if (w <= width) {
-        return;
-    }
-    static const gchar ELLIPSIS[] = "…";
-    pango_layout_set_text(layout, ELLIPSIS, -1);
-    gint ellipsis = 0;
-    pango_layout_get_size(layout, &ellipsis, NULL);
-    const gint room = MAX(0, width - ellipsis);
-    const gint head_room = room * 3 / 5;
-    const glong chars = g_utf8_strlen(text, -1);
-    // the most characters from the start, then from the end, that fit
-    glong lo = 0, hi = chars;
-    while (lo < hi) {
-        const glong mid = (lo + hi + 1) / 2;
-        pango_layout_set_text(layout, text, (gint) (g_utf8_offset_to_pointer(text, mid) - text));
-        pango_layout_get_size(layout, &w, NULL);
-        if (w <= head_room) { lo = mid; } else { hi = mid - 1; }
-    }
-    const glong head = lo;
-    pango_layout_set_text(layout, text, (gint) (g_utf8_offset_to_pointer(text, head) - text));
-    pango_layout_get_size(layout, &w, NULL);
-    const gint tail_room = room - w;
-    lo = 0;
-    hi = chars - head;
-    while (lo < hi) {
-        const glong mid = (lo + hi + 1) / 2;
-        pango_layout_set_text(layout, g_utf8_offset_to_pointer(text, chars - mid), -1);
-        pango_layout_get_size(layout, &w, NULL);
-        if (w <= tail_room) { lo = mid; } else { hi = mid - 1; }
-    }
-    gchar *start = g_strndup(text, (gsize) (g_utf8_offset_to_pointer(text, head) - text));
-    gchar *shown = g_strconcat(start, ELLIPSIS, g_utf8_offset_to_pointer(text, chars - lo), NULL);
-    pango_layout_set_text(layout, shown, -1);
-    g_free(shown);
-    g_free(start);
-}
-
-/**
- * Draw the text waiting, on one line: line breaks shown as spaces
- */
-static gboolean text_draw_cb(GtkWidget *widget, cairo_t *cr, gpointer data) {
-    UNUSED(data);
-    gchar *line = g_strdup(message ? message : staged->str);
-    g_strdelimit(line, "\r\n\t", ' ');
-    PangoLayout *layout = gtk_widget_create_pango_layout(widget, NULL);
-    const gint width = gtk_widget_get_allocated_width(widget);
-    const gint height = gtk_widget_get_allocated_height(widget);
-    fit_text(layout, line, width * PANGO_SCALE);
-    gint h = 0;
-    pango_layout_get_pixel_size(layout, NULL, &h);
-    gtk_render_layout(gtk_widget_get_style_context(widget), cr, 0, (height - h) / 2.0, layout);
-    g_object_unref(layout);
-    g_free(line);
-    return FALSE;
-}
-
 static void put_in_cb(GtkWidget *button, gpointer run) {
     UNUSED(button);
     put_in(GPOINTER_TO_INT(run));
@@ -334,17 +264,9 @@ static void put_in_cb(GtkWidget *button, gpointer run) {
 void voicebar_init(GtkWidget *terminal) {
     terminal_widget = terminal;
     staged = g_string_new(NULL);
-    text_area = gtk_drawing_area_new();
-    // one line high
-    PangoLayout *layout = gtk_widget_create_pango_layout(text_area, "Ag中");
-    gint line = 0;
-    pango_layout_get_pixel_size(layout, NULL, &line);
-    g_object_unref(layout);
-    gtk_widget_set_size_request(text_area, 1, line);
-    g_signal_connect(text_area, "draw", G_CALLBACK(text_draw_cb), NULL);
     // a tap beside the buttons does nothing: the box stays until its text
     // is put in or thrown away (its close button, the phone's 清空)
-    bar = notice_new(text_area, NULL, voicebar_clear);
+    bar = notice_new(VOICEBAR_LINES, NULL, voicebar_clear);
     // the buttons of the phone page, same signs
     run_button = notice_action(bar, OUTLINE_PLAY, "放入并回车");     // 发送并回车
     GtkWidget *put = notice_action(bar, OUTLINE_SEND, "只放入");      // 发送

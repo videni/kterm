@@ -31,11 +31,10 @@
 #include "notice.h"
 #include "tmux.h"
 
-/** Most characters of what rang */
-#define BELL_LABEL_CHARS 60
+/** Most lines of what rang */
+#define BELL_LINES 2
 
 static GtkWidget *bar = NULL;
-static GtkWidget *message = NULL;
 /** Shows the window that rang */
 static GtkWidget *go_button = NULL;
 /** tmux window that rang, -1 if not known */
@@ -62,7 +61,7 @@ static void go_cb(GtkWidget *button, gpointer data) {
 static void show_bar(gint window, const gchar *text) {
     D printf("bell: %s\n", text);
     rang = window;
-    gtk_label_set_text(GTK_LABEL(message), text);
+    notice_set_text(bar, text);
     gtk_widget_set_visible(go_button, window >= 0);
     notice_show(bar);
 }
@@ -109,11 +108,7 @@ void bellbar_init(GtkWidget *terminal) {
     vte_terminal_set_audible_bell(VTE_TERMINAL(terminal), FALSE);
     g_signal_connect(terminal, "bell", G_CALLBACK(bell_cb), NULL);
 
-    message = gtk_label_new(NULL);
-    gtk_label_set_ellipsize(GTK_LABEL(message), PANGO_ELLIPSIZE_END);
-    gtk_label_set_max_width_chars(GTK_LABEL(message), BELL_LABEL_CHARS);
-    gtk_label_set_xalign(GTK_LABEL(message), 0);
-    bar = notice_new(message, close_bar, close_bar);
+    bar = notice_new(BELL_LINES, close_bar, close_bar);
     notice_lead(bar, icon_new_outline(OUTLINE_BELL, 32));
     go_button = notice_action(bar, OUTLINE_GO, "去看");
     g_signal_connect(go_button, "clicked", G_CALLBACK(go_cb), NULL);

@@ -349,6 +349,7 @@ void inject_styles(void) {
                                     "#ktermNoticeButton { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 18px;"
                                     " padding: 6px 14px; min-width: 0; min-height: 0; box-shadow: none; text-shadow: none; }"
                                     "#ktermNoticeButton label { color: #000000; }"
+                                    "#ktermNoticeButton.round { padding: 6px; border-radius: 30px; }"
                                     "#ktermNoticeButton.primary { background: #000000; color: #ffffff; }"
                                     "#ktermNoticeButton.primary label { color: #ffffff; }"
                                     // an image over the whole window (imageview.c)
