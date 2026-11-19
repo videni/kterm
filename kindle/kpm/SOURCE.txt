@@ -18,8 +18,8 @@ library by Project Nayuki (MIT License, qrcodegen.c). Icons of the
 phone page: Lucide (ISC License); its styles: Tailwind CSS (MIT License).
 The complete modified source accompanies this package as source.tar.gz.
 
-libvte-2.91.so.0 is VTE 0.84.0 (LGPL-3.0-or-later), from
-https://download.gnome.org/sources/vte/0.84/vte-0.84.0.tar.xz
-(sha256 0414e31583836aeb7878da25f67c515f7e8879917ecc37c92e26b83e8d8fc3e3),
+libvte-2.91.so.0 is VTE 0.84.1 (LGPL-3.0-or-later), from
+https://download.gnome.org/sources/vte/0.84/vte-0.84.1.tar.xz
+(sha256 aca1caa8478aebcdbb1d67897fb3511eb7601debae6810e16a15b6fa25f31ac8),
 built by kindle/build-vte.sh with the patches in kindle/vte/ (both in
 source.tar.gz).

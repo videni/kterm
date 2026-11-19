@@ -9,8 +9,8 @@ set -e
 KINDLE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO=$(dirname "$KINDLE_DIR")
 BUILD="${KTERM_BUILD:-$REPO/build}"
-VERSION=0.84.0
-SHA256=0414e31583836aeb7878da25f67c515f7e8879917ecc37c92e26b83e8d8fc3e3
+VERSION=0.84.1
+SHA256=aca1caa8478aebcdbb1d67897fb3511eb7601debae6810e16a15b6fa25f31ac8
 TARBALL="vte-$VERSION.tar.xz"
 IMAGE=kterm-vte-build:armv7
 
