@@ -49,6 +49,10 @@ extern KTconf *conf;
  *     (copy mode: scrolled back), "none" without tmux clients, "unknown"
  *     if there are clients but none is this terminal's. With "cancel", a
  *     pane in a mode leaves it.
+ *   bell: a line for each window of its session: bell flag, active, last
+ *     output (seconds since 1970), index, host, name, the title of its
+ *     pane, between colons (a title may have more of them, so last);
+ *     "unknown" as above.
  *   sessions: "inside" if the terminal is in tmux already; else
  *     "sessions NOW" and a line for each session: name, windows, clients
  *     attached, last used (seconds since 1970), between colons (which
@@ -67,6 +71,10 @@ static const gchar PROBE_SCRIPT[] =
     "[ -n \"$clients\" ] || { echo none; exit 0; }\n"
     "[ -n \"$best\" ] || { echo unknown; exit 0; }\n"
     "set -- $best\n"
+    "if [ \"$ACTION\" = bell ]; then\n"
+    "  tmux list-windows -t \"$3\" -F '#{window_bell_flag}:#{window_active}:#{window_activity}:#{window_index}:#{host}:#{window_name}:#{pane_title}'\n"
+    "  exit 0\n"
+    "fi\n"
     "if [ \"$ACTION\" = cancel ] && [ \"$4\" = 1 ]; then tmux send-keys -t \"$3\" -X cancel && echo \"$3 0\"; exit 0; fi\n"
     "echo \"$3 $4\"\n";
 
@@ -228,6 +236,51 @@ static void sessions_done(gchar *output, GCallback done, gpointer data) {
  */
 gboolean tmux_list_sessions(TmuxSessionsDone done, gpointer data) {
     return run_script("sessions", TRUE, sessions_done, G_CALLBACK(done), data);
+}
+
+static void bell_done(gchar *output, GCallback done, gpointer data) {
+    gchar **lines = output ? g_strsplit(output, "\n", -1) : NULL;
+    // A window that rang is flagged until it is shown, one shown is not
+    // flagged: of those, the one written to last (a bell is written too)
+    gchar **rang = NULL;
+    gint64 latest = -1;
+    for (guint i = 0; lines && lines[i]; i++) {
+        gchar **fields = g_strsplit(lines[i], ":", 7);
+        const gint64 written = g_strv_length(fields) == 7 ? g_ascii_strtoll(fields[2], NULL, 10) : -1;
+        if ((!g_strcmp0(fields[0], "1") || !g_strcmp0(fields[1], "1")) && written > latest) {
+            g_strfreev(rang);
+            rang = fields;
+            latest = written;
+        } else {
+            g_strfreev(fields);
+        }
+    }
+    gint index = -1;
+    const gchar *label = NULL;
+    if (rang) {
+        index = (gint) g_ascii_strtoll(rang[3], NULL, 10);
+        // a pane without a title of its own has the host's name
+        const gchar *host = rang[4];
+        const gchar *title = rang[6];
+        const gsize short_host = strcspn(host, ".");
+        const gboolean own = *title && strcmp(title, host)
+                             && !(strlen(title) == short_host && !strncmp(title, host, short_host));
+        label = own ? title : rang[5];
+    }
+    ((TmuxBellDone) done)(index, label, data);
+    g_strfreev(rang);
+    g_strfreev(lines);
+}
+
+/**
+ * Ask tmux, here or over the ssh session, which of its windows rang the
+ * bell the terminal got
+ * @param done Told the window, later; not called if FALSE is returned
+ * @param data For done
+ * @return FALSE if there is no tmux to ask
+ */
+gboolean tmux_ask_bell(TmuxBellDone done, gpointer data) {
+    return run_script("bell", FALSE, bell_done, G_CALLBACK(done), data);
 }
 
 /**

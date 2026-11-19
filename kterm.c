@@ -44,6 +44,7 @@
 #include "kindle.h"
 #include "ime.h"
 #include "voice.h"
+#include "bellbar.h"
 #include "imageview.h"
 #include "tmux.h"
 #include "tmuxpick.h"
@@ -821,6 +822,21 @@ static void paste_target_cb(VteTerminal *terminal, gpointer data) {
 }
 
 /**
+ * @return The title the program in the terminal gave it, newly allocated;
+ *         NULL if none, or if it is only tmux's mark for the paste button
+ */
+gchar * kterm_terminal_title(void) {
+    const char *title = main_terminal
+                        ? vte_terminal_get_termprop_string_by_id(VTE_TERMINAL(main_terminal),
+                                                                 VTE_PROPERTY_ID_XTERM_TITLE, NULL)
+                        : NULL;
+    if (!title || !*title || g_str_has_prefix(title, PASTE_TITLE_MARK)) {
+        return NULL;
+    }
+    return g_strdup(title);
+}
+
+/**
  * The terminal's title changed, see paste_target_cb()
  */
 static void title_cb(VteTerminal *terminal, const char *name, gpointer data) {
@@ -1290,6 +1306,7 @@ gint main(gint argc, gchar **argv) {
     tmuxpick_init(terminal);
     // over everything, the voice box too
     imageview_init(overlay, terminal);
+    bellbar_init(window, terminal);
 #endif
     gtk_main();
     

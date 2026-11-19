@@ -47,6 +47,7 @@ gboolean kterm_process_is(pid_t pid, const gchar *name);
 void kterm_type_command(const gchar *command);
 
 /* its history: the lines scrolled off its top */
+gchar * kterm_terminal_title(void);
 gboolean kterm_terminal_has_history(void);
 gboolean kterm_terminal_scrolled(void);
 void kterm_terminal_to_bottom(void);

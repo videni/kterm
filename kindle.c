@@ -351,6 +351,10 @@ void inject_styles(void) {
                                     "#ktermVoiceButton label { color: #000000; }"
                                     "#ktermVoiceButton.primary { background: #000000; color: #ffffff; }"
                                     "#ktermVoiceButton.primary label { color: #ffffff; }"
+                                    // the bell's bar at the top of the screen (bellbar.c)
+                                    "#ktermBell { background-color: #ffffff; color: #000000; border: 2px solid #000000;"
+                                    " border-radius: 24px; padding: 10px 20px;"
+                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     // an image over the whole window (imageview.c)
                                     "#ktermImageView { background-color: #ffffff; color: #000000;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 10pt; }"
