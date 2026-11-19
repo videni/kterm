@@ -29,14 +29,9 @@
  * only waits for connections, which costs nothing while there are none.
  * launch.sh lets them through the Kindle's firewall on Wi-Fi.
  *
- *   GET  /favicon.png, /apple-touch-icon.png
- *                        the icon, without the key: it tells nothing
- *   GET  /KEY            the page
- *   GET  /KEY/ping       "ok": the page shows it is connected
- *   POST /KEY/send       the body (UTF-8 text) to the box over the
- *                        shortcut bar; ?run=1: to the terminal with
- *                        Enter after it, unless it is scrolled back (see
- *                        voicebar.c). Answers what was done.
+ * The server itself is voiceserver.c; this file switches it on and off,
+ * keeps the key, shows the page in the panel and hands what comes to the
+ * box (voicebar.c).
  */
 
 #include <ifaddrs.h>
@@ -44,7 +39,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <vte/vte.h>
+#include <gtk/gtk.h>
 #include "config.h"
 #include "confedit.h"
 #include "kterm.h"
@@ -52,8 +47,7 @@
 #include "qrcodegen.h"
 #include "voice.h"
 #include "voicebar.h"
-// VOICE_PAGE, built from kindle/web/ by kindle/build-web.sh
-#include "voice-page.h"
+#include "voiceserver.h"
 
 extern KTconf *conf;
 
@@ -61,15 +55,6 @@ extern KTconf *conf;
 #define VOICE_PORT 7788
 /** Characters of the key */
 #define TOKEN_LENGTH 10
-/** Longest request head and text taken, bytes */
-#define HEAD_MAX 8192
-#define BODY_MAX 65536
-/** Connections served at the same time */
-#define WORKERS 4
-/** A connection silent for this long is dropped, s */
-#define SOCKET_TIMEOUT 15
-/** The main thread is waited for this long to tell what it did, us */
-#define REPLY_TIMEOUT_US (10 * G_USEC_PER_SEC)
 /** Size of a QR code module on the screen, px */
 #define QR_MODULE 7
 /** Empty modules around the code, as the standard asks */
@@ -79,17 +64,8 @@ static GtkWidget *voice_page = NULL;
 static GtkWidget *qr_image = NULL;
 static GtkWidget *address_label = NULL;
 static GtkWidget *status_label = NULL;
-/** The server, NULL while it does not listen: switched off, or the port
- *  could not be had */
-static GSocketService *service = NULL;
 /** Address of the phone heard from last, NULL before any */
 static gchar *phone = NULL;
-/** The page's icon as PNG, small for the tab and large for a home screen;
- *  made once at the start, only read after that */
-static GBytes *favicon = NULL;
-static GBytes *touch_icon = NULL;
-/** conf->voice_token is read by the workers and changed by the panel */
-G_LOCK_DEFINE_STATIC(token);
 
 
 /**
@@ -130,9 +106,7 @@ static gchar * page_url(void) {
     if (!address) {
         return NULL;
     }
-    G_LOCK(token);
     gchar *url = g_strdup_printf("http://%s:%d/%s", address, VOICE_PORT, conf->voice_token);
-    G_UNLOCK(token);
     g_free(address);
     return url;
 }
@@ -176,7 +150,7 @@ static void update_page(void) {
     if (!voice_page) {
         return;
     }
-    gchar *url = service ? page_url() : NULL;
+    gchar *url = voiceserver_running() ? page_url() : NULL;
     GdkPixbuf *pixbuf = url ? qr_pixbuf(url) : NULL;
     gtk_image_set_from_pixbuf(GTK_IMAGE(qr_image), pixbuf);
     gtk_widget_set_visible(qr_image, pixbuf != NULL);
@@ -184,7 +158,7 @@ static void update_page(void) {
         g_object_unref(pixbuf);
     }
     gchar *text = NULL;
-    if (!service) {
+    if (!voiceserver_running()) {
         text = g_strdup_printf("没能打开 %d 端口，手机连不进来。", VOICE_PORT);
     } else if (!url) {
         text = g_strdup("Kindle 没连上 Wi-Fi。");
@@ -210,12 +184,11 @@ static void update_page(void) {
 static gboolean new_token(void) {
     // no letters easily mistaken for others (l, o, 0, 1) when typed
     static const gchar letters[] = "abcdefghijkmnpqrstuvwxyz23456789";
-    G_LOCK(token);
     for (int i = 0; i < TOKEN_LENGTH; i++) {
         conf->voice_token[i] = letters[g_random_int_range(0, (gint) sizeof(letters) - 1)];
     }
     conf->voice_token[TOKEN_LENGTH] = '\0';
-    G_UNLOCK(token);
+    voiceserver_set_token(conf->voice_token);
     gchar *line = g_strdup_printf("voice_token = %s", conf->voice_token);
     GError *error = NULL;
     const gboolean saved = confedit_save(conf->conf_path, "voice_token", line, &error);
@@ -237,37 +210,16 @@ static void new_token_cb(void) {
                        : "新口令没能存进 kterm.conf，重启 kterm 后会变回去。");
 }
 
-/** What a request asks of the terminal, handed to the main thread */
-typedef struct {
-    /** Text to send, NULL for a ping */
-    gchar *text;
-    /** Enter after it */
-    gboolean run;
-    gchar *phone;
-    /** Where the main thread puts what it did, for the response */
-    GAsyncQueue *reply;
-} Request;
-
-/**
- * In the main thread: what became of the text, for the waiting worker
- */
-static void reply_cb(const gchar *status, gpointer data) {
-    GAsyncQueue *reply = data;
-    g_async_queue_push(reply, g_strdup(status));
-    g_async_queue_unref(reply);
-}
-
 /**
  * In the main thread: a phone was heard from; its text goes to the box
  * or the terminal, see voicebar.c
  */
-static gboolean request_cb(gpointer data) {
-    Request *request = data;
+static void request_cb(const VoiceRequest *request) {
     const gboolean first = !phone || strcmp(phone, request->phone);
     g_free(phone);
     phone = g_strdup(request->phone);
     if (request->text) {
-        voicebar_receive(request->text, request->run, reply_cb, request->reply);
+        voicebar_receive(request->text, request->run, voiceserver_answer, request->reply);
     }
     // the code was scanned: it is in the way now
     if (first && panel_is_open() && gtk_widget_get_visible(voice_page)) {
@@ -275,190 +227,6 @@ static gboolean request_cb(gpointer data) {
     } else if (first) {
         update_page();
     }
-    g_free(request->text);
-    g_free(request->phone);
-    g_free(request);
-    return G_SOURCE_REMOVE;
-}
-
-/**
- * @return Address of the other end of the connection, newly allocated
- */
-static gchar * remote_name(GSocketConnection *connection) {
-    GSocketAddress *remote = g_socket_connection_get_remote_address(connection, NULL);
-    gchar *name = G_IS_INET_SOCKET_ADDRESS(remote)
-                  ? g_inet_address_to_string(g_inet_socket_address_get_address(G_INET_SOCKET_ADDRESS(remote)))
-                  : g_strdup("?");
-    if (remote) {
-        g_object_unref(remote);
-    }
-    return name;
-}
-
-/**
- * Write a whole response
- */
-static void respond(GOutputStream *out, const gchar *status, const gchar *type, const gchar *body, gsize size) {
-    gchar *head = g_strdup_printf("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %" G_GSIZE_FORMAT "\r\n"
-                                  "Cache-Control: no-store\r\nConnection: close\r\n\r\n", status, type, size);
-    g_output_stream_write_all(out, head, strlen(head), NULL, NULL, NULL);
-    g_output_stream_write_all(out, body, size, NULL, NULL, NULL);
-    g_free(head);
-}
-
-static void respond_text(GOutputStream *out, const gchar *status, const gchar *text) {
-    respond(out, status, "text/plain; charset=utf-8", text, strlen(text));
-}
-
-/**
- * @param head Request head, lower case
- * @return Its Content-Length, 0 if none
- */
-static gsize content_length(const gchar *head) {
-    const gchar *field = strstr(head, "\r\ncontent-length:");
-    return field ? (gsize) g_ascii_strtoull(field + 17, NULL, 10) : 0;
-}
-
-/**
- * In a worker thread: serve one connection
- */
-static gboolean run_cb(GThreadedSocketService *service, GSocketConnection *connection,
-                       GObject *source, gpointer data) {
-    UNUSED(service);
-    UNUSED(source);
-    UNUSED(data);
-    g_socket_set_timeout(g_socket_connection_get_socket(connection), SOCKET_TIMEOUT);
-    GInputStream *in = g_io_stream_get_input_stream(G_IO_STREAM(connection));
-    GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(connection));
-    gchar *buffer = g_malloc(HEAD_MAX + BODY_MAX + 1);
-    gsize got = 0;
-    gchar *end = NULL;
-    while (!end && got < HEAD_MAX) {
-        const gssize n = g_input_stream_read(in, buffer + got, HEAD_MAX - got, NULL, NULL);
-        if (n <= 0) {
-            g_free(buffer);
-            return TRUE;
-        }
-        got += (gsize) n;
-        buffer[got] = '\0';
-        end = strstr(buffer, "\r\n\r\n");
-    }
-    if (!end) {
-        respond_text(out, "431 Request Header Fields Too Large", "");
-        g_free(buffer);
-        return TRUE;
-    }
-    const gsize head_size = (gsize) (end - buffer) + 4;
-    gchar *head = g_ascii_strdown(buffer, (gssize) head_size);
-    const gsize length = content_length(head);
-    g_free(head);
-    if (length > BODY_MAX) {
-        respond_text(out, "413 Payload Too Large", "太长了");
-        g_free(buffer);
-        return TRUE;
-    }
-    while (got < head_size + length) {
-        const gssize n = g_input_stream_read(in, buffer + got, head_size + length - got, NULL, NULL);
-        if (n <= 0) {
-            g_free(buffer);
-            return TRUE;
-        }
-        got += (gsize) n;
-    }
-    buffer[head_size + length] = '\0';
-
-    // "POST /KEY/send?run=1 HTTP/1.1"
-    gchar **words = g_strsplit(buffer, " ", 3);
-    const gchar *method = words[0] ? words[0] : "";
-    const gchar *target = words[0] && words[1] ? words[1] : "";
-    gchar *path = g_strndup(target, strcspn(target, "?"));
-    const gchar *query = strchr(target, '?');
-    G_LOCK(token);
-    gchar *prefix = g_strdup_printf("/%s", conf->voice_token);
-    G_UNLOCK(token);
-    const gchar *rest = g_str_has_prefix(path, prefix) ? path + strlen(prefix) : NULL;
-    if (rest && *rest && *rest != '/') {
-        rest = NULL;
-    }
-    if (!strcmp(method, "GET") && (!strcmp(path, "/favicon.png") || !strcmp(path, "/favicon.ico")
-                                   || g_str_has_prefix(path, "/apple-touch-icon"))) {
-        GBytes *icon = g_str_has_prefix(path, "/apple") ? touch_icon : favicon;
-        gsize size = 0;
-        const gchar *data = g_bytes_get_data(icon, &size);
-        respond(out, "200 OK", "image/png", data, size);
-    } else if (!rest) {
-        respond_text(out, "403 Forbidden", "口令不对：请重新扫 Kindle 上的二维码");
-    } else if (!strcmp(method, "GET") && (!*rest || !strcmp(rest, "/"))) {
-        respond(out, "200 OK", "text/html; charset=utf-8", VOICE_PAGE, sizeof(VOICE_PAGE) - 1);
-    } else if (!strcmp(method, "GET") && !strcmp(rest, "/ping")) {
-        respond_text(out, "200 OK", "ok");
-        Request *request = g_new0(Request, 1);
-        request->phone = remote_name(connection);
-        g_idle_add(request_cb, request);
-    } else if (!strcmp(method, "POST") && !strcmp(rest, "/send")) {
-        const gchar *body = buffer + head_size;
-        if (!g_utf8_validate(body, (gssize) length, NULL)) {
-            respond_text(out, "400 Bad Request", "不是 UTF-8 文字");
-        } else {
-            Request *request = g_new0(Request, 1);
-            request->text = g_strndup(body, length);
-            request->run = query && !strcmp(query, "?run=1");
-            request->phone = remote_name(connection);
-            // one reference for the main thread, one for waiting here
-            GAsyncQueue *reply = g_async_queue_new_full(g_free);
-            request->reply = g_async_queue_ref(reply);
-            g_idle_add(request_cb, request);
-            gchar *status = g_async_queue_timeout_pop(reply, REPLY_TIMEOUT_US);
-            respond_text(out, "200 OK", status ? status : "timeout");
-            g_free(status);
-            g_async_queue_unref(reply);
-        }
-    } else {
-        respond_text(out, "404 Not Found", "没有这个");
-    }
-    g_free(prefix);
-    g_free(path);
-    g_strfreev(words);
-    g_free(buffer);
-    return TRUE;
-}
-
-static cairo_status_t png_write(void *closure, const unsigned char *data, unsigned int length) {
-    g_byte_array_append(closure, data, length);
-    return CAIRO_STATUS_SUCCESS;
-}
-
-/**
- * Draw the icon: the prompt of the library cover (kindle/kpm/icon.svg),
- * white on black
- * @param side Width and height, px
- * @return PNG
- */
-static GBytes * draw_icon(int side) {
-    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, side, side);
-    cairo_t *cr = cairo_create(surface);
-    // drawn on a 100 x 100 square; a home screen rounds the corners itself
-    cairo_scale(cr, side / 100.0, side / 100.0);
-    cairo_set_source_rgb(cr, 0x11 / 255.0, 0x11 / 255.0, 0x11 / 255.0);
-    cairo_paint(cr);
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_set_line_width(cr, 9);
-    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-    // >
-    cairo_move_to(cr, 22, 28);
-    cairo_line_to(cr, 46, 46);
-    cairo_line_to(cr, 22, 64);
-    cairo_stroke(cr);
-    // _
-    cairo_move_to(cr, 56, 68);
-    cairo_line_to(cr, 80, 68);
-    cairo_stroke(cr);
-    cairo_destroy(cr);
-    GByteArray *png = g_byte_array_new();
-    cairo_surface_write_to_png_stream(surface, png_write, png);
-    cairo_surface_destroy(surface);
-    return g_byte_array_free_to_bytes(png);
 }
 
 static void start_serving(void);
@@ -513,39 +281,15 @@ static GtkWidget * build_page(void) {
 }
 
 /**
- * Start listening
+ * Start listening, if not yet: switched on, or the port was not free
  */
 static void start_serving(void) {
-    if (service) {
-        return;
-    }
-    service = g_threaded_socket_service_new(WORKERS);
     GError *error = NULL;
-    if (g_socket_listener_add_inet_port(G_SOCKET_LISTENER(service), VOICE_PORT, NULL, &error)) {
-        g_signal_connect(service, "run", G_CALLBACK(run_cb), NULL);
-        g_socket_service_start(service);
-        D printf("voice: serving on port %d\n", VOICE_PORT);
-    } else {
+    if (!voiceserver_start(VOICE_PORT, request_cb, &error)) {
         // tried again when the page is shown or the setting switched on
         g_printerr("kterm: voice page not served: %s\n", error->message);
         g_error_free(error);
-        g_object_unref(service);
-        service = NULL;
     }
-}
-
-/**
- * Stop listening: the port is closed again
- */
-static void stop_serving(void) {
-    if (!service) {
-        return;
-    }
-    g_socket_service_stop(service);
-    g_socket_listener_close(G_SOCKET_LISTENER(service));
-    g_object_unref(service);
-    service = NULL;
-    D printf("voice: stopped\n");
 }
 
 /**
@@ -565,7 +309,7 @@ void voice_set_enabled(guint on) {
     if (on) {
         start_serving();
     } else {
-        stop_serving();
+        voiceserver_stop();
         voicebar_clear();
         if (voice_page && panel_is_open() && gtk_widget_get_visible(voice_page)) {
             panel_close();
@@ -585,8 +329,7 @@ void voice_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar) {
     if (strlen(conf->voice_token) < TOKEN_LENGTH) {
         new_token();
     }
-    favicon = draw_icon(64);
-    touch_icon = draw_icon(180);
+    voiceserver_set_token(conf->voice_token);
     voicebar_init(overlay, terminal, shortbar);
     voice_page = build_page();
     panel_add_page(voice_page, FALSE);
