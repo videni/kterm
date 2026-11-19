@@ -43,6 +43,7 @@
 #include "kindle.h"
 #include "ime.h"
 #include "voice.h"
+#include "tmux.h"
 #endif
 #include "config.h"
 
@@ -1048,57 +1049,18 @@ static void terminal_swipe_scroll(GtkWidget *terminal, const GdkEventButton *sou
 }
 
 /**
- * Type a tmux command key: the prefix from the configuration (tmux_prefix,
- * "C-b" unless set), then the key.
- * @param terminal Terminal widget
- * @param key Key after the prefix, e.g. "n"
- * @return FALSE if the configured prefix is not understood
- */
-static gboolean tmux_send(GtkWidget *terminal, const gchar *key) {
-    const gchar *prefix = conf->tmux_prefix;
-    gchar code;
-    if (g_ascii_strncasecmp(prefix, "C-", 2) != 0) {
-        return FALSE;
-    }
-    if (!g_ascii_strcasecmp(prefix + 2, "Space")) {
-        code = '\0';
-    } else if (prefix[2] && !prefix[3] && g_ascii_isalpha(prefix[2])) {
-        code = (gchar) (g_ascii_toupper(prefix[2]) & 0x1f);
-    } else {
-        return FALSE;
-    }
-    D printf("tmux: prefix %s + %s\n", prefix, key);
-    vte_terminal_feed_child(VTE_TERMINAL(terminal), &code, 1);
-    vte_terminal_feed_child(VTE_TERMINAL(terminal), key, -1);
-    return TRUE;
-}
-
-/**
- * @return TRUE if tmux has the terminal, here or, as far as can be told,
- *         at the other end of an ssh session (a full screen there)
- */
-static gboolean tmux_may_have_terminal(void) {
-    gchar *name = kterm_process_name(kterm_terminal_owner());
-    const gboolean tmux = name && (g_str_has_prefix(name, "tmux")
-                                   || (g_str_has_prefix(name, "ssh") && !kterm_terminal_has_history()));
-    g_free(name);
-    return tmux;
-}
-
-/**
  * A finger moved left or right in reading mode: next or previous tmux
  * window. Nothing is typed into a shell, a pager or an editor: the prefix
  * and the letter would mean something else to them.
- * @param terminal Terminal widget
  * @param dx Distance moved, pixels; negative is left
  */
-static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
+static void terminal_swipe_switch(gdouble dx) {
     if (!tmux_may_have_terminal()) {
         return;
     }
     // towards the left brings the next one in, like turning a page
     flash_next_draw();
-    tmux_send(terminal, dx < 0 ? "n" : "p");
+    tmux_send_command(dx < 0 ? "n" : "p");
 }
 #endif
 
@@ -1415,7 +1377,7 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
         return TRUE;
     }
     if (horizontal && read_mode) {
-        terminal_swipe_switch(terminal, dx);
+        terminal_swipe_switch(dx);
     }
     if (!tap) {
         return TRUE;

@@ -21,28 +21,18 @@
  * "q" leaves it, and what follows lands half in the input box).
  *
  * So text is kept in a box above the shortcut bar, shown until it is put
- * in with one of its buttons, those of the phone page ("send": without
- * Enter; "send and Enter") or Enter on the keyboard, which leave the
- * scrolled back view first; "clear" throws it away. "Send" from the phone
- * always goes to the box;
- * "send and Enter" goes straight in when the terminal shows its input
- * line, to the box (marked to be run) when it is scrolled back.
- *
- * Scrolled back where? kterm's own history it knows. tmux's copy mode is
- * asked of tmux, when text comes, not watched: the same ssh connection
- * runs one more command (ControlMaster, about 0.1 s on the Kindle), as
- * rootshell does. The tmux client of this terminal is the one on the
- * login the Kindle's address has there (who). If tmux cannot be asked
- * (a password login), text from the phone waits in the box; a tap on
- * the box puts it in all the same.
+ * in with one of its buttons, those of the phone page (run: "send and
+ * Enter"; "send": without Enter) or Enter on the keyboard, which leave
+ * the scrolled back view first; "clear" throws it away. "Send" from the
+ * phone always goes to the box; "send and Enter" goes straight in when
+ * the terminal shows its input line, to the box (marked to be run) when
+ * it is scrolled back, or when tmux cannot be asked (tmux.c). A tap on
+ * the box puts the text in all the same.
  *
  * Text from the phone and taps on the box are handled one after the
  * other, in the order they came: each may have to wait for tmux.
  */
 
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <string.h>
 #include <vte/vte.h>
 #include "config.h"
@@ -50,6 +40,7 @@
 #include "keyboard.h"
 #include "kterm.h"
 #include "panel.h"
+#include "tmux.h"
 #include "voicebar.h"
 
 #define VOICEBAR_NAME "ktermVoiceBar"
@@ -57,24 +48,6 @@
 #define VOICEBAR_ICON_PX 32
 /** Room between the box and the sides of the screen, the shortcut bar, px */
 #define VOICEBAR_MARGIN 12
-/** tmux not answering this long counts as no answer, ms */
-#define PROBE_TIMEOUT_MS 6000
-/** The connection to the far machine is kept this long after the last
- *  question, s */
-#define CONTROL_PERSIST "600"
-
-/** Where the terminal is */
-typedef enum {
-    /** showing its input line */
-    AT_INPUT,
-    /** scrolled back */
-    SCROLLED,
-    /** not known: tmux could not be asked */
-    UNKNOWN,
-} Where;
-
-typedef void (*ProbeDone)(Where where, gpointer data);
-
 /** Something to do, waiting for what came before it */
 typedef struct {
     /** Text from the phone; NULL: a tap putting the box's text in */
@@ -103,200 +76,6 @@ static gboolean staged_run = FALSE;
 static GQueue incoming = G_QUEUE_INIT;
 /** tmux is being asked */
 static gboolean probing = FALSE;
-
-/*
- * Run on the machine tmux is on: finds this terminal's tmux client and
- * prints its pane and whether that pane is in a mode (copy mode: scrolled
- * back), "none" without tmux clients, "unknown" if there are clients but
- * none is this terminal's. With "cancel", a pane in a mode leaves it.
- */
-static const gchar PROBE_SCRIPT[] =
-    "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin\"\n"
-    "command -v tmux >/dev/null 2>&1 || { echo none; exit 0; }\n"
-    "clients=$(tmux list-clients -F '#{client_activity} #{client_tty} #{pane_id} #{pane_in_mode}' 2>/dev/null)\n"
-    "[ -n \"$clients\" ] || { echo none; exit 0; }\n"
-    "if [ -n \"$KTERM_TTY\" ]; then ttys=$KTERM_TTY\n"
-    "else ip=${SSH_CONNECTION%% *}; ttys=$(who | awk -v h=\"($ip)\" '$NF == h { print \"/dev/\" $2 }'); fi\n"
-    "best=$(for t in $ttys; do printf '%s\\n' \"$clients\" | awk -v t=\"$t\" '$2 == t'; done | sort -rn | head -n 1)\n"
-    "[ -n \"$best\" ] || { echo unknown; exit 0; }\n"
-    "set -- $best\n"
-    "if [ \"$ACTION\" = cancel ] && [ \"$4\" = 1 ]; then tmux send-keys -t \"$3\" -X cancel && echo \"$3 0\"; exit 0; fi\n"
-    "echo \"$3 $4\"\n";
-
-/**
- * The ssh command that asks the far machine, built from the client that
- * has the terminal: its destination and the options that say how to get
- * there (port, user, key, jump host, config); not its forwardings, its
- * remote command or its terminal.
- * @param pid ssh client
- * @return Arguments, NULL if they cannot be read
- */
-static GPtrArray * probe_command(pid_t pid, const gchar *action) {
-    gchar *path = g_strdup_printf("/proc/%d/cmdline", (int) pid);
-    gchar *raw = NULL;
-    gsize size = 0;
-    const gboolean read = g_file_get_contents(path, &raw, &size, NULL);
-    g_free(path);
-    if (!read || !size) {
-        g_free(raw);
-        return NULL;
-    }
-    GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
-    g_ptr_array_add(args, g_strdup("ssh"));
-    // first: ssh takes the first value it is given for an option
-    static const gchar *own[] = {
-        "BatchMode=yes", "RemoteCommand=none", "RequestTTY=no", "ConnectTimeout=5",
-        "ControlMaster=auto", "ControlPath=/tmp/kterm-ssh-%C", "ControlPersist=" CONTROL_PERSIST,
-        "ClearAllForwardings=yes", "LogLevel=ERROR",
-    };
-    for (guint i = 0; i < G_N_ELEMENTS(own); i++) {
-        g_ptr_array_add(args, g_strdup("-o"));
-        g_ptr_array_add(args, g_strdup(own[i]));
-    }
-    const gchar *destination = NULL;
-    const gchar *end = raw + size;
-    const gchar *arg = raw + strlen(raw) + 1;
-    while (arg < end && !destination) {
-        const gchar *next = arg + strlen(arg) + 1;
-        if (arg[0] != '-' || !arg[1]) {
-            destination = arg;
-            break;
-        }
-        // options that take a value, kept or not
-        static const gchar *with_value = "BbcDEeFIiJLlmOopQRSWw";
-        static const gchar *kept = "cFiJlmop";
-        for (const gchar *c = arg + 1; *c; c++) {
-            if (strchr(with_value, *c)) {
-                const gchar *value = c[1] ? c + 1 : (next < end ? next : NULL);
-                if (strchr(kept, *c) && value) {
-                    g_ptr_array_add(args, g_strdup_printf("-%c", *c));
-                    g_ptr_array_add(args, g_strdup(value));
-                }
-                if (!c[1] && next < end) {
-                    next += strlen(next) + 1;
-                }
-                break;
-            }
-            if (strchr("46C", *c)) {
-                g_ptr_array_add(args, g_strdup_printf("-%c", *c));
-            }
-        }
-        arg = next;
-    }
-    if (!destination) {
-        g_ptr_array_unref(args);
-        g_free(raw);
-        return NULL;
-    }
-    g_ptr_array_add(args, g_strdup(destination));
-    g_ptr_array_add(args, g_strdup_printf("ACTION=%s sh -s", action));
-    g_free(raw);
-    return args;
-}
-
-/** A question to tmux under way */
-typedef struct {
-    ProbeDone done;
-    gpointer data;
-    guint timeout;
-    GSubprocess *process;
-} Probe;
-
-static gboolean probe_timeout(gpointer data) {
-    Probe *probe = data;
-    probe->timeout = 0;
-    g_subprocess_force_exit(probe->process);
-    return G_SOURCE_REMOVE;
-}
-
-static void probe_finished(GObject *source, GAsyncResult *result, gpointer data) {
-    Probe *probe = data;
-    if (probe->timeout) {
-        g_source_remove(probe->timeout);
-    }
-    gchar *output = NULL;
-    gchar *errors = NULL;
-    Where where = UNKNOWN;
-    // only the output tells: kterm leaves its children to the kernel
-    // (SIGCHLD ignored), so their exit status is never known
-    if (g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &output, &errors, NULL) && output) {
-        g_strstrip(output);
-        D printf("voicebar: tmux says \"%s\"\n", output);
-        if (!strcmp(output, "none")) {
-            // no tmux there: the history is kterm's own
-            where = kterm_terminal_scrolled() ? SCROLLED : AT_INPUT;
-        } else if (g_str_has_suffix(output, " 0")) {
-            where = AT_INPUT;
-        } else if (g_str_has_suffix(output, " 1")) {
-            where = SCROLLED;
-        }
-    } else {
-        D printf("voicebar: tmux not asked: %s\n", errors ? errors : "");
-    }
-    g_free(output);
-    g_free(errors);
-    g_object_unref(probe->process);
-    probe->done(where, probe->data);
-    g_free(probe);
-}
-
-/**
- * Find out whether the terminal is scrolled back
- * @param cancel TRUE to leave tmux's copy mode as well, if it is in it
- * @param done Called with the answer
- * @param data For done
- */
-static void probe_where(gboolean cancel, ProbeDone done, gpointer data) {
-    // what has the terminal: the shell, or what was started from it, or
-    // the program kterm runs in place of a shell
-    VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(terminal_widget));
-    const pid_t pid = kterm_terminal_owner();
-    gchar *name = kterm_process_name(pid);
-    const gchar *action = cancel ? "cancel" : "query";
-    GPtrArray *args = NULL;
-    GSubprocessLauncher *launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
-                                                              | G_SUBPROCESS_FLAGS_STDOUT_PIPE
-                                                              | G_SUBPROCESS_FLAGS_STDERR_PIPE);
-    if (name && !strcmp(name, "ssh")) {
-        args = probe_command(pid, action);
-    } else if (name && g_str_has_prefix(name, "tmux")) {
-        // tmux here: its client is on this terminal's tty
-        const char *tty = pty ? ptsname(vte_pty_get_fd(pty)) : NULL;
-        if (tty) {
-            g_subprocess_launcher_setenv(launcher, "KTERM_TTY", tty, TRUE);
-            g_subprocess_launcher_setenv(launcher, "ACTION", action, TRUE);
-            args = g_ptr_array_new_with_free_func(g_free);
-            g_ptr_array_add(args, g_strdup("sh"));
-            g_ptr_array_add(args, g_strdup("-s"));
-        }
-    }
-    g_free(name);
-    if (!args) {
-        g_object_unref(launcher);
-        if (cancel) {
-            kterm_terminal_to_bottom();
-        }
-        done(cancel || !kterm_terminal_scrolled() ? AT_INPUT : SCROLLED, data);
-        return;
-    }
-    g_ptr_array_add(args, NULL);
-    GError *error = NULL;
-    Probe *probe = g_new0(Probe, 1);
-    probe->done = done;
-    probe->data = data;
-    probe->process = g_subprocess_launcher_spawnv(launcher, (const gchar * const *) args->pdata, &error);
-    g_object_unref(launcher);
-    g_ptr_array_unref(args);
-    if (!probe->process) {
-        D printf("voicebar: %s\n", error->message);
-        g_error_free(error);
-        g_free(probe);
-        done(UNKNOWN, data);
-        return;
-    }
-    probe->timeout = g_timeout_add(PROBE_TIMEOUT_MS, probe_timeout, probe);
-    g_subprocess_communicate_utf8_async(probe->process, PROBE_SCRIPT, NULL, probe_finished, probe);
-}
 
 /**
  * Type text into the terminal
@@ -362,18 +141,18 @@ static void process_incoming(void);
 /**
  * tmux answered for text from the phone to be run
  */
-static void received_where(Where where, gpointer data) {
+static void received_where(TmuxWhere where, gpointer data) {
     Incoming *in = data;
     probing = FALSE;
     // with what already waits in the box: it came first
     g_string_append(staged, in->text);
-    if (where == AT_INPUT) {
+    if (where == TMUX_AT_INPUT) {
         type_text(staged->str, TRUE);
         clear_staged();
         in->reply("ran", in->data);
     } else {
         staged_run = TRUE;
-        show_bar(where == UNKNOWN ? "查不到 tmux 是不是在往上翻，先放在这里" : NULL);
+        show_bar(where == TMUX_UNKNOWN ? "查不到 tmux 是不是在往上翻，先放在这里" : NULL);
         in->reply("staged-run", in->data);
     }
     incoming_free(in);
@@ -384,10 +163,10 @@ static void received_where(Where where, gpointer data) {
  * tmux answered for a tap putting the box's text in, having been told to
  * leave its copy mode
  */
-static void put_in_where(Where where, gpointer data) {
+static void put_in_where(TmuxWhere where, gpointer data) {
     Incoming *in = data;
     probing = FALSE;
-    if (where == SCROLLED) {
+    if (where == TMUX_SCROLLED) {
         // tmux did not leave copy mode: typed now, the text would be taken
         // for copy mode commands. A tap tries again.
         show_bar("tmux 没能退出往上翻。手动退出后，再点一次");
@@ -414,7 +193,7 @@ static void process_incoming(void) {
             }
             probing = TRUE;
             show_bar("正在放入…");
-            probe_where(TRUE, put_in_where, in);
+            tmux_ask_where(TRUE, put_in_where, in);
         } else if (!in->run) {
             g_string_append(staged, in->text);
             show_bar(NULL);
@@ -422,7 +201,7 @@ static void process_incoming(void) {
             incoming_free(in);
         } else {
             probing = TRUE;
-            probe_where(FALSE, received_where, in);
+            tmux_ask_where(FALSE, received_where, in);
         }
     }
 }
