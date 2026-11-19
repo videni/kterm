@@ -26,7 +26,8 @@
  * key, from the panel, makes the old addresses useless.
  *
  * Off unless switched on in the settings (conf->voice_on). On, the server
- * only waits for connections, which costs nothing while there are none. launch.sh lets them through the Kindle's firewall on Wi-Fi.
+ * only waits for connections, which costs nothing while there are none.
+ * launch.sh lets them through the Kindle's firewall on Wi-Fi.
  *
  *   GET  /favicon.png, /apple-touch-icon.png
  *                        the icon, without the key: it tells nothing
@@ -46,6 +47,7 @@
 #include <vte/vte.h>
 #include "config.h"
 #include "confedit.h"
+#include "kterm.h"
 #include "panel.h"
 #include "qrcodegen.h"
 #include "voice.h"
@@ -77,10 +79,9 @@ static GtkWidget *voice_page = NULL;
 static GtkWidget *qr_image = NULL;
 static GtkWidget *address_label = NULL;
 static GtkWidget *status_label = NULL;
-/** The server, NULL while switched off */
+/** The server, NULL while it does not listen: switched off, or the port
+ *  could not be had */
 static GSocketService *service = NULL;
-/** The server listens */
-static gboolean serving = FALSE;
 /** Address of the phone heard from last, NULL before any */
 static gchar *phone = NULL;
 /** The page's icon as PNG, small for the tab and large for a home screen;
@@ -175,7 +176,7 @@ static void update_page(void) {
     if (!voice_page) {
         return;
     }
-    gchar *url = serving ? page_url() : NULL;
+    gchar *url = service ? page_url() : NULL;
     GdkPixbuf *pixbuf = url ? qr_pixbuf(url) : NULL;
     gtk_image_set_from_pixbuf(GTK_IMAGE(qr_image), pixbuf);
     gtk_widget_set_visible(qr_image, pixbuf != NULL);
@@ -183,7 +184,7 @@ static void update_page(void) {
         g_object_unref(pixbuf);
     }
     gchar *text = NULL;
-    if (!serving) {
+    if (!service) {
         text = g_strdup_printf("没能打开 %d 端口，手机连不进来。", VOICE_PORT);
     } else if (!url) {
         text = g_strdup("Kindle 没连上 Wi-Fi。");
@@ -281,6 +282,20 @@ static gboolean request_cb(gpointer data) {
 }
 
 /**
+ * @return Address of the other end of the connection, newly allocated
+ */
+static gchar * remote_name(GSocketConnection *connection) {
+    GSocketAddress *remote = g_socket_connection_get_remote_address(connection, NULL);
+    gchar *name = G_IS_INET_SOCKET_ADDRESS(remote)
+                  ? g_inet_address_to_string(g_inet_socket_address_get_address(G_INET_SOCKET_ADDRESS(remote)))
+                  : g_strdup("?");
+    if (remote) {
+        g_object_unref(remote);
+    }
+    return name;
+}
+
+/**
  * Write a whole response
  */
 static void respond(GOutputStream *out, const gchar *status, const gchar *type, const gchar *body, gsize size) {
@@ -352,7 +367,7 @@ static gboolean run_cb(GThreadedSocketService *service, GSocketConnection *conne
     }
     buffer[head_size + length] = '\0';
 
-    // "GET /key/send?enter=1 HTTP/1.1"
+    // "POST /KEY/send?run=1 HTTP/1.1"
     gchar **words = g_strsplit(buffer, " ", 3);
     const gchar *method = words[0] ? words[0] : "";
     const gchar *target = words[0] && words[1] ? words[1] : "";
@@ -377,26 +392,18 @@ static gboolean run_cb(GThreadedSocketService *service, GSocketConnection *conne
         respond(out, "200 OK", "text/html; charset=utf-8", VOICE_PAGE, sizeof(VOICE_PAGE) - 1);
     } else if (!strcmp(method, "GET") && !strcmp(rest, "/ping")) {
         respond_text(out, "200 OK", "ok");
-        GInetSocketAddress *remote = G_INET_SOCKET_ADDRESS(g_socket_connection_get_remote_address(connection, NULL));
         Request *request = g_new0(Request, 1);
-        request->phone = remote ? g_inet_address_to_string(g_inet_socket_address_get_address(remote)) : g_strdup("?");
-        if (remote) {
-            g_object_unref(remote);
-        }
+        request->phone = remote_name(connection);
         g_idle_add(request_cb, request);
     } else if (!strcmp(method, "POST") && !strcmp(rest, "/send")) {
         const gchar *body = buffer + head_size;
         if (!g_utf8_validate(body, (gssize) length, NULL)) {
             respond_text(out, "400 Bad Request", "不是 UTF-8 文字");
         } else {
-            GInetSocketAddress *remote = G_INET_SOCKET_ADDRESS(g_socket_connection_get_remote_address(connection, NULL));
             Request *request = g_new0(Request, 1);
             request->text = g_strndup(body, length);
-            request->run = query && strstr(query, "run=1") != NULL;
-            request->phone = remote ? g_inet_address_to_string(g_inet_socket_address_get_address(remote)) : g_strdup("?");
-            if (remote) {
-                g_object_unref(remote);
-            }
+            request->run = query && !strcmp(query, "?run=1");
+            request->phone = remote_name(connection);
             // one reference for the main thread, one for waiting here
             GAsyncQueue *reply = g_async_queue_new_full(g_free);
             request->reply = g_async_queue_ref(reply);
@@ -454,6 +461,8 @@ static GBytes * draw_icon(int side) {
     return g_byte_array_free_to_bytes(png);
 }
 
+static void start_serving(void);
+
 /**
  * Show or put away the page with the QR code
  */
@@ -464,6 +473,10 @@ void voice_toggle(void) {
     if (panel_is_open() && gtk_widget_get_visible(voice_page)) {
         panel_close();
         return;
+    }
+    if (voice_enabled()) {
+        // the port may be free by now
+        start_serving();
     }
     panel_open();
     gtk_label_set_text(GTK_LABEL(status_label), "");
@@ -511,12 +524,13 @@ static void start_serving(void) {
     if (g_socket_listener_add_inet_port(G_SOCKET_LISTENER(service), VOICE_PORT, NULL, &error)) {
         g_signal_connect(service, "run", G_CALLBACK(run_cb), NULL);
         g_socket_service_start(service);
-        serving = TRUE;
         D printf("voice: serving on port %d\n", VOICE_PORT);
     } else {
+        // tried again when the page is shown or the setting switched on
         g_printerr("kterm: voice page not served: %s\n", error->message);
         g_error_free(error);
-        serving = FALSE;
+        g_object_unref(service);
+        service = NULL;
     }
 }
 
@@ -531,7 +545,6 @@ static void stop_serving(void) {
     g_socket_listener_close(G_SOCKET_LISTENER(service));
     g_object_unref(service);
     service = NULL;
-    serving = FALSE;
     D printf("voice: stopped\n");
 }
 

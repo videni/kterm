@@ -122,17 +122,5 @@ gboolean keyboard_gap_event(GtkWidget *window, GdkEvent *ev, GtkWidget *keyboard
 void keyboard_set_size(Keyboard *keyboard);
 void keyboard_free(Keyboard **keyboard);
 void keyboard_key_free(Key *key);
-/** Switch between the built-in keyboard and the system one; provided by kterm.c */
-void kterm_toggle_ime(void);
-void kterm_hide_keyboard(void);
-void kterm_use_builtin_keyboard(void);
-void kterm_set_preview(gboolean on);
-gboolean kterm_previewing(void);
-void kterm_preview_after_key(void);
-void kterm_key_typed(void);
-/** The terminal widget; provided by kterm.c */
-GtkWidget * kterm_get_terminal(void);
-gboolean kterm_terminal_has_shell(void);
-pid_t kterm_terminal_foreground(void);
 
 #endif /* keyboard_h */

@@ -22,7 +22,5 @@ void voice_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar);
 void voice_toggle(void);
 gboolean voice_enabled(void);
 void voice_set_enabled(guint on);
-/** Lay the keyboard out again: the "语音" key comes or goes; provided by kterm.c */
-void kterm_keyboard_relayout(void);
 
 #endif /* voice_h */

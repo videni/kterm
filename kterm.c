@@ -30,6 +30,7 @@
 #include <getopt.h>
 #include <glib-unix.h>
 #include "keyboard.h"
+#include "kterm.h"
 #include "panel.h"
 #include "icons.h"
 #include "flash.h"
@@ -96,6 +97,61 @@ pid_t kterm_terminal_foreground(void) {
     }
     const pid_t foreground = tcgetpgrp(vte_pty_get_fd(pty));
     return (foreground > 0 && foreground != (pid_t) main_child) ? foreground : 0;
+}
+
+/**
+ * @return Process group that has the terminal, whichever it is: the
+ *         process kterm started too. 0 if unknown.
+ */
+pid_t kterm_terminal_owner(void) {
+    VtePty *pty = main_terminal ? vte_terminal_get_pty(VTE_TERMINAL(main_terminal)) : NULL;
+    const pid_t owner = pty ? tcgetpgrp(vte_pty_get_fd(pty)) : -1;
+    return owner > 0 ? owner : 0;
+}
+
+/**
+ * @param pid Process
+ * @return Its command name ("ssh", "tmux: client"), newly allocated; NULL
+ *         if it is gone
+ */
+gchar * kterm_process_name(pid_t pid) {
+    if (pid <= 0) {
+        return NULL;
+    }
+    gchar *path = g_strdup_printf("/proc/%d/comm", (int) pid);
+    gchar *name = NULL;
+    if (g_file_get_contents(path, &name, NULL, NULL)) {
+        g_strstrip(name);
+    }
+    g_free(path);
+    return name;
+}
+
+/**
+ * @return TRUE if the terminal keeps lines scrolled off its top: then a
+ *         shell is in it, not a full screen program such as tmux (those
+ *         use the alternate screen, which has no history).
+ */
+gboolean kterm_terminal_has_history(void) {
+    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(main_terminal));
+    return gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj) > gtk_adjustment_get_lower(adj);
+}
+
+/**
+ * @return TRUE if the terminal shows earlier lines of its history, not its
+ *         last ones
+ */
+gboolean kterm_terminal_scrolled(void) {
+    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(main_terminal));
+    return gtk_adjustment_get_value(adj) + gtk_adjustment_get_page_size(adj) < gtk_adjustment_get_upper(adj) - 0.5;
+}
+
+/**
+ * Show the terminal's last lines again
+ */
+void kterm_terminal_to_bottom(void) {
+    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(main_terminal));
+    gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
 }
 
 /**
@@ -959,17 +1015,6 @@ static void terminal_wheel(GtkWidget *terminal, const GdkEventButton *source, Gd
 }
 
 /**
- * @return TRUE if the terminal keeps lines scrolled off its top: then a
- *         shell is in it, not a full screen program such as tmux (those
- *         use the alternate screen, which has no history).
- */
-static gboolean terminal_has_history(GtkWidget *terminal) {
-    GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal));
-    return gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment)
-           > gtk_adjustment_get_lower(adjustment);
-}
-
-/**
  * A finger moved up or down the terminal: move the text with it.
  * @param terminal Terminal widget
  * @param source Release event of the touch
@@ -985,7 +1030,7 @@ static void terminal_swipe_scroll(GtkWidget *terminal, const GdkEventButton *sou
     GtkAdjustment *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal));
     const gdouble lower = gtk_adjustment_get_lower(adjustment);
     const gdouble top_max = gtk_adjustment_get_upper(adjustment) - gtk_adjustment_get_page_size(adjustment);
-    if (terminal_has_history(terminal)) {
+    if (kterm_terminal_has_history()) {
         // the terminal's own history: exactly as far as the finger went
         const gdouble old = gtk_adjustment_get_value(adjustment);
         const gdouble value = CLAMP(old + (dy < 0 ? lines : -lines), lower, top_max);
@@ -1032,20 +1077,11 @@ static gboolean tmux_send(GtkWidget *terminal, const gchar *key) {
  * @return TRUE if tmux has the terminal, here or, as far as can be told,
  *         at the other end of an ssh session (a full screen there)
  */
-static gboolean tmux_may_have_terminal(GtkWidget *terminal) {
-    pid_t pid = kterm_terminal_foreground();
-    if (!pid) {
-        pid = (pid_t) main_child;
-    }
-    gchar *path = g_strdup_printf("/proc/%d/comm", (int) pid);
-    gchar *name = NULL;
-    gboolean tmux = FALSE;
-    if (pid > 0 && g_file_get_contents(path, &name, NULL, NULL)) {
-        tmux = g_str_has_prefix(name, "tmux")
-            || (g_str_has_prefix(name, "ssh") && !terminal_has_history(terminal));
-    }
+static gboolean tmux_may_have_terminal(void) {
+    gchar *name = kterm_process_name(kterm_terminal_owner());
+    const gboolean tmux = name && (g_str_has_prefix(name, "tmux")
+                                   || (g_str_has_prefix(name, "ssh") && !kterm_terminal_has_history()));
     g_free(name);
-    g_free(path);
     return tmux;
 }
 
@@ -1057,7 +1093,7 @@ static gboolean tmux_may_have_terminal(GtkWidget *terminal) {
  * @param dx Distance moved, pixels; negative is left
  */
 static void terminal_swipe_switch(GtkWidget *terminal, gdouble dx) {
-    if (!tmux_may_have_terminal(terminal)) {
+    if (!tmux_may_have_terminal()) {
         return;
     }
     // towards the left brings the next one in, like turning a page
@@ -1423,7 +1459,7 @@ static void paste_target_cb(VteTerminal *terminal, gpointer data) {
     const char *title = vte_terminal_get_termprop_string_by_id(terminal, VTE_PROPERTY_ID_XTERM_TITLE, NULL);
     const char *mark = title ? strstr(title, PASTE_TITLE_MARK) : NULL;
     // a title left behind by a tmux no longer there does not count
-    if (mark && tmux_may_have_terminal(GTK_WIDGET(terminal))) {
+    if (mark && tmux_may_have_terminal()) {
         wanted = mark[strlen(PASTE_TITLE_MARK)] == '1';
     }
     shortbar_paste_wanted(wanted);

@@ -23,6 +23,7 @@
 #include <gtk/gtk.h>
 #include <vte/vte.h>
 #include "keyboard.h"
+#include "kterm.h"
 #include "panel.h"
 #include "config.h"
 #ifdef KINDLE

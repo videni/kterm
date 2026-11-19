@@ -27,6 +27,7 @@
 #include <vte/vte.h>
 #include "config.h"
 #include "keyboard.h"
+#include "kterm.h"
 #include "panel.h"
 #include "shortcuts.h"
 #include "shortbar.h"

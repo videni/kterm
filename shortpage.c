@@ -24,6 +24,7 @@
 #include "panel.h"
 #include "shortpage.h"
 #include "keyboard.h"
+#include "kterm.h"
 #include "keyseq.h"
 #include "shortbar.h"
 #include "shortcuts.h"

@@ -23,7 +23,8 @@
  * So text is kept in a box above the shortcut bar, shown until it is put
  * in with one of its buttons, those of the phone page ("send": without
  * Enter; "send and Enter") or Enter on the keyboard, which leave the
- * scrolled back view first; "clear" throws it away. "Send" from the phone always goes to the box;
+ * scrolled back view first; "clear" throws it away. "Send" from the phone
+ * always goes to the box;
  * "send and Enter" goes straight in when the terminal shows its input
  * line, to the box (marked to be run) when it is scrolled back.
  *
@@ -32,7 +33,11 @@
  * runs one more command (ControlMaster, about 0.1 s on the Kindle), as
  * rootshell does. The tmux client of this terminal is the one on the
  * login the Kindle's address has there (who). If tmux cannot be asked
- * (a password login), the text waits in the box.
+ * (a password login), text from the phone waits in the box; a tap on
+ * the box puts it in all the same.
+ *
+ * Text from the phone and taps on the box are handled one after the
+ * other, in the order they came: each may have to wait for tmux.
  */
 
 #include <fcntl.h>
@@ -43,6 +48,7 @@
 #include "config.h"
 #include "icons.h"
 #include "keyboard.h"
+#include "kterm.h"
 #include "panel.h"
 #include "voicebar.h"
 
@@ -69,10 +75,13 @@ typedef enum {
 
 typedef void (*ProbeDone)(Where where, gpointer data);
 
-/** Text from the phone not handled yet */
+/** Something to do, waiting for what came before it */
 typedef struct {
+    /** Text from the phone; NULL: a tap putting the box's text in */
     gchar *text;
+    /** Enter after it */
     gboolean run;
+    /** For text from the phone: told what was done */
     VoiceReply reply;
     gpointer data;
 } Incoming;
@@ -90,12 +99,10 @@ static gchar *message = NULL;
 static GString *staged = NULL;
 /** Enter after it when it is put in */
 static gboolean staged_run = FALSE;
-/** Phone text waiting while tmux is asked about earlier text */
+/** What waits while tmux is asked about what came before (Incoming) */
 static GQueue incoming = G_QUEUE_INIT;
 /** tmux is being asked */
 static gboolean probing = FALSE;
-/** tmux could not be asked: the next tap puts the text in all the same */
-static gboolean forced = FALSE;
 
 /*
  * Run on the machine tmux is on: finds this terminal's tmux client and
@@ -115,37 +122,6 @@ static const gchar PROBE_SCRIPT[] =
     "set -- $best\n"
     "if [ \"$ACTION\" = cancel ] && [ \"$4\" = 1 ]; then tmux send-keys -t \"$3\" -X cancel && echo \"$3 0\"; exit 0; fi\n"
     "echo \"$3 $4\"\n";
-
-/**
- * @return TRUE if the terminal shows earlier lines, not its last ones
- */
-static gboolean history_scrolled(void) {
-    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal_widget));
-    return adj && gtk_adjustment_get_value(adj) + gtk_adjustment_get_page_size(adj) < gtk_adjustment_get_upper(adj) - 0.5;
-}
-
-static void history_to_end(void) {
-    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal_widget));
-    if (adj) {
-        gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
-    }
-}
-
-/**
- * @param pid Process
- * @return Its command name, newly allocated, NULL if gone
- */
-static gchar * process_name(pid_t pid) {
-    gchar *path = g_strdup_printf("/proc/%d/comm", (int) pid);
-    gchar *name = NULL;
-    if (!g_file_get_contents(path, &name, NULL, NULL)) {
-        name = NULL;
-    } else {
-        g_strstrip(name);
-    }
-    g_free(path);
-    return name;
-}
 
 /**
  * The ssh command that asks the far machine, built from the client that
@@ -248,7 +224,7 @@ static void probe_finished(GObject *source, GAsyncResult *result, gpointer data)
         D printf("voicebar: tmux says \"%s\"\n", output);
         if (!strcmp(output, "none")) {
             // no tmux there: the history is kterm's own
-            where = history_scrolled() ? SCROLLED : AT_INPUT;
+            where = kterm_terminal_scrolled() ? SCROLLED : AT_INPUT;
         } else if (g_str_has_suffix(output, " 0")) {
             where = AT_INPUT;
         } else if (g_str_has_suffix(output, " 1")) {
@@ -274,8 +250,8 @@ static void probe_where(gboolean cancel, ProbeDone done, gpointer data) {
     // what has the terminal: the shell, or what was started from it, or
     // the program kterm runs in place of a shell
     VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(terminal_widget));
-    const pid_t pid = pty ? tcgetpgrp(vte_pty_get_fd(pty)) : -1;
-    gchar *name = pid > 0 ? process_name(pid) : NULL;
+    const pid_t pid = kterm_terminal_owner();
+    gchar *name = kterm_process_name(pid);
     const gchar *action = cancel ? "cancel" : "query";
     GPtrArray *args = NULL;
     GSubprocessLauncher *launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
@@ -298,9 +274,9 @@ static void probe_where(gboolean cancel, ProbeDone done, gpointer data) {
     if (!args) {
         g_object_unref(launcher);
         if (cancel) {
-            history_to_end();
+            kterm_terminal_to_bottom();
         }
-        done(cancel || !history_scrolled() ? AT_INPUT : SCROLLED, data);
+        done(cancel || !kterm_terminal_scrolled() ? AT_INPUT : SCROLLED, data);
         return;
     }
     g_ptr_array_add(args, NULL);
@@ -373,45 +349,81 @@ static void show_bar(const gchar *note) {
 static void clear_staged(void) {
     g_string_truncate(staged, 0);
     staged_run = FALSE;
-    forced = FALSE;
     show_bar(NULL);
+}
+
+static void incoming_free(Incoming *in) {
+    g_free(in->text);
+    g_free(in);
 }
 
 static void process_incoming(void);
 
+/**
+ * tmux answered for text from the phone to be run
+ */
 static void received_where(Where where, gpointer data) {
     Incoming *in = data;
     probing = FALSE;
+    // with what already waits in the box: it came first
+    g_string_append(staged, in->text);
     if (where == AT_INPUT) {
-        // with what already waits in the box: it came first
-        g_string_append(staged, in->text);
         type_text(staged->str, TRUE);
         clear_staged();
         in->reply("ran", in->data);
     } else {
-        g_string_append(staged, in->text);
         staged_run = TRUE;
         show_bar(where == UNKNOWN ? "查不到 tmux 是不是在往上翻，先放在这里" : NULL);
         in->reply("staged-run", in->data);
     }
-    g_free(in->text);
-    g_free(in);
+    incoming_free(in);
     process_incoming();
 }
 
+/**
+ * tmux answered for a tap putting the box's text in, having been told to
+ * leave its copy mode
+ */
+static void put_in_where(Where where, gpointer data) {
+    Incoming *in = data;
+    probing = FALSE;
+    if (where == SCROLLED) {
+        // tmux did not leave copy mode: typed now, the text would be taken
+        // for copy mode commands. A tap tries again.
+        show_bar("tmux 没能退出往上翻。手动退出后，再点一次");
+    } else {
+        // not known (tmux could not be asked): put in, as tapped for
+        type_text(staged->str, in->run);
+        clear_staged();
+    }
+    incoming_free(in);
+    process_incoming();
+}
+
+/**
+ * Handle what waits, in order, until something has to wait for tmux
+ */
 static void process_incoming(void) {
     Incoming *in = NULL;
     while (!probing && (in = g_queue_pop_head(&incoming))) {
-        if (!in->run) {
+        if (!in->text) {
+            // a tap: out of the scrolled back view, then in
+            if (!staged->len) {
+                incoming_free(in);
+                continue;
+            }
+            probing = TRUE;
+            show_bar("正在放入…");
+            probe_where(TRUE, put_in_where, in);
+        } else if (!in->run) {
             g_string_append(staged, in->text);
             show_bar(NULL);
             in->reply("staged", in->data);
-            g_free(in->text);
-            g_free(in);
-            continue;
+            incoming_free(in);
+        } else {
+            probing = TRUE;
+            probe_where(FALSE, received_where, in);
         }
-        probing = TRUE;
-        probe_where(FALSE, received_where, in);
     }
 }
 
@@ -433,40 +445,19 @@ void voicebar_receive(const gchar *text, gboolean run, VoiceReply reply, gpointe
     process_incoming();
 }
 
-static void put_in_where(Where where, gpointer data) {
-    UNUSED(data);
-    probing = FALSE;
-    if (where == UNKNOWN && !forced) {
-        forced = TRUE;
-        show_bar("查不到 tmux 是否在往上翻（ssh 要用密钥登录）。确认没在翻，再点一次");
-    } else if (where == SCROLLED && !forced) {
-        // tmux did not leave copy mode
-        forced = TRUE;
-        show_bar("tmux 没能退出往上翻。手动退出后，再点一次");
-    } else {
-        type_text(staged->str, staged_run);
-        clear_staged();
-    }
-    process_incoming();
-}
-
 /**
  * Put the text in the box into the terminal: out of the scrolled back
- * view first
+ * view first. After what is under way, if anything is.
  * @param run Enter after it
  */
 static void put_in(gboolean run) {
-    if (!staged->len || probing) {
+    if (!staged->len) {
         return;
     }
-    staged_run = run;
-    if (forced) {
-        put_in_where(AT_INPUT, NULL);
-        return;
-    }
-    probing = TRUE;
-    show_bar("正在放入…");
-    probe_where(TRUE, put_in_where, NULL);
+    Incoming *in = g_new0(Incoming, 1);
+    in->run = run;
+    g_queue_push_tail(&incoming, in);
+    process_incoming();
 }
 
 /**
@@ -576,18 +567,14 @@ static void put_in_cb(GtkWidget *button, gpointer run) {
 }
 
 /**
- * @param label What it does, for the reader of the code: the button shows
- *  the sign only, as the phone page's do
- * @param icon Icon, OUTLINE_...
+ * @param icon Icon, OUTLINE_...: the sign alone, as on the phone page
  * @return A button of the box
  */
-static GtkWidget * bar_button(const gchar *label, const gchar *icon) {
-    UNUSED(label);
+static GtkWidget * bar_button(const gchar *icon) {
     GtkWidget *button = gtk_button_new();
     gtk_widget_set_name(button, VOICEBAR_BUTTON_NAME);
     gtk_widget_set_can_focus(button, FALSE);
     gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
-    // the sign alone: the room is the text's
     gtk_container_add(GTK_CONTAINER(button), icon_new_outline(icon, VOICEBAR_ICON_PX));
     return button;
 }
@@ -662,9 +649,9 @@ void voicebar_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar)
     gtk_widget_set_valign(text_area, GTK_ALIGN_CENTER);
     g_signal_connect(text_area, "draw", G_CALLBACK(text_draw_cb), NULL);
     // the buttons of the phone page, same signs
-    GtkWidget *put = bar_button("发送", OUTLINE_SEND);
-    run_button = bar_button("发送并回车", OUTLINE_PLAY);
-    GtkWidget *clear = bar_button("清空", OUTLINE_X);
+    GtkWidget *put = bar_button(OUTLINE_SEND);        // 发送
+    run_button = bar_button(OUTLINE_PLAY);            // 发送并回车
+    GtkWidget *clear = bar_button(OUTLINE_X);         // 清空
     g_signal_connect(put, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(FALSE));
     g_signal_connect(run_button, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(TRUE));
     g_signal_connect(clear, "clicked", G_CALLBACK(voicebar_clear), NULL);

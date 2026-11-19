@@ -42,6 +42,7 @@
 #include <vte/vte.h>
 #include "sshconf.h"
 #include "keyboard.h"
+#include "kterm.h"
 
 /** Connections shown at once; more are reached with the page buttons.
  *  Dragging a list with a finger needs touch events the Kindle's X server
@@ -270,11 +271,9 @@ static guint switch_source = 0;
  * @return TRUE if its leader is the ssh client
  */
 static gboolean is_ssh(pid_t pgid) {
-    gchar *path = g_strdup_printf("/proc/%d/comm", (int) pgid);
-    gchar *name = NULL;
-    const gboolean ssh = g_file_get_contents(path, &name, NULL, NULL) && !strcmp(g_strstrip(name), "ssh");
+    gchar *name = kterm_process_name(pgid);
+    const gboolean ssh = name && !strcmp(name, "ssh");
     g_free(name);
-    g_free(path);
     return ssh;
 }
 
