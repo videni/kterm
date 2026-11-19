@@ -74,26 +74,27 @@ static gdouble written = 0;
 static gint64 turning_until = 0;
 
 /**
- * Ask the window manager to show the terminal's next drawing as a full
+ * Ask the window manager to show the next drawing of a widget as a full
  * refresh
+ * @param area Terminal, or the window
  */
-static void flash_send(void) {
+static void flash_send(GtkWidget *area) {
     GdkWindow *gdk_window = window ? gtk_widget_get_window(window) : NULL;
-    if (!gdk_window || !GDK_IS_X11_WINDOW(gdk_window) || !gtk_widget_get_mapped(terminal)) {
+    if (!gdk_window || !GDK_IS_X11_WINDOW(gdk_window) || !gtk_widget_get_mapped(area)) {
         return;
     }
     gint x = 0, y = 0;
-    if (!gtk_widget_translate_coordinates(terminal, window, 0, 0, &x, &y)) {
+    if (!gtk_widget_translate_coordinates(area, window, 0, 0, &x, &y)) {
         return;
     }
-    const gint scale = gtk_widget_get_scale_factor(terminal);
+    const gint scale = gtk_widget_get_scale_factor(area);
     // type, waveform (8 bits each); wait, wait after, x, y, width, height
     // (16 bits each); flags (32 bits)
     const guint16 values[6] = {
         FLASH_WAIT_MS, FLASH_AFTER_MS,
         (guint16) (x * scale), (guint16) (y * scale),
-        (guint16) (gtk_widget_get_allocated_width(terminal) * scale),
-        (guint16) (gtk_widget_get_allocated_height(terminal) * scale)
+        (guint16) (gtk_widget_get_allocated_width(area) * scale),
+        (guint16) (gtk_widget_get_allocated_height(area) * scale)
     };
     const guint32 flags = FLASH_NON_BLOCKING;
     Display *display = GDK_DISPLAY_XDISPLAY(gdk_window_get_display(gdk_window));
@@ -126,8 +127,19 @@ void flash_next_draw(void) {
         || (conf->full_refresh != FLASH_ALWAYS && written < 1)) {
         return;
     }
-    flash_send();
+    flash_send(terminal);
     written = 0;
+}
+
+/**
+ * The whole window is about to be drawn anew (an image shown over it, or
+ * taken away): shown as a full refresh unless full refreshes are off
+ */
+void flash_window_next_draw(void) {
+    if (conf->full_refresh != FLASH_NEVER) {
+        flash_send(window);
+        written = 0;
+    }
 }
 
 /**

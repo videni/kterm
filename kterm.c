@@ -44,6 +44,7 @@
 #include "kindle.h"
 #include "ime.h"
 #include "voice.h"
+#include "imageview.h"
 #include "tmux.h"
 #include "tmuxpick.h"
 #include "touch.h"
@@ -200,7 +201,8 @@ static gboolean exit_on_signal(gpointer data) {
  * Install signal handlers
  */
 static void install_signal_handlers(void) {
-    signal(SIGCHLD, SIG_IGN); // kernel should handle zombies
+    // SIGCHLD left as it is: GLib and VTE reap the children they start,
+    // and image loaders (glycin) wait for theirs
     g_unix_signal_add(SIGINT, exit_on_signal, NULL);
     g_unix_signal_add(SIGTERM, exit_on_signal, NULL);
 }
@@ -1112,6 +1114,7 @@ gint main(gint argc, gchar **argv) {
     //      |   \- shortcut bar, keyboard_box (or, while the system keyboard
     //      |      is up, the bar above it)
     //      \- panel, drawn over the bottom of the window
+    //      \- image shown over the whole window (imageview.c)
     //
     // main window
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -1267,6 +1270,8 @@ gint main(gint argc, gchar **argv) {
     flash_init(window, terminal);
     voice_init(overlay, terminal, shortbar);
     tmuxpick_init(terminal);
+    // over everything, the voice box too
+    imageview_init(overlay, terminal);
 #endif
     gtk_main();
     

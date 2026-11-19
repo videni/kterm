@@ -351,6 +351,9 @@ void inject_styles(void) {
                                     "#ktermVoiceButton label { color: #000000; }"
                                     "#ktermVoiceButton.primary { background: #000000; color: #ffffff; }"
                                     "#ktermVoiceButton.primary label { color: #ffffff; }"
+                                    // an image over the whole window (imageview.c)
+                                    "#ktermImageView { background-color: #ffffff; color: #000000;"
+                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 10pt; }"
                                     // the panel over the terminal: black on
                                     // white, large enough for fingers
                                     "#ktermPanel { background-color: #ffffff; border-bottom: 4px solid #000000;"

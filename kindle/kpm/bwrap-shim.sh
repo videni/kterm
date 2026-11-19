@@ -4,8 +4,9 @@
 # gdk-pixbuf loads images through glycin, which runs every loader inside a
 # bubblewrap sandbox. The Kindle kernel (4.1, no seccomp) cannot create that
 # sandbox, so every image load fails and GTK aborts. This drops the sandbox
-# options and runs the loader directly. Only our own key images and GTK's
-# built-in icons are ever loaded.
+# options and runs the loader directly. Besides our own key images and
+# GTK's icons, kterm shows images a tap asks for (imageview.c); their
+# loaders (glycin-image-rs) are written in Rust.
 while [ $# -gt 0 ]; do
     case "$1" in
         --setenv)

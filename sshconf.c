@@ -714,8 +714,7 @@ gchar * sshconf_new_key(GError **error) {
     }
     gchar *argv[] = { "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "kindle", "-f", path, NULL };
     gchar *errors = NULL;
-    // only whether the key is there tells: kterm's children are left to
-    // the kernel (SIGCHLD ignored), their exit status is never known
+    // whether the key is there tells, whatever ssh-keygen said
     g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, &errors,
                  NULL, NULL);
     gchar *pub = g_strconcat(path, ".pub", NULL);

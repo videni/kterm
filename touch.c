@@ -26,6 +26,7 @@
 #include "kindle.h"
 #include "kterm.h"
 #include "shortbar.h"
+#include "imageview.h"
 #include "tmux.h"
 #include "touch.h"
 
@@ -469,11 +470,12 @@ gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
     }
     // a tap puts away the selection drawn
     vte_terminal_unselect_all(VTE_TERMINAL(terminal));
-    if (ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX
-        && terminal_tap_page(terminal, event, touch.x, touch.y)) {
-        return TRUE;
-    }
     if (ABS(dx) < TAP_SLOP_PX && ABS(dy) < TAP_SLOP_PX) {
+        // the path of an image first: it may be anywhere, page turning
+        // thirds too
+        if (imageview_tap(terminal, any) || terminal_tap_page(terminal, event, touch.x, touch.y)) {
+            return TRUE;
+        }
         kterm_keyboard_back_on_tap();
     }
     // the press kept back, then this release
