@@ -297,35 +297,43 @@ void inject_styles(void) {
                                     // borders; lighter values come out white.
                                     "@define-color gray #d8d8d8;"
                                     "@define-color line #b0b0b0;"
+                                    // Every button white in a black frame, black
+                                    // while pressed or chosen.
+                                    // Rounded corners, clearly: about 30-40 % of
+                                    // the height of each kind of button (keys
+                                    // 60-90 px, shortcuts 60, panel buttons 75-85,
+                                    // fields 65, the phone text's box 64 and its
+                                    // buttons 48). Touches still count anywhere in
+                                    // the rectangle.
                                     // Theme padding and minimum width would make
                                     // multi-letter keys (Ctrl, Shift) wider than
                                     // their slot and push the row off screen.
                                     // Letters as large as on the Kindle's own keyboard, words
                                     // (Ctrl, Enter) smaller to fit; a gap between keys, so a
                                     // finger between two can tell which one it is on.
-                                    "#ktermKbButton { background: @gray; padding: 0; min-width: 0; min-height: 0; border-color: @line;"
+                                    "#ktermKbButton { background: #ffffff; padding: 0; min-width: 0; min-height: 0; border: 2px solid #000000; border-radius: 18px;"
                                     " margin: 3px 2px; font-family: \"Amazon Ember\", sans-serif; font-size: 11pt; }"
                                     "#ktermKbButton.word { font-size: 9pt; }"
                                     "#ktermKbButton.long { font-size: 8pt; }"
-                                    "#ktermKbButton:hover { background: @gray; }"
-                                    "#ktermKbButton:selected { background: @gray; }"
-                                    "#ktermKbButton:disabled { background: @gray; }"
-                                    "#ktermKbButton:active { background: @gray; }"
+                                    "#ktermKbButton:hover { background: #ffffff; }"
+                                    "#ktermKbButton:selected { background: #ffffff; }"
+                                    "#ktermKbButton:disabled { background: #ffffff; }"
+                                    "#ktermKbButton:active { background: #ffffff; }"
                                     // Shift, Ctrl, Alt, the symbol key: black while
                                     // on, until the next key uses them
                                     // a key held down, or a modifier latched: black, as the
                                     // Kindle's own keyboard draws a key pressed
                                     "#ktermKbButton:checked { background: #000000; color: #ffffff; }"
                                     "#ktermKbButton:checked label { color: #ffffff; }"
-                                    // shortcut bar: keys like the keyboard's,
+                                    // shortcut bar: white keys in a black frame,
                                     // set apart from it by a line
                                     "#ktermShortBar { background: #ffffff; }"
                                     "#ktermShortSlots { border-bottom: 2px solid #000000; }"
-                                    "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
-                                    " border: 1px solid @line; border-radius: 4px; color: #2e3436;"
+                                    "#ktermShortButton { background: #ffffff; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
+                                    " border: 2px solid #000000; border-radius: 24px; color: #000000;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     // the two tools at the ends: a sign in a black frame, on white
-                                    "#ktermShortTool { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 4px; }"
+                                    "#ktermShortTool { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 24px; }"
                                     "#ktermShortTool.pressed { background: #000000; color: #ffffff; }"
                                     // the paste tool: black, as the text it pastes is there for a while
                                     "#ktermShortTool.paste { background: #000000; color: #ffffff; }"
@@ -347,8 +355,8 @@ void inject_styles(void) {
                                     // white, large enough for fingers
                                     "#ktermPanel { background-color: #ffffff; border-bottom: 4px solid #000000;"
                                     " color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
-                                    "#ktermPanelButton { background: @gray; color: #000000; border: 2px solid #000000;"
-                                    " border-radius: 8px; padding: 16px 20px; min-width: 0; min-height: 0;"
+                                    "#ktermPanelButton { background: #ffffff; color: #000000; border: 2px solid #000000;"
+                                    " border-radius: 28px; padding: 16px 20px; min-width: 0; min-height: 0;"
                                     " box-shadow: none; text-shadow: none; }"
                                     "#ktermPanelButton:disabled { color: #a0a0a0; border-color: #a0a0a0; }"
                                     // the choice in effect, as a pressed modifier key
@@ -360,7 +368,7 @@ void inject_styles(void) {
                                     " min-width: 0; min-height: 0; font-size: 16pt; }"
                                     "#ktermPanelActions #ktermPanelButton { padding: 16px 2px; }"
                                     "#ktermPanel entry { background: #ffffff; color: #000000; border: 2px solid #000000;"
-                                    " border-radius: 8px; padding: 12px 16px; min-height: 0; box-shadow: none; }"
+                                    " border-radius: 20px; padding: 12px 16px; min-height: 0; box-shadow: none; }"
                                     "#ktermPanel separator { background: #000000; min-height: 2px; }"
                                     // settings: thin gray lines between the rows, buttons of one width
                                     "#ktermPanel #ktermSettingLine { background: @line; min-height: 1px; }"

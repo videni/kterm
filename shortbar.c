@@ -193,7 +193,7 @@ static gboolean draw_prefix_mark_cb(GtkWidget *button, cairo_t *cr, gpointer dat
     const gdouble h = gtk_widget_get_allocated_height(button) - margin.bottom;
     const gdouble side = SHORTBAR_PREFIX_MARK_PX;
     // the corner rounded as the button's is
-    const gdouble round = 4;
+    const gdouble round = SHORTBAR_RADIUS;
     cairo_move_to(cr, w, h - side);
     cairo_line_to(cr, w, h - round);
     cairo_curve_to(cr, w, h, w, h, w - round, h);
