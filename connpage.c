@@ -58,6 +58,10 @@ static GtkWidget *entry_user = NULL;
 static GtkWidget *entry_port = NULL;
 static GtkWidget *form_message = NULL;
 static GtkWidget *delete_button = NULL;
+/** The form's key choices: one button for each key, 不用, 生成密钥 */
+static GtkWidget *key_box = NULL;
+/** Key chosen in the form ("~/.ssh/NAME"), "" for none */
+static gchar *chosen_key = NULL;
 /** Connections as last read from the configuration */
 static GPtrArray *hosts = NULL;
 /** First connection of the page shown */
@@ -217,6 +221,8 @@ static void connect_cb(GtkWidget *button, gpointer data) {
     panel_close();
 }
 
+static void show_keys(void);
+
 /**
  * Show the form
  * @param host Connection to edit, NULL for a new one
@@ -232,6 +238,16 @@ static void show_form(const SshHost *host) {
     gtk_entry_set_text(GTK_ENTRY(entry_host), host ? host->host : "");
     gtk_entry_set_text(GTK_ENTRY(entry_user), host ? host->user : "");
     gtk_entry_set_text(GTK_ENTRY(entry_port), host ? host->port : "");
+    g_free(chosen_key);
+    if (host) {
+        chosen_key = g_strdup(host->key);
+    } else {
+        // a new one: the key there is, if there is just one
+        GPtrArray *keys = sshconf_keys();
+        chosen_key = g_strdup(keys->len == 1 ? (const gchar *) g_ptr_array_index(keys, 0) : "");
+        g_ptr_array_unref(keys);
+    }
+    show_keys();
     gtk_label_set_text(GTK_LABEL(form_message), "");
     gtk_button_set_label(GTK_BUTTON(delete_button), "删除");
     gtk_widget_set_visible(delete_button, host != NULL);
@@ -483,29 +499,158 @@ static gchar * entry_value(GtkWidget *entry) {
 }
 
 /**
- * Save button callback: write the form to the ssh configuration
+ * Write the form to the ssh configuration; a problem is shown in the form
+ * @return The connection saved, NULL if it was not
  */
-static void save_cb(void) {
+static SshHost * save_form(void) {
     gchar *name = entry_value(entry_name);
     gchar *address = entry_value(entry_host);
     gchar *user = entry_value(entry_user);
     gchar *port = entry_value(entry_port);
-    SshHost *host = ssh_host_new(name, address, user, port);
+    SshHost *host = ssh_host_new(name, address, user, port, chosen_key);
     gchar *path = sshconf_default_path();
     GError *error = NULL;
     if (sshconf_save(path, editing_name, host, &error)) {
         D printf("panel: saved %s\n", host->name);
-        show_list();
+        // saved under this name now, should more be done in the form
+        g_free(editing_name);
+        editing_name = g_strdup(host->name);
     } else {
         gtk_label_set_text(GTK_LABEL(form_message), error->message);
         g_error_free(error);
+        ssh_host_free(host);
+        host = NULL;
     }
     g_free(path);
-    ssh_host_free(host);
     g_free(name);
     g_free(address);
     g_free(user);
     g_free(port);
+    return host;
+}
+
+/**
+ * Save button callback: write the form to the ssh configuration
+ */
+static void save_cb(void) {
+    SshHost *host = save_form();
+    if (host) {
+        ssh_host_free(host);
+        show_list();
+    }
+}
+
+/**
+ * A key button: log in with it ("" for none, a password)
+ * @param button Calling widget, holding "key"
+ */
+static void key_cb(GtkWidget *button) {
+    g_free(chosen_key);
+    chosen_key = g_strdup(g_object_get_data(G_OBJECT(button), "key"));
+    show_keys();
+}
+
+/**
+ * 生成密钥: a key for this Kindle, chosen at once
+ */
+static void new_key_cb(void) {
+    GError *error = NULL;
+    gchar *key = sshconf_new_key(&error);
+    if (!key) {
+        gtk_label_set_text(GTK_LABEL(form_message), error->message);
+        g_error_free(error);
+        return;
+    }
+    g_free(chosen_key);
+    chosen_key = key;
+    show_keys();
+    gtk_label_set_text(GTK_LABEL(form_message), "密钥生成好了。点“装到电脑”，输一次那台电脑的密码，以后就不用了。");
+}
+
+/**
+ * 装到电脑: save, then put the key's public half into authorized_keys on
+ * that machine, typed into the terminal: its password is asked there once,
+ * the key logs in after that. Its RemoteCommand (tmux, say) is left out.
+ */
+static void install_cb(void) {
+    gchar *public_key = *chosen_key ? sshconf_public_key(chosen_key) : NULL;
+    if (!public_key) {
+        gtk_label_set_text(GTK_LABEL(form_message), "这个密钥旁边没有 .pub 公钥文件，装不了。");
+        return;
+    }
+    if (ssh_session() || kterm_terminal_foreground()) {
+        gtk_label_set_text(GTK_LABEL(form_message), "终端里有程序在运行（或连着 SSH），先退出它再装。");
+        g_free(public_key);
+        return;
+    }
+    SshHost *host = save_form();
+    if (!host) {
+        g_free(public_key);
+        return;
+    }
+    gchar *remote = g_strdup_printf("umask 077; mkdir -p ~/.ssh; k='%s'; "
+                                    "grep -qxF \"$k\" ~/.ssh/authorized_keys 2>/dev/null"
+                                    " || echo \"$k\" >> ~/.ssh/authorized_keys", public_key);
+    gchar *quoted = g_shell_quote(remote);
+    gchar *command = g_strdup_printf("ssh -o RemoteCommand=none -o RequestTTY=no %s %s"
+                                     " && echo '公钥装好了：以后连 %s 不用密码'", host->name, quoted, host->name);
+    kterm_type_command(command);
+    g_free(command);
+    g_free(quoted);
+    g_free(remote);
+    g_free(public_key);
+    ssh_host_free(host);
+    panel_close();
+}
+
+/**
+ * @param label Text
+ * @param key Key it chooses, NULL for another kind of button
+ * @return A button of the key row, drawn black when its key is chosen
+ */
+static GtkWidget * key_button(const gchar *label, const gchar *key) {
+    GtkWidget *button = panel_button_new(label);
+    if (key) {
+        g_object_set_data_full(G_OBJECT(button), "key", g_strdup(key), g_free);
+        g_signal_connect(button, "clicked", G_CALLBACK(key_cb), NULL);
+        if (!strcmp(key, chosen_key)) {
+            gtk_style_context_add_class(gtk_widget_get_style_context(button), "selected");
+        }
+    }
+    gtk_box_pack_start(GTK_BOX(key_box), button, FALSE, FALSE, 0);
+    return button;
+}
+
+/**
+ * Fill the key row: the keys there are (and the one in the configuration,
+ * should it be elsewhere), 不用; 生成密钥 without a key; 装到电脑 with one
+ * chosen
+ */
+static void show_keys(void) {
+    panel_clear_box(key_box);
+    GPtrArray *keys = sshconf_keys();
+    gboolean listed = !*chosen_key;
+    for (guint i = 0; i < keys->len; i++) {
+        listed = listed || !strcmp(chosen_key, g_ptr_array_index(keys, i));
+    }
+    if (!listed) {
+        g_ptr_array_add(keys, g_strdup(chosen_key));
+    }
+    for (guint i = 0; i < keys->len; i++) {
+        const gchar *key = g_ptr_array_index(keys, i);
+        gchar *name = g_path_get_basename(key);
+        key_button(name, key);
+        g_free(name);
+    }
+    key_button("不用", "");
+    if (!keys->len) {
+        g_signal_connect(key_button("生成密钥", NULL), "clicked", G_CALLBACK(new_key_cb), NULL);
+    }
+    if (*chosen_key) {
+        g_signal_connect(key_button("装到电脑", NULL), "clicked", G_CALLBACK(install_cb), NULL);
+    }
+    g_ptr_array_unref(keys);
+    gtk_widget_show_all(key_box);
 }
 
 /**
@@ -638,6 +783,13 @@ static GtkWidget * build_form_page(void) {
     entry_host = add_field(grid, 1, "地址", "主机名或 IP");
     entry_user = add_field(grid, 2, "用户", "可不填");
     entry_port = add_field(grid, 3, "端口", "22");
+    // the key to log in with, not a field typed into
+    GtkWidget *key_label = gtk_label_new("密钥");
+    gtk_label_set_xalign(GTK_LABEL(key_label), 0);
+    key_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_grid_attach(GTK_GRID(grid), key_label, 0, 4, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), key_box, 1, 4, 1, 1);
+    chosen_key = g_strdup("");
     g_signal_connect(entry_name, "activate", G_CALLBACK(entry_activate_cb), entry_host);
     g_signal_connect(entry_host, "activate", G_CALLBACK(entry_activate_cb), entry_user);
     g_signal_connect(entry_user, "activate", G_CALLBACK(entry_activate_cb), entry_port);

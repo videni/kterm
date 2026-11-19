@@ -42,14 +42,17 @@
  * @param host Address
  * @param user User name
  * @param port Port
+ * @param key Key file (IdentityFile), NULL or empty for none
  * @return Newly allocated structure, free with ssh_host_free()
  */
-SshHost * ssh_host_new(const gchar *name, const gchar *host, const gchar *user, const gchar *port) {
+SshHost * ssh_host_new(const gchar *name, const gchar *host, const gchar *user, const gchar *port,
+                       const gchar *key) {
     SshHost *item = g_new0(SshHost, 1);
     item->name = g_strdup(name ? name : "");
     item->host = g_strdup(host ? host : "");
     item->user = g_strdup(user ? user : "");
     item->port = g_strdup(port ? port : "");
+    item->key = g_strdup(key ? key : "");
     return item;
 }
 
@@ -65,6 +68,7 @@ void ssh_host_free(SshHost *host) {
     g_free(host->host);
     g_free(host->user);
     g_free(host->port);
+    g_free(host->key);
     g_free(host);
 }
 
@@ -408,14 +412,16 @@ GPtrArray * sshconf_list(const gchar *path, GError **error) {
             continue;
         }
         // ssh takes the first value it meets for each option
-        gchar *host = NULL, *user = NULL, *port = NULL;
+        gchar *host = NULL, *user = NULL, *port = NULL, *key = NULL;
         for (guint j = i + 1; j < lines->len && !starts_section(g_ptr_array_index(lines, j)); j++) {
             const gchar *line = g_ptr_array_index(lines, j);
             if (!host) { host = line_value(line, "hostname"); }
             if (!user) { user = line_value(line, "user"); }
             if (!port) { port = line_value(line, "port"); }
+            if (!key) { key = line_value(line, "identityfile"); }
         }
-        g_ptr_array_add(hosts, ssh_host_new(name, (host && *host) ? host : name, user, port));
+        g_ptr_array_add(hosts, ssh_host_new(name, (host && *host) ? host : name, user, port, key));
+        g_free(key);
         g_free(name);
         g_free(host);
         g_free(user);
@@ -594,6 +600,10 @@ gboolean sshconf_save(const gchar *path, const gchar *old_name, const SshHost *h
     g_free(proxy);
     set_option(lines, first, &end, "User", host->user, indent, &insert_at);
     set_option(lines, first, &end, "Port", host->port, indent, &insert_at);
+    // the key chosen, and only it: ssh would otherwise try every key it
+    // holds first, and some servers count each as a failed login
+    set_option(lines, first, &end, "IdentityFile", host->key, indent, &insert_at);
+    set_option(lines, first, &end, "IdentitiesOnly", *host->key ? "yes" : "", indent, &insert_at);
     g_free(indent);
     const gboolean saved = write_lines(path, lines, error);
     g_ptr_array_unref(lines);
@@ -630,4 +640,117 @@ gboolean sshconf_delete(const gchar *path, const gchar *name, GError **error) {
     const gboolean saved = write_lines(path, lines, error);
     g_ptr_array_unref(lines);
     return saved;
+}
+
+/** The key kterm makes when there is none, in ~/.ssh */
+#define NEW_KEY_NAME "id_ed25519_kindle"
+
+/**
+ * @param key Key file as written in the configuration ("~/.ssh/name")
+ * @return Its path, newly allocated
+ */
+static gchar * key_path(const gchar *key) {
+    if (g_str_has_prefix(key, "~/")) {
+        return g_build_filename(g_get_home_dir(), key + 2, NULL);
+    }
+    return g_strdup(key);
+}
+
+static gint compare_strings(gconstpointer a, gconstpointer b) {
+    return strcmp(*(const gchar * const *) a, *(const gchar * const *) b);
+}
+
+/**
+ * The keys there are to log in with: files of ~/.ssh with a public key
+ * (NAME.pub) next to them
+ * @return Array of "~/.ssh/NAME", sorted, to be unreferenced
+ */
+GPtrArray * sshconf_keys(void) {
+    GPtrArray *keys = g_ptr_array_new_with_free_func(g_free);
+    gchar *dir_path = g_build_filename(g_get_home_dir(), ".ssh", NULL);
+    GDir *dir = g_dir_open(dir_path, 0, NULL);
+    const gchar *entry = NULL;
+    while (dir && (entry = g_dir_read_name(dir))) {
+        if (!g_str_has_suffix(entry, ".pub")) {
+            continue;
+        }
+        gchar *name = g_strndup(entry, strlen(entry) - 4);
+        gchar *private_path = g_build_filename(dir_path, name, NULL);
+        if (g_file_test(private_path, G_FILE_TEST_IS_REGULAR)) {
+            g_ptr_array_add(keys, g_strconcat("~/.ssh/", name, NULL));
+        }
+        g_free(private_path);
+        g_free(name);
+    }
+    if (dir) {
+        g_dir_close(dir);
+    }
+    g_free(dir_path);
+    g_ptr_array_sort(keys, compare_strings);
+    return keys;
+}
+
+/**
+ * Make a key to log in with, without a passphrase: ~/.ssh/id_ed25519_kindle,
+ * or with a number after it if that is taken
+ * @param error Location for an error
+ * @return The key as written in the configuration ("~/.ssh/NAME"), newly
+ *         allocated; NULL on error
+ */
+gchar * sshconf_new_key(GError **error) {
+    gchar *dir_path = g_build_filename(g_get_home_dir(), ".ssh", NULL);
+    if (g_mkdir_with_parents(dir_path, 0700)) {
+        g_set_error(error, SSHCONF_ERROR, 2, "无法创建 %s", dir_path);
+        g_free(dir_path);
+        return NULL;
+    }
+    gchar *name = g_strdup(NEW_KEY_NAME);
+    gchar *path = g_build_filename(dir_path, name, NULL);
+    for (guint n = 2; g_file_test(path, G_FILE_TEST_EXISTS); n++) {
+        g_free(name);
+        g_free(path);
+        name = g_strdup_printf("%s_%u", NEW_KEY_NAME, n);
+        path = g_build_filename(dir_path, name, NULL);
+    }
+    gchar *argv[] = { "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "kindle", "-f", path, NULL };
+    gchar *errors = NULL;
+    // only whether the key is there tells: kterm's children are left to
+    // the kernel (SIGCHLD ignored), their exit status is never known
+    g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, &errors,
+                 NULL, NULL);
+    gchar *pub = g_strconcat(path, ".pub", NULL);
+    gchar *key = NULL;
+    if (g_file_test(path, G_FILE_TEST_EXISTS) && g_file_test(pub, G_FILE_TEST_EXISTS)) {
+        key = g_strconcat("~/.ssh/", name, NULL);
+    } else {
+        g_set_error(error, SSHCONF_ERROR, 5, "没能生成密钥：%s", errors && *errors ? g_strstrip(errors) : "ssh-keygen 没有运行");
+    }
+    g_free(errors);
+    g_free(pub);
+    g_free(path);
+    g_free(name);
+    g_free(dir_path);
+    return key;
+}
+
+/**
+ * @param key Key as written in the configuration ("~/.ssh/NAME")
+ * @return Its public key, the line to put in authorized_keys, newly
+ *         allocated; NULL if there is none
+ */
+gchar * sshconf_public_key(const gchar *key) {
+    gchar *path = key_path(key);
+    gchar *pub_path = g_strconcat(path, ".pub", NULL);
+    gchar *text = NULL;
+    if (g_file_get_contents(pub_path, &text, NULL, NULL)) {
+        g_strstrip(text);
+        // one line, and nothing a shell would take apart inside quotes
+        if (!*text || strchr(text, '\n') || strchr(text, '\'')) {
+            g_free(text);
+            text = NULL;
+        }
+    }
+    g_free(pub_path);
+    g_free(path);
+    return text;
 }

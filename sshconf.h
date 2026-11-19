@@ -26,6 +26,7 @@ typedef struct {
     gchar *host; /** HostName; the name itself when the block has none */
     gchar *user; /** User, may be empty */
     gchar *port; /** Port, may be empty */
+    gchar *key;  /** IdentityFile ("~/.ssh/id_ed25519_kindle"), empty for none */
 } SshHost;
 
 /** How ssh reaches a machine named in the local network ("name.local"):
@@ -33,12 +34,16 @@ typedef struct {
 #define SSHCONF_MDNS_PROXY "/usr/local/bin/kterm-mdns connect %h %p"
 
 gboolean sshconf_is_local(const gchar *host);
-SshHost * ssh_host_new(const gchar *name, const gchar *host, const gchar *user, const gchar *port);
+SshHost * ssh_host_new(const gchar *name, const gchar *host, const gchar *user, const gchar *port,
+                       const gchar *key);
 void ssh_host_free(SshHost *host);
 gchar * sshconf_default_path(void);
 GPtrArray * sshconf_list(const gchar *path, GError **error);
 gboolean sshconf_validate(const SshHost *host, GError **error);
 gboolean sshconf_save(const gchar *path, const gchar *old_name, const SshHost *host, GError **error);
 gboolean sshconf_delete(const gchar *path, const gchar *name, GError **error);
+GPtrArray * sshconf_keys(void);
+gchar * sshconf_new_key(GError **error);
+gchar * sshconf_public_key(const gchar *key);
 
 #endif /* sshconf_h */
