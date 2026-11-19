@@ -49,15 +49,19 @@ extern KTconf *conf;
  *     (copy mode: scrolled back), "none" without tmux clients, "unknown"
  *     if there are clients but none is this terminal's. With "cancel", a
  *     pane in a mode leaves it.
- *   bell: a line for each window of its session: bell flag, active, last
- *     output (seconds since 1970), index, host, name, the title of its
- *     pane, between colons (a title may have more of them, so last);
- *     "unknown" as above.
+ *   bell: "rang:" and the id of the window that rang last, as tmux's
+ *     alert-bell hook noted it (none if it did not), then a line for each
+ *     window of its session: bell flag, active, last output (seconds since
+ *     1970), index, id, host, name, the title of its pane, between colons
+ *     (a title may have more of them, so last); "unknown" as above.
  *   select:N: shows window N in this terminal's client.
  *   sessions: "inside" if the terminal is in tmux already; else
  *     "sessions NOW" and a line for each session: name, windows, clients
  *     attached, last used (seconds since 1970), between colons (which
  *     tmux does not allow in names; a tab it would print as "_").
+ * Once it has found the client, it has tmux note the window of every bell
+ * in the option @kterm-bell, with a hook added to those there may be, if
+ * it is not there yet: in tmux's memory only, gone when the server stops.
  */
 static const gchar PROBE_SCRIPT[] =
     "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin\"\n"
@@ -72,12 +76,16 @@ static const gchar PROBE_SCRIPT[] =
     "[ -n \"$clients\" ] || { echo none; exit 0; }\n"
     "[ -n \"$best\" ] || { echo unknown; exit 0; }\n"
     "set -- $best\n"
+    "tmux show-hooks -g 2>/dev/null | grep -q kterm-bell"
+    " || tmux set-hook -ga alert-bell \"set -gF @kterm-bell '#{window_id}'\"\n"
     "case $ACTION in select:*)\n"
     "  s=$(tmux display-message -p -t \"$3\" '#{session_id}')\n"
     "  tmux select-window -t \"$s:${ACTION#select:}\" && echo selected; exit 0 ;;\n"
     "esac\n"
     "if [ \"$ACTION\" = bell ]; then\n"
-    "  tmux list-windows -t \"$3\" -F '#{window_bell_flag}:#{window_active}:#{window_activity}:#{window_index}:#{host}:#{window_name}:#{pane_title}'\n"
+    "  echo \"rang:$(tmux show -gv @kterm-bell 2>/dev/null)\"\n"
+    "  tmux set -gu @kterm-bell 2>/dev/null\n"
+    "  tmux list-windows -t \"$3\" -F '#{window_bell_flag}:#{window_active}:#{window_activity}:#{window_index}:#{window_id}:#{host}:#{window_name}:#{pane_title}'\n"
     "  exit 0\n"
     "fi\n"
     "if [ \"$ACTION\" = cancel ] && [ \"$4\" = 1 ]; then tmux send-keys -t \"$3\" -X cancel && echo \"$3 0\"; exit 0; fi\n"
@@ -249,17 +257,19 @@ static gchar *flagged_before = NULL;
 
 static void bell_done(gchar *output, GCallback done, gpointer data) {
     gchar **lines = output ? g_strsplit(output, "\n", -1) : NULL;
-    // A window that rang is flagged until it is shown; one shown is not
-    // flagged. The window flagged since the last bell rang (of several,
+    // The window tmux's hook noted rang. Without (the hook just added):
+    // a window that rang is flagged until it is shown, one shown is not
+    // flagged; the window flagged since the last bell rang (of several,
     // the one written to last); with none, the one shown did.
+    const gchar *noted = lines && lines[0] && g_str_has_prefix(lines[0], "rang:") ? lines[0] + 5 : "";
     gchar **rang = NULL;
     gchar **shown = NULL;
     gint64 latest = -1;
     GString *flagged = g_string_new(NULL);
     for (guint i = 0; lines && lines[i]; i++) {
-        gchar **fields = g_strsplit(lines[i], ":", 7);
-        // not every line is a window's: the empty one after the last
-        if (g_strv_length(fields) != 7) {
+        gchar **fields = g_strsplit(lines[i], ":", 8);
+        // not every line is a window's: "rang:", the empty one at the end
+        if (g_strv_length(fields) != 8) {
             g_strfreev(fields);
             continue;
         }
@@ -271,7 +281,11 @@ static void bell_done(gchar *output, GCallback done, gpointer data) {
             g_string_append(flagged, key);
         }
         g_free(key);
-        if (is_new && written > latest) {
+        if (*noted && !strcmp(fields[4], noted)) {
+            g_strfreev(rang);
+            rang = fields;
+            latest = G_MAXINT64;
+        } else if (is_new && written > latest) {
             g_strfreev(rang);
             rang = fields;
             latest = written;
@@ -292,12 +306,12 @@ static void bell_done(gchar *output, GCallback done, gpointer data) {
     if (rang) {
         index = (gint) g_ascii_strtoll(rang[3], NULL, 10);
         // a pane without a title of its own has the host's name
-        const gchar *host = rang[4];
-        const gchar *title = rang[6];
+        const gchar *host = rang[5];
+        const gchar *title = rang[7];
         const gsize short_host = strcspn(host, ".");
         const gboolean own = *title && strcmp(title, host)
                              && !(strlen(title) == short_host && !strncmp(title, host, short_host));
-        label = own ? title : rang[5];
+        label = own ? title : rang[6];
     }
     ((TmuxBellDone) done)(index, label, data);
     g_strfreev(rang);
