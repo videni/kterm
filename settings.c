@@ -29,6 +29,7 @@
 #ifdef KINDLE
 #include "flash.h"
 #include "kindle.h"
+#include "tmux.h"
 #include "voice.h"
 #endif
 
@@ -138,6 +139,13 @@ static ChoiceRow full_refresh_row_data = { full_refresh_choices, G_N_ELEMENTS(fu
 
 /** Typing from a phone, see voice.c: off unless asked for, as it opens a
  *  port to the local network */
+/** "tmux 集成": kterm asks tmux over the ssh connection (scrolled back?
+ *  which sessions?), switches its windows by swipes; see tmux.c */
+static const Choice tmux_choices[] = {
+    { "关", 0 }, { "开", 1 },
+};
+static ChoiceRow tmux_row_data = { tmux_choices, G_N_ELEMENTS(tmux_choices), NULL, "tmux", tmux_set_enabled, { NULL } };
+
 static const Choice voice_choices[] = {
     { "关", 0 }, { "开", 1 },
 };
@@ -264,6 +272,7 @@ void settings_init(void) {
     // while typing: then always at once)
     panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));
     panel_add_setting("全刷", choice_row(&full_refresh_row_data, &conf->full_refresh));
+    panel_add_setting("tmux 集成", choice_row(&tmux_row_data, &conf->tmux_on));
     panel_add_setting("手机输入", choice_row(&voice_row_data, &conf->voice_on));
 #endif
 }

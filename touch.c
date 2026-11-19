@@ -142,7 +142,7 @@ static void terminal_swipe_scroll(GtkWidget *terminal, const GdkEventButton *sou
  * @param dx Distance moved, pixels; negative is left
  */
 static void terminal_swipe_switch(gdouble dx) {
-    if (!tmux_may_have_terminal()) {
+    if (!tmux_enabled() || !tmux_may_have_terminal()) {
         return;
     }
     // towards the left brings the next one in, like turning a page

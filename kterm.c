@@ -45,6 +45,7 @@
 #include "ime.h"
 #include "voice.h"
 #include "tmux.h"
+#include "tmuxpick.h"
 #include "touch.h"
 #endif
 #include "config.h"
@@ -1223,6 +1224,7 @@ gint main(gint argc, gchar **argv) {
     refresh_init(window, terminal);
     flash_init(window, terminal);
     voice_init(overlay, terminal, shortbar);
+    tmuxpick_init(terminal);
 #endif
     gtk_main();
     

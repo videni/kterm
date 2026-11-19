@@ -372,7 +372,7 @@ void inject_styles(void) {
                                     "#ktermPanel separator { background: #000000; min-height: 2px; }"
                                     // settings: thin gray lines between the rows, buttons of one width
                                     "#ktermPanel #ktermSettingLine { background: @line; min-height: 1px; }"
-                                    "#ktermSettings #ktermPanelButton { min-width: 80px; }"
+                                    "#ktermSettings #ktermPanelButton { min-width: 80px; padding-top: 10px; padding-bottom: 10px; }"
                                     , -1, &error);
     if G_UNLIKELY(error) {
         D printf("Style injection failed: %s\n", error->message);

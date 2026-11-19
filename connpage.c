@@ -31,6 +31,9 @@
 #include "kterm.h"
 #include "panel.h"
 #include "sshconf.h"
+#ifdef KINDLE
+#include "tmux.h"
+#endif
 
 #if GTK_CHECK_VERSION(3,2,0)
 
@@ -102,10 +105,23 @@ static gchar * describe(const SshHost *host) {
 static gchar *switch_command = NULL;
 static guint switch_tries = 0;
 static guint switch_source = 0;
-/** What is typed to start a connection. ^E ^U first: anything half typed
- *  on the command line would otherwise run together with the command.
- *  Names are validated to be plain words. */
-#define SSH_COMMAND "\x05\x15ssh %s\r"
+/**
+ * @param name Saved connection, a plain word (validated)
+ * @return What is typed to start it, newly allocated. ^E ^U first:
+ *         anything half typed on the command line would otherwise run
+ *         together with the command. With "tmux 集成" on, the session is
+ *         also the connection kterm's questions to tmux go over (tmux.c):
+ *         they need no login of their own, a password one works too.
+ */
+static gchar * ssh_command(const gchar *name) {
+#ifdef KINDLE
+    if (tmux_enabled()) {
+        return g_strconcat("\x05\x15ssh -o ControlMaster=auto -o ControlPath=" TMUX_CONTROL_PATH
+                           " -o ControlPersist=" TMUX_CONTROL_PERSIST " ", name, "\r", NULL);
+    }
+#endif
+    return g_strconcat("\x05\x15ssh ", name, "\r", NULL);
+}
 
 /**
  * @param pgid Process group
@@ -194,7 +210,7 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         // command is typed once the shell is back.
         kill(-session, SIGHUP);
         g_free(switch_command);
-        switch_command = g_strdup_printf(SSH_COMMAND, host->name);
+        switch_command = ssh_command(host->name);
         switch_tries = 0;
         if (!switch_source) {
             switch_source = g_timeout_add(100, switch_when_idle, NULL);
@@ -208,7 +224,7 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         gtk_widget_show(empty_label);
         return;
     }
-    gchar *command = g_strdup_printf(SSH_COMMAND, host->name);
+    gchar *command = ssh_command(host->name);
     vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), command, -1);
     g_free(command);
     panel_close();
