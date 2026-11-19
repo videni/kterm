@@ -7,6 +7,15 @@
 # The X server, D-Bus and the Kindle fonts live outside the image, so they
 # are bind-mounted in first. "alpine.sh stop" unmounts them again.
 
+# One terminal only: started again (from the library, kpm launch) while
+# one runs, that one is brought to the front instead (SIGUSR1, kterm.c). A
+# second would not get the phone page's port (voice.c), and the Kindle has
+# little memory to spare.
+if pids=$(pidof kterm); then
+    kill -USR1 $pids
+    exit 0
+fi
+
 MNT=$(cd /tmp && pwd -P)/alpine
 sh /mnt/us/alpine/alpine.sh -c true || exit 1
 

@@ -198,6 +198,23 @@ static gboolean exit_on_signal(gpointer data) {
 }
 
 /**
+ * SIGUSR1: kterm was started again (kindle/kpm/launch.sh), which only
+ * brings this one to the front
+ * @param data Not used
+ * @return G_SOURCE_CONTINUE
+ */
+static gboolean present_on_signal(gpointer data) {
+    UNUSED(data);
+    GtkWidget *window = main_terminal ? gtk_widget_get_toplevel(main_terminal) : NULL;
+    if (window && gtk_widget_get_realized(window)) {
+        D printf("brought to the front\n");
+        gdk_window_raise(gtk_widget_get_window(window));
+        gtk_window_present(GTK_WINDOW(window));
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/**
  * Install signal handlers
  */
 static void install_signal_handlers(void) {
@@ -205,6 +222,7 @@ static void install_signal_handlers(void) {
     // and image loaders (glycin) wait for theirs
     g_unix_signal_add(SIGINT, exit_on_signal, NULL);
     g_unix_signal_add(SIGTERM, exit_on_signal, NULL);
+    g_unix_signal_add(SIGUSR1, present_on_signal, NULL);
 }
 
 /**
