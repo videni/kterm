@@ -31,7 +31,7 @@
 #include "panel.h"
 #include "sshconf.h"
 #ifdef KINDLE
-#include "tmux.h"
+#include "remote.h"
 #endif
 
 #if GTK_CHECK_VERSION(3,2,0)
@@ -110,19 +110,18 @@ static guint switch_tries = 0;
 static guint switch_source = 0;
 /**
  * @param name Saved connection, a plain word (validated)
- * @return The command starting it, newly allocated. With "tmux 集成" on,
- *         the session is also the connection kterm's questions to tmux go
- *         over (tmux.c): they need no login of their own, a password one
- *         works too.
+ * @return The command starting it, newly allocated. The session is also
+ *         the connection kterm's own scripts go over (remote.c: questions
+ *         to tmux, images): they need no login of their own, a password
+ *         one works too.
  */
 static gchar * ssh_command(const gchar *name) {
 #ifdef KINDLE
-    if (tmux_enabled()) {
-        return g_strconcat("ssh -o ControlMaster=auto -o ControlPath=" TMUX_CONTROL_PATH
-                           " -o ControlPersist=" TMUX_CONTROL_PERSIST " ", name, NULL);
-    }
-#endif
+    return g_strconcat("ssh -o ControlMaster=auto -o ControlPath=" REMOTE_CONTROL_PATH
+                       " -o ControlPersist=" REMOTE_CONTROL_PERSIST " ", name, NULL);
+#else
     return g_strconcat("ssh ", name, NULL);
+#endif
 }
 
 /**

@@ -19,13 +19,9 @@
  * - whether it has the terminal at all, guessed from what runs in it;
  * - its commands, typed after its prefix (conf->tmux_prefix);
  * - whether it is scrolled back (copy mode), and its sessions, asked of
- *   tmux itself when needed, not watched: the same ssh connection runs
- *   one more command (ControlMaster, about 0.1 s on the Kindle), as
- *   RootShell does. The tmux client of this terminal is the one on the
- *   login the Kindle's address has there (who). A connection opened from
- *   the panel is itself the shared one (connpage.c), so a password login
- *   works too; one typed by hand needs a key login, ssh cannot ask for a
- *   password in the background.
+ *   tmux itself when needed, not watched: a script run over the session's
+ *   own ssh connection (remote.c). The tmux client of this terminal is the
+ *   one on the login the Kindle's address has there (who).
  *
  * All of it only while "tmux 集成" is on (conf->tmux_on): off, kterm
  * runs nothing on the far machine and knows only its own history.
@@ -34,12 +30,11 @@
  * from a mark tmux is told to put in the window title (kterm.c).
  */
 
-#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <vte/vte.h>
 #include "config.h"
 #include "kterm.h"
+#include "remote.h"
 #include "tmux.h"
 
 extern KTconf *conf;
@@ -48,8 +43,8 @@ extern KTconf *conf;
 #define PROBE_TIMEOUT_MS 6000
 
 /*
- * Run on the machine tmux is on. Finds this terminal's tmux client, then
- * by ACTION:
+ * Run on the machine tmux is on. Finds this terminal's tmux client
+ * (TMUX_FIND_CLIENT), then by ACTION:
  *   query, cancel: prints its pane and whether that pane is in a mode
  *     (copy mode: scrolled back), "none" without tmux clients, "unknown"
  *     if there are clients but none is this terminal's. With "cancel", a
@@ -62,13 +57,7 @@ extern KTconf *conf;
 static const gchar PROBE_SCRIPT[] =
     "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin\"\n"
     "command -v tmux >/dev/null 2>&1 || { echo none; exit 0; }\n"
-    "clients=$(tmux list-clients -F '#{client_activity} #{client_tty} #{pane_id} #{pane_in_mode}' 2>/dev/null)\n"
-    "best=\n"
-    "if [ -n \"$clients\" ]; then\n"
-    "  if [ -n \"$KTERM_TTY\" ]; then ttys=$KTERM_TTY\n"
-    "  else ip=${SSH_CONNECTION%% *}; ttys=$(who | awk -v h=\"($ip)\" '$NF == h { print \"/dev/\" $2 }'); fi\n"
-    "  best=$(for t in $ttys; do printf '%s\\n' \"$clients\" | awk -v t=\"$t\" '$2 == t'; done | sort -rn | head -n 1)\n"
-    "fi\n"
+    TMUX_FIND_CLIENT
     "if [ \"$ACTION\" = sessions ]; then\n"
     "  [ -n \"$best\" ] && { echo inside; exit 0; }\n"
     "  echo \"sessions $(date +%s)\"\n"
@@ -96,134 +85,24 @@ void tmux_set_enabled(guint on) {
     conf->tmux_on = on ? 1 : 0;
 }
 
-/**
- * The ssh command that asks the far machine, built from the client that
- * has the terminal: its destination and the options that say how to get
- * there (port, user, key, jump host, config); not its forwardings, its
- * remote command or its terminal.
- * @param pid ssh client
- * @return Arguments, NULL if they cannot be read
- */
-static GPtrArray * probe_command(pid_t pid, const gchar *action) {
-    gchar *path = g_strdup_printf("/proc/%d/cmdline", (int) pid);
-    gchar *raw = NULL;
-    gsize size = 0;
-    const gboolean read = g_file_get_contents(path, &raw, &size, NULL);
-    g_free(path);
-    if (!read || !size) {
-        g_free(raw);
-        return NULL;
-    }
-    GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
-    g_ptr_array_add(args, g_strdup("ssh"));
-    // first: ssh takes the first value it is given for an option
-    static const gchar *own[] = {
-        "BatchMode=yes", "RemoteCommand=none", "RequestTTY=no", "ConnectTimeout=5",
-        "ControlMaster=auto", "ControlPath=" TMUX_CONTROL_PATH, "ControlPersist=" TMUX_CONTROL_PERSIST,
-        "ClearAllForwardings=yes", "LogLevel=ERROR",
-    };
-    for (guint i = 0; i < G_N_ELEMENTS(own); i++) {
-        g_ptr_array_add(args, g_strdup("-o"));
-        g_ptr_array_add(args, g_strdup(own[i]));
-    }
-    const gchar *destination = NULL;
-    const gchar *end = raw + size;
-    // the arguments start after the program's name: the first word, or
-    // the words naming ssh, with an interpreter before them (qemu gives
-    // its own name, the program's path, then the name it was run by)
-    const gchar *arg = raw + strlen(raw) + 1;
-    gboolean named = FALSE;
-    for (const gchar *word = raw; word < end; word += strlen(word) + 1) {
-        gchar *base = g_path_get_basename(word);
-        const gboolean is_ssh = !strcmp(base, "ssh");
-        g_free(base);
-        if (is_ssh) {
-            arg = word + strlen(word) + 1;
-            named = TRUE;
-        } else if (named) {
-            break;
-        }
-    }
-    while (arg < end && !destination) {
-        const gchar *next = arg + strlen(arg) + 1;
-        if (arg[0] != '-' || !arg[1]) {
-            destination = arg;
-            break;
-        }
-        // options that take a value, kept or not
-        static const gchar *with_value = "BbcDEeFIiJLlmOopQRSWw";
-        static const gchar *kept = "cFiJlmop";
-        for (const gchar *c = arg + 1; *c; c++) {
-            if (strchr(with_value, *c)) {
-                const gchar *value = c[1] ? c + 1 : (next < end ? next : NULL);
-                if (strchr(kept, *c) && value) {
-                    g_ptr_array_add(args, g_strdup_printf("-%c", *c));
-                    g_ptr_array_add(args, g_strdup(value));
-                }
-                if (!c[1] && next < end) {
-                    next += strlen(next) + 1;
-                }
-                break;
-            }
-            if (strchr("46C", *c)) {
-                g_ptr_array_add(args, g_strdup_printf("-%c", *c));
-            }
-        }
-        arg = next;
-    }
-    if (!destination) {
-        g_ptr_array_unref(args);
-        g_free(raw);
-        return NULL;
-    }
-    g_ptr_array_add(args, g_strdup(destination));
-    g_ptr_array_add(args, g_strdup_printf("ACTION=%s sh -s", action));
-    g_free(raw);
-    return args;
-}
-
 /** Makes the script's output (NULL if tmux could not be asked) an answer
  *  for done, the caller's callback */
-typedef void (*ScriptDone)(gchar *output, GCallback done, gpointer data);
+typedef void (*ScriptParse)(gchar *output, GCallback done, gpointer data);
 
 /** A question to tmux under way */
 typedef struct {
-    ScriptDone parse;
+    ScriptParse parse;
     GCallback done;
     gpointer data;
-    guint timeout;
-    GSubprocess *process;
-} Probe;
+} Ask;
 
-static gboolean probe_timeout(gpointer data) {
-    Probe *probe = data;
-    probe->timeout = 0;
-    g_subprocess_force_exit(probe->process);
-    return G_SOURCE_REMOVE;
-}
-
-static void probe_finished(GObject *source, GAsyncResult *result, gpointer data) {
-    Probe *probe = data;
-    if (probe->timeout) {
-        g_source_remove(probe->timeout);
-    }
-    gchar *output = NULL;
-    gchar *errors = NULL;
-    // only the output tells: kterm leaves its children to the kernel
-    // (SIGCHLD ignored), so their exit status is never known
-    if (!g_subprocess_communicate_utf8_finish(G_SUBPROCESS(source), result, &output, &errors, NULL)
-        || !output || !*output) {
-        D printf("tmux: not asked: %s\n", errors ? errors : "");
-        g_free(output);
-        output = NULL;
-    } else {
-        D printf("tmux: says \"%s\"\n", output);
-    }
-    g_free(errors);
-    g_object_unref(probe->process);
-    probe->parse(output, probe->done, probe->data);
-    g_free(output);
-    g_free(probe);
+static void script_done(GBytes *output, gpointer data) {
+    Ask *ask = data;
+    gchar *text = output ? g_strndup(g_bytes_get_data(output, NULL), g_bytes_get_size(output)) : NULL;
+    D printf("tmux: says \"%s\"\n", text ? text : "(nothing)");
+    ask->parse(text, ask->done, ask->data);
+    g_free(text);
+    g_free(ask);
 }
 
 /**
@@ -236,57 +115,32 @@ static void probe_finished(GObject *source, GAsyncResult *result, gpointer data)
  * @return FALSE if there is no tmux to ask: switched off, or neither ssh
  *         nor tmux has the terminal
  */
-static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptDone parse, GCallback done,
+static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptParse parse, GCallback done,
                            gpointer data) {
     if (!tmux_enabled()) {
         return FALSE;
     }
-    // what has the terminal: the shell, or what was started from it, or
-    // the program kterm runs in place of a shell
-    VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(kterm_get_terminal()));
-    const pid_t pid = kterm_terminal_owner();
-    gchar *name = kterm_process_name(pid);
-    GPtrArray *args = NULL;
-    GSubprocessLauncher *launcher = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_STDIN_PIPE
-                                                              | G_SUBPROCESS_FLAGS_STDOUT_PIPE
-                                                              | G_SUBPROCESS_FLAGS_STDERR_PIPE);
-    if (name && !strcmp(name, "ssh")) {
-        args = probe_command(pid, action);
-    } else if (name && !ssh_only && g_str_has_prefix(name, "tmux")) {
-        // tmux here: its client is on this terminal's tty
-        const char *tty = pty ? ptsname(vte_pty_get_fd(pty)) : NULL;
-        if (tty) {
-            g_subprocess_launcher_setenv(launcher, "KTERM_TTY", tty, TRUE);
-            g_subprocess_launcher_setenv(launcher, "ACTION", action, TRUE);
-            args = g_ptr_array_new_with_free_func(g_free);
-            g_ptr_array_add(args, g_strdup("sh"));
-            g_ptr_array_add(args, g_strdup("-s"));
+    gboolean here = FALSE;
+    if (!ssh_only && !remote_is_ssh()) {
+        gchar *name = kterm_process_name(kterm_terminal_owner());
+        here = name && g_str_has_prefix(name, "tmux");
+        g_free(name);
+        if (!here) {
+            return FALSE;
         }
     }
-    g_free(name);
-    if (!args) {
-        g_object_unref(launcher);
-        return FALSE;
+    gchar *var = g_strconcat("ACTION=", action, NULL);
+    const gchar *vars[] = { var, NULL };
+    Ask *ask = g_new0(Ask, 1);
+    ask->parse = parse;
+    ask->done = done;
+    ask->data = data;
+    const gboolean asked = remote_run(PROBE_SCRIPT, vars, here, PROBE_TIMEOUT_MS, script_done, ask);
+    g_free(var);
+    if (!asked) {
+        g_free(ask);
     }
-    g_ptr_array_add(args, NULL);
-    GError *error = NULL;
-    Probe *probe = g_new0(Probe, 1);
-    probe->parse = parse;
-    probe->done = done;
-    probe->data = data;
-    probe->process = g_subprocess_launcher_spawnv(launcher, (const gchar * const *) args->pdata, &error);
-    g_object_unref(launcher);
-    g_ptr_array_unref(args);
-    if (!probe->process) {
-        D printf("tmux: %s\n", error->message);
-        g_error_free(error);
-        g_free(probe);
-        parse(NULL, done, data);
-        return TRUE;
-    }
-    probe->timeout = g_timeout_add(PROBE_TIMEOUT_MS, probe_timeout, probe);
-    g_subprocess_communicate_utf8_async(probe->process, PROBE_SCRIPT, NULL, probe_finished, probe);
-    return TRUE;
+    return asked;
 }
 
 static void where_done(gchar *output, GCallback done, gpointer data) {

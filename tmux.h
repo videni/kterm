@@ -18,11 +18,20 @@
 
 #include <gtk/gtk.h>
 
-/** The connection to a far machine shared by kterm's questions to tmux
- *  and, opened from the panel, the session itself (ssh -o ControlPath=) */
-#define TMUX_CONTROL_PATH "/tmp/kterm-ssh-%C"
-/** It is kept this long after the last use, s */
-#define TMUX_CONTROL_PERSIST "600"
+/**
+ * Shell lines finding this terminal's tmux client, tmux being there: sets
+ * $clients (one line for each: activity, tty, pane, in a mode) and $best,
+ * the line of this terminal's client, empty if none is. Its tty is
+ * KTERM_TTY here (remote.c), over ssh one the Kindle's address logged in on.
+ */
+#define TMUX_FIND_CLIENT \
+    "clients=$(tmux list-clients -F '#{client_activity} #{client_tty} #{pane_id} #{pane_in_mode}' 2>/dev/null)\n" \
+    "best=\n" \
+    "if [ -n \"$clients\" ]; then\n" \
+    "  if [ -n \"$KTERM_TTY\" ]; then ttys=$KTERM_TTY\n" \
+    "  else ip=${SSH_CONNECTION%% *}; ttys=$(who | awk -v h=\"($ip)\" '$NF == h { print \"/dev/\" $2 }'); fi\n" \
+    "  best=$(for t in $ttys; do printf '%s\\n' \"$clients\" | awk -v t=\"$t\" '$2 == t'; done | sort -rn | head -n 1)\n" \
+    "fi\n"
 
 /** Where the terminal is: at its input line or scrolled back */
 typedef enum {
