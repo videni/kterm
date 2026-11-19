@@ -437,9 +437,6 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
     if (ABS(dx) >= SHORTBAR_SWIPE_PX && ABS(dx) > ABS(dy)) {
         // towards the left brings the next page in, like turning a page
         turn_page(dx < 0 ? 1 : -1);
-    } else if (dy <= -SHORTBAR_SWIPE_PX && ABS(dy) > ABS(dx)) {
-        // up from the bar opens the panel, as from the keyboard
-        panel_open();
     } else if (ABS(dx) < SHORTBAR_SWIPE_PX && ABS(dy) < SHORTBAR_SWIPE_PX) {
         if (panel_is_open() && !panel_wants_keys()) {
             // as on the keyboard: a tap puts the panel away, types nothing

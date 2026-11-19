@@ -14,7 +14,7 @@
  */
 
 /*
- * The panel opened by swiping up. It opens on a row of actions, the ones
+ * The panel opened from the shortcut bar's ☰ button. It opens on a row of actions, the ones
  * used often: the saved ssh connections (a page of their own, with the form
  * to add or edit one, and the machines of the local network found to add),
  * hanging up the ssh session in the terminal, reading

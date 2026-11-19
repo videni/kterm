@@ -534,10 +534,11 @@ gboolean keyboard_event(GtkWidget *button, GdkEvent *ev, Key *key) {
             if (!key->modifier) {
                 gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), FALSE);
             }
-            // up from the keyboard opens the panel; down puts it away, or
-            // with no panel, folds the keyboard away (preview)
+            // down puts the panel away, or with no panel, folds the
+            // keyboard away (preview); up does nothing, the panel opens
+            // from the shortcut bar's button
             if (dy < 0) {
-                panel_open();
+                // nothing
             } else if (panel_is_open()) {
                 panel_close();
             } else {
@@ -614,7 +615,7 @@ gboolean keyboard_gap_event(GtkWidget *window, GdkEvent *ev, GtkWidget *keyboard
     const gdouble dy = ev->button.y_root - press_y;
     if (ABS(dy) >= KB_SWIPE_MIN_PX && ABS(dy) > ABS(dx)) {
         if (dy < 0) {
-            panel_open();
+            // nothing, as from a key
         } else if (panel_is_open()) {
             panel_close();
         } else {

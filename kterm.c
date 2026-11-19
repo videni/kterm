@@ -348,8 +348,6 @@ static void reverse_colors(GtkWidget *widget, gpointer terminal) {
  *  first seen some way down the screen, and a narrow band made the swipe
  *  down to the device's menu scroll the terminal instead. */
 #define EDGE_TOP_PX 150
-/** ... or of the bottom */
-#define EDGE_BOTTOM_PX 120
 /** and travels at least this far */
 #define EDGE_SWIPE_MIN_PX 96
 /** Built-in keyboard container */
@@ -490,28 +488,6 @@ void kterm_key_typed(void) {
 }
 
 /**
- * Touch handler of the bar above the system keyboard: a swipe up from it
- * opens the panel, as a swipe up from the built-in keyboard does. The
- * system keyboard itself is another program's window, swipes on it never
- * reach us.
- * @return FALSE, the bar's button still works as a button
- */
-static gboolean ime_bar_event(GtkWidget *widget, GdkEventButton *event, gpointer data) {
-    UNUSED(widget);
-    UNUSED(data);
-    static gdouble press_y = 0;
-    if (event->button != 1) {
-        return FALSE;
-    }
-    if (event->type == GDK_BUTTON_PRESS) {
-        press_y = event->y_root;
-    } else if (event->type == GDK_BUTTON_RELEASE && press_y - event->y_root >= KB_SWIPE_MIN_PX) {
-        panel_open();
-    }
-    return FALSE;
-}
-
-/**
  * Build the panel that replaces the built-in keyboard while the system
  * keyboard is open: one button to come back, and room for that keyboard.
  * @return Panel widget, hidden
@@ -527,8 +503,6 @@ static GtkWidget * build_ime_panel(void) {
     // focus must stay on the terminal, that is where the keys go
     gtk_widget_set_can_focus(back, FALSE);
     g_signal_connect_swapped(back, "clicked", G_CALLBACK(kterm_toggle_ime), NULL);
-    g_signal_connect(back, "button-press-event", G_CALLBACK(ime_bar_event), NULL);
-    g_signal_connect(back, "button-release-event", G_CALLBACK(ime_bar_event), NULL);
     ime_spacer = gtk_label_new(NULL);
     gtk_box_pack_start(GTK_BOX(panel), back, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(panel), ime_spacer, FALSE, FALSE, 0);
@@ -1377,14 +1351,6 @@ static gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
         // settings (light, dark mode, airplane mode). A full screen
         // application has to pass it on.
         show_system_menu();
-        return TRUE;
-    }
-    if (vertical && dy < 0 && (!conf->kb_on || ime_is_open())
-        && touch.y >= gtk_widget_get_allocated_height(terminal) - EDGE_BOTTOM_PX) {
-        // No keyboard of ours to swipe up from: it is folded away, or the
-        // system keyboard (another program's window) is in its place. The
-        // swipe then starts at the foot of the terminal.
-        panel_open();
         return TRUE;
     }
     if (vertical) {
