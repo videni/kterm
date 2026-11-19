@@ -147,13 +147,13 @@ gboolean kterm_process_is(pid_t pid, const gchar *name) {
 }
 
 /**
- * Type a command into the shell in the terminal and run it: ^E ^U first,
+ * Type a command into the shell in the terminal and run it: ^A ^K first,
  * as anything half typed on the command line would otherwise run together
- * with it
+ * with it. Not ^U: on an empty line, bash rings the bell for it.
  * @param command Command
  */
 void kterm_type_command(const gchar *command) {
-    gchar *line = g_strconcat("\x05\x15", command, "\r", NULL);
+    gchar *line = g_strconcat("\x01\x0b", command, "\r", NULL);
     vte_terminal_feed_child(VTE_TERMINAL(main_terminal), line, -1);
     g_free(line);
 }
