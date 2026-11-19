@@ -345,7 +345,7 @@ void inject_styles(void) {
                                     // notices over the terminal's top (notice.c):
                                     // text from the phone, the bell
                                     "#ktermNotice { background-color: #ffffff; border: 2px solid #000000; border-radius: 24px;"
-                                    " color: #000000; padding: 6px 6px 6px 14px; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    " color: #000000; padding: 8px 8px 8px 14px; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     "#ktermNoticeButton { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 18px;"
                                     " padding: 6px 14px; min-width: 0; min-height: 0; box-shadow: none; text-shadow: none; }"
                                     "#ktermNoticeButton label { color: #000000; }"

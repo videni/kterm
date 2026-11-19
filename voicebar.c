@@ -343,18 +343,11 @@ void voicebar_init(GtkWidget *terminal) {
     gtk_widget_set_size_request(text_area, 1, line);
     g_signal_connect(text_area, "draw", G_CALLBACK(text_draw_cb), NULL);
     // a tap beside the buttons does nothing: the box stays until its text
-    // is put in or thrown away
-    bar = notice_new(text_area, NULL);
+    // is put in or thrown away (its close button, the phone's 清空)
+    bar = notice_new(text_area, NULL, voicebar_clear);
     // the buttons of the phone page, same signs
-    GtkWidget *put = notice_button(OUTLINE_SEND);        // 发送
-    run_button = notice_button(OUTLINE_PLAY);            // 发送并回车
-    GtkWidget *clear = notice_button(OUTLINE_X);         // 清空
-    g_signal_connect(put, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(FALSE));
+    run_button = notice_action(bar, OUTLINE_PLAY, "放入并回车");     // 发送并回车
+    GtkWidget *put = notice_action(bar, OUTLINE_SEND, "只放入");      // 发送
     g_signal_connect(run_button, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(TRUE));
-    g_signal_connect(clear, "clicked", G_CALLBACK(voicebar_clear), NULL);
-    // Enter at the far left, the text between it and the close button:
-    // next to each other, one was hit for the other
-    notice_add(bar, run_button, TRUE);
-    notice_add(bar, put, FALSE);
-    notice_add(bar, clear, FALSE);
+    g_signal_connect(put, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(FALSE));
 }

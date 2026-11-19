@@ -11,7 +11,8 @@ over a shared ssh connection), preview mode (taps on the top or bottom third tur
 (scrolling, long press to copy, paste button while the program waits for
 input, two finger right click), fewer screen refreshes to save the battery,
 full refreshes clearing ghosting, coloured and dim text drawn dark (text
-contrast), images shown for a tap on their path (imageview.c), system
+contrast), images shown for a tap on their path (imageview.c), notices
+at the top for text from the phone and the bell (notice.c), system
 keyboard (pinyin) bridge, voice input: typing from a phone through a web
 page (voice.c), KPM packaging.
 Icons: Material icons by Google (Apache 2.0). QR codes: QR Code generator

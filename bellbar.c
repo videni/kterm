@@ -19,8 +19,8 @@
  * at the top of the terminal (notice.c), in kterm's own window: seen once
  * kterm is looked at, not over other applications. It says what rang: the
  * tmux window and its pane's title (asked of tmux, tmux.c), or the
- * terminal's title. Its arrow shows that tmux window; a tap elsewhere
- * takes it away. A bell while it is up only changes what it says.
+ * terminal's title. Its 去看 button shows that tmux window; a tap
+ * elsewhere takes it away. A bell while it is up only changes what it says.
  */
 
 #include <vte/vte.h>
@@ -113,12 +113,8 @@ void bellbar_init(GtkWidget *terminal) {
     gtk_label_set_ellipsize(GTK_LABEL(message), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(GTK_LABEL(message), BELL_LABEL_CHARS);
     gtk_label_set_xalign(GTK_LABEL(message), 0);
-    bar = notice_new(message, close_bar);
-    notice_add(bar, icon_new_outline(OUTLINE_BELL, 32), TRUE);
-    go_button = notice_button(OUTLINE_GO);
+    bar = notice_new(message, close_bar, close_bar);
+    notice_lead(bar, icon_new_outline(OUTLINE_BELL, 32));
+    go_button = notice_action(bar, OUTLINE_GO, "去看");
     g_signal_connect(go_button, "clicked", G_CALLBACK(go_cb), NULL);
-    notice_add(bar, go_button, FALSE);
-    GtkWidget *x = notice_button(OUTLINE_X);
-    g_signal_connect_swapped(x, "clicked", G_CALLBACK(close_bar), NULL);
-    notice_add(bar, x, FALSE);
 }

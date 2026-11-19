@@ -15,10 +15,12 @@
 
 /*
  * Notices: bars over the top of the terminal, in kterm's own window, each
- * a rounded frame with a text and buttons of icons. Text from the phone
- * (voicebar.c) and the bell (bellbar.c) have one each. Several are
- * stacked, the one shown last on top. The panel is drawn over them, an
- * image over everything (kterm.c adds them in that order).
+ * a rounded frame: a line with what it says and, at its right, a close
+ * button; under it a line of buttons with words, for what is done with it
+ * (none: no line). Text from the phone (voicebar.c) and the bell
+ * (bellbar.c) have one each. Several are stacked, the one shown last on
+ * top. The panel is drawn over them, an image over everything (kterm.c
+ * adds them in that order).
  */
 
 #include "config.h"
@@ -29,6 +31,9 @@
 #define NOTICE_NAME "ktermNotice"
 #define NOTICE_BUTTON_NAME "ktermNoticeButton"
 #define NOTICE_ICON_PX 32
+/** Its first line and its buttons' (g_object_set_data()) */
+#define NOTICE_TOP "notice-top"
+#define NOTICE_ACTIONS "notice-actions"
 
 /** The notices, one under the other */
 static GtkWidget *stack = NULL;
@@ -66,12 +71,26 @@ static gboolean notice_event(GtkWidget *widget, GdkEventButton *event, gpointer 
 }
 
 /**
+ * @param child Icon, or icon and words
+ * @return A button of a notice
+ */
+static GtkWidget * notice_button(GtkWidget *child) {
+    GtkWidget *button = gtk_button_new();
+    gtk_widget_set_name(button, NOTICE_BUTTON_NAME);
+    gtk_widget_set_can_focus(button, FALSE);
+    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+    gtk_container_add(GTK_CONTAINER(button), child);
+    return button;
+}
+
+/**
  * A new notice, not shown yet
- * @param content What it says, taking the room the buttons leave
- * @param tapped Told of a tap on it, NULL for none
+ * @param content What it says, taking the room the close button leaves
+ * @param tapped Told of a tap on it, not on a button; NULL for none
+ * @param closed Told of the close button
  * @return The notice
  */
-GtkWidget * notice_new(GtkWidget *content, NoticeTapped tapped) {
+GtkWidget * notice_new(GtkWidget *content, NoticeTapped tapped, NoticeTapped closed) {
     // takes the touches; drawn by the box inside it, rounded, the
     // terminal showing at its corners
     GtkWidget *notice = gtk_event_box_new();
@@ -82,51 +101,72 @@ GtkWidget * notice_new(GtkWidget *content, NoticeTapped tapped) {
     tap->tapped = tapped;
     g_signal_connect(notice, "button-press-event", G_CALLBACK(notice_event), tap);
     g_signal_connect(notice, "button-release-event", G_CALLBACK(notice_event), tap);
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_name(row, NOTICE_NAME);
+    GtkWidget *frame = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_set_name(frame, NOTICE_NAME);
+    GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_hexpand(content, TRUE);
     gtk_widget_set_valign(content, GTK_ALIGN_CENTER);
-    gtk_box_pack_start(GTK_BOX(row), content, TRUE, TRUE, 0);
-    gtk_container_add(GTK_CONTAINER(notice), row);
-    gtk_widget_show_all(row);
+    gtk_box_pack_start(GTK_BOX(top), content, TRUE, TRUE, 0);
+    // alone at the right, away from the buttons below
+    GtkWidget *close = notice_button(icon_new_outline(OUTLINE_X, NOTICE_ICON_PX));
+    g_signal_connect_swapped(close, "clicked", G_CALLBACK(closed), NULL);
+    gtk_box_pack_end(GTK_BOX(top), close, FALSE, FALSE, 0);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_pack_start(GTK_BOX(frame), top, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(frame), actions, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(notice), frame);
+    gtk_widget_show_all(frame);
     gtk_widget_set_no_show_all(notice, TRUE);
+    g_object_set_data(G_OBJECT(notice), NOTICE_TOP, top);
+    g_object_set_data(G_OBJECT(notice), NOTICE_ACTIONS, actions);
     gtk_box_pack_start(GTK_BOX(stack), notice, FALSE, FALSE, 0);
     return notice;
 }
 
 /**
- * @param icon Icon, OUTLINE_...: the sign alone
- * @return A button for a notice
+ * Put an icon before what a notice says
+ * @param notice Notice
+ * @param icon Icon widget
  */
-GtkWidget * notice_button(const gchar *icon) {
-    GtkWidget *button = gtk_button_new();
-    gtk_widget_set_name(button, NOTICE_BUTTON_NAME);
-    gtk_widget_set_can_focus(button, FALSE);
-    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
-    gtk_container_add(GTK_CONTAINER(button), icon_new_outline(icon, NOTICE_ICON_PX));
+void notice_lead(GtkWidget *notice, GtkWidget *icon) {
+    GtkWidget *top = g_object_get_data(G_OBJECT(notice), NOTICE_TOP);
+    gtk_box_pack_start(GTK_BOX(top), icon, FALSE, FALSE, 0);
+    gtk_box_reorder_child(GTK_BOX(top), icon, 0);
+    gtk_widget_show(icon);
+}
+
+/**
+ * Add a button to the line of buttons, after those there
+ * @param notice Notice
+ * @param icon Icon, OUTLINE_...
+ * @param words What it does
+ * @return The button
+ */
+GtkWidget * notice_action(GtkWidget *notice, const gchar *icon, const gchar *words) {
+    GtkWidget *inside = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(inside), icon_new_outline(icon, NOTICE_ICON_PX), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(inside), gtk_label_new(words), FALSE, FALSE, 0);
+    GtkWidget *button = notice_button(inside);
+    GtkWidget *actions = g_object_get_data(G_OBJECT(notice), NOTICE_ACTIONS);
+    gtk_box_pack_start(GTK_BOX(actions), button, FALSE, FALSE, 0);
+    gtk_widget_show_all(button);
     return button;
 }
 
 /**
- * Add a button, or an icon, to a notice
- * @param notice Notice
- * @param widget What is added
- * @param first At the far left, before the text; else after what is there
- */
-void notice_add(GtkWidget *notice, GtkWidget *widget, gboolean first) {
-    GtkWidget *row = gtk_bin_get_child(GTK_BIN(notice));
-    gtk_box_pack_start(GTK_BOX(row), widget, FALSE, FALSE, 0);
-    if (first) {
-        gtk_box_reorder_child(GTK_BOX(row), widget, 0);
-    }
-    gtk_widget_show_all(widget);
-}
-
-/**
- * Show a notice: on top of the others if it was not up
+ * Show a notice: on top of the others if it was not up; its line of
+ * buttons only if one of them is shown
  * @param notice Notice
  */
 void notice_show(GtkWidget *notice) {
+    GtkWidget *actions = g_object_get_data(G_OBJECT(notice), NOTICE_ACTIONS);
+    gboolean any = FALSE;
+    GList *buttons = gtk_container_get_children(GTK_CONTAINER(actions));
+    for (GList *b = buttons; b; b = b->next) {
+        any = any || gtk_widget_get_visible(b->data);
+    }
+    g_list_free(buttons);
+    gtk_widget_set_visible(actions, any);
     if (!gtk_widget_get_visible(notice)) {
         gtk_box_reorder_child(GTK_BOX(stack), notice, 0);
     }

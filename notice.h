@@ -18,13 +18,13 @@
 
 #include <gtk/gtk.h>
 
-/** A tap on a notice, not on one of its buttons */
+/** Told of a tap on a notice (not on a button), or of its close button */
 typedef void (*NoticeTapped)(void);
 
 void notices_init(GtkWidget *overlay);
-GtkWidget * notice_new(GtkWidget *content, NoticeTapped tapped);
-GtkWidget * notice_button(const gchar *icon);
-void notice_add(GtkWidget *notice, GtkWidget *widget, gboolean first);
+GtkWidget * notice_new(GtkWidget *content, NoticeTapped tapped, NoticeTapped closed);
+void notice_lead(GtkWidget *notice, GtkWidget *icon);
+GtkWidget * notice_action(GtkWidget *notice, const gchar *icon, const gchar *words);
 void notice_show(GtkWidget *notice);
 
 #endif /* notice_h */
