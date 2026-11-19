@@ -200,7 +200,10 @@ static gboolean exit_on_signal(gpointer data) {
 
 /**
  * SIGUSR1: kterm was started again (kindle/kpm/launch.sh), which only
- * brings this one to the front
+ * brings this one to the front. The Kindle's window manager ignores being
+ * asked to (_NET_ACTIVE_WINDOW); an application window it is given anew
+ * becomes the active application (lab126_application_layer.lua): the
+ * window is taken away and shown again.
  * @param data Not used
  * @return G_SOURCE_CONTINUE
  */
@@ -209,7 +212,8 @@ static gboolean present_on_signal(gpointer data) {
     GtkWidget *window = main_terminal ? gtk_widget_get_toplevel(main_terminal) : NULL;
     if (window && gtk_widget_get_realized(window)) {
         D printf("brought to the front\n");
-        gdk_window_raise(gtk_widget_get_window(window));
+        gtk_widget_hide(window);
+        gtk_widget_show(window);
         gtk_window_present(GTK_WINDOW(window));
     }
     return G_SOURCE_CONTINUE;
