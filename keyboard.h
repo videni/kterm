@@ -71,6 +71,9 @@ struct kbmodlookup {
 /** Pseudo keyval of the "hide" action: folds the keyboard away. It comes
  *  back with a tap on the terminal or from the panel. */
 #define KTERM_KEY_HIDE 0x0110fff2
+/** Pseudo keyval of the "voice" action: shows the address of the page a
+ *  phone types into, see voice.c */
+#define KTERM_KEY_VOICE 0x0110fff3
 /** Basic size of key button in internal units */
 #define KEY_UNIT 1000
 /** Data of the keyboard widget: height of its first row, in pixels */

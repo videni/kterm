@@ -1,0 +1,28 @@
+/* voice.h
+ *
+ * This file is part of kterm
+ *
+ * This is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU Library General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ */
+
+#ifndef voice_h
+#define voice_h
+
+#include <gtk/gtk.h>
+
+void voice_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar);
+void voice_toggle(void);
+gboolean voice_enabled(void);
+void voice_set_enabled(guint on);
+/** Lay the keyboard out again: the "语音" key comes or goes; provided by kterm.c */
+void kterm_keyboard_relayout(void);
+
+#endif /* voice_h */

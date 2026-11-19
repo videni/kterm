@@ -25,6 +25,10 @@
 #include "keyboard.h"
 #include "panel.h"
 #include "config.h"
+#ifdef KINDLE
+#include "voice.h"
+#include "voicebar.h"
+#endif
 
 #if GTK_CHECK_VERSION(3,0,0)
 /** 
@@ -206,6 +210,20 @@ static void keyboard_reset_modifiers(Keyboard *keyboard) {
  * Calculate and set key button sizes
  * @param keyboard Keyboard structure, may be NULL
  */
+/**
+ * @param key Key
+ * @return TRUE for a key left out for a feature switched off: the "语音"
+ *  key while typing from a phone is off. Its room goes to the space bar.
+ */
+static gboolean key_switched_off(const Key *key) {
+#ifdef KINDLE
+    return key->keyval[KBT_DEFAULT] == KTERM_KEY_VOICE && !voice_enabled();
+#else
+    UNUSED(key);
+    return FALSE;
+#endif
+}
+
 void keyboard_set_size(Keyboard *keyboard) {
     if G_UNLIKELY(keyboard == NULL || keyboard->key_count == 0 || keyboard->row_count == 0) {
         return;
@@ -292,22 +310,40 @@ void keyboard_set_size(Keyboard *keyboard) {
 #endif
     guint unit_w = MAX(unit_wmax, unit_wmin);
     D printf("wmin: %d, wmax: %d => %d\n", unit_wmin, unit_wmax, unit_w);
+    // the room of keys switched off goes to the first space bar in view
+    // of their row: the row keeps its width
+    guint *given = g_new0(guint, keyboard->key_count);
+    for (guint i = 0, first = 0; i < keyboard->row_count; first += keyboard->key_per_row[i], i++) {
+        guint room = 0, space = G_MAXUINT;
+        for (guint j = first; j < first + keyboard->key_per_row[i]; j++) {
+            const Key *key = keyboard->keys[j];
+            if ((key->extended && is_portrait) || (key->portrait && !is_portrait)) {
+                continue;
+            }
+            if (key_switched_off(key)) {
+                room += key->width ? key->width : KEY_UNIT;
+            } else if (space == G_MAXUINT && key->keyval[KBT_DEFAULT] == GDK_KEY_space) {
+                space = j;
+            }
+        }
+        if (room && space != G_MAXUINT) {
+            given[space] = room;
+        }
+    }
     for (guint i = 0; i < keyboard->key_count; i++) {
         Key *key = keyboard->keys[i];
         guint width = unit_w;
-        if (key->width) {
-            width *= key->width;
+        if (key->width || given[i]) {
+            width *= (key->width ? key->width : KEY_UNIT) + given[i];
             width /= KEY_UNIT;
         }
-        if ((key->extended && is_portrait) || (key->portrait && !is_portrait)) {
+        if ((key->extended && is_portrait) || (key->portrait && !is_portrait) || key_switched_off(key)) {
             if (gtk_widget_get_visible(key->button)) {
                 gtk_widget_hide(key->button);
             }
             continue;
-        } else if (key->extended || key->portrait) {
-            if (!gtk_widget_get_visible(key->button)) {
-                gtk_widget_show(key->button);
-            }
+        } else if (!gtk_widget_get_visible(key->button)) {
+            gtk_widget_show(key->button);
         }
         if (key->fill) {
             gtk_box_set_child_packing(GTK_BOX(gtk_widget_get_parent(key->button)), key->button, TRUE, TRUE, 0, GTK_PACK_START);
@@ -315,6 +351,7 @@ void keyboard_set_size(Keyboard *keyboard) {
             gtk_widget_set_size_request(key->button, (gint) width, -1);
         }
     }
+    g_free(given);
     gint kb_width = window_width;
     
     // calculate keyboard widget height
@@ -371,6 +408,13 @@ static gboolean keyboard_event_press(Key *key) {
         if (!key->obey_caps) { kb_type = KBT_DEFAULT; }
     }
     D printf("press: %s (%i)\n", gdk_keyval_name(key->keyval[kb_type]), key->keyval[kb_type]);
+#ifdef KINDLE
+    // text from the phone waits over the shortcut bar: Enter puts it in
+    if (key->keyval[kb_type] == GDK_KEY_Return && !(keyboard->modifier_mask & KB_MODIFIERS_BASIC_MASK)
+        && voicebar_take_enter()) {
+        return TRUE;
+    }
+#endif
     D printf("modifier: %u\n", key->modifier);
     D printf("modifier_mask: %u\n", keyboard->modifier_mask);
     guint keyval = key->keyval[kb_type];
@@ -384,7 +428,7 @@ static gboolean keyboard_event_press(Key *key) {
         gtk_main_quit();
         return TRUE;
     }
-    if (keyval == KTERM_KEY_IME || keyval == KTERM_KEY_HIDE) {
+    if (keyval == KTERM_KEY_IME || keyval == KTERM_KEY_HIDE || keyval == KTERM_KEY_VOICE) {
         // acts on release, see keyboard_event_release()
         return TRUE;
     }
@@ -433,6 +477,12 @@ static gboolean keyboard_event_release(gpointer data) {
     }
     if (keyval == KTERM_KEY_HIDE) {
         kterm_hide_keyboard();
+        return FALSE;
+    }
+    if (keyval == KTERM_KEY_VOICE) {
+#ifdef KINDLE
+        voice_toggle();
+#endif
         return FALSE;
     }
 

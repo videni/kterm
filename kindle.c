@@ -334,6 +334,15 @@ void inject_styles(void) {
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
                                     "#ktermShortProblem { color: #000000; padding: 4px 8px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 7pt; }"
+                                    // text from the phone waiting to be put in,
+                                    // over the shortcut bar
+                                    "#ktermVoiceBar { background-color: #ffffff; border: 2px solid #000000; border-radius: 24px;"
+                                    " color: #000000; padding: 6px; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    "#ktermVoiceButton { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 18px;"
+                                    " padding: 6px 14px; min-width: 0; min-height: 0; box-shadow: none; text-shadow: none; }"
+                                    "#ktermVoiceButton label { color: #000000; }"
+                                    "#ktermVoiceButton.primary { background: #000000; color: #ffffff; }"
+                                    "#ktermVoiceButton.primary label { color: #ffffff; }"
                                     // the panel over the terminal: black on
                                     // white, large enough for fingers
                                     "#ktermPanel { background-color: #ffffff; border-bottom: 4px solid #000000;"

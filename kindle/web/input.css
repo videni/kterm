@@ -1,0 +1,28 @@
+/* Styles of the phone input page (page.html), compiled by
+   kindle/build-web.sh: only the classes the page uses are kept. */
+@import "tailwindcss";
+@source "./page.html";
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 bg-white px-3 py-2.5
+      text-[15px] font-medium shadow-sm transition active:scale-[.98] active:opacity-80
+      dark:border-neutral-700 dark:bg-neutral-900;
+  }
+  .icon-btn {
+    @apply inline-flex size-10 items-center justify-center rounded-lg text-neutral-500
+      active:bg-neutral-100 dark:text-neutral-400 dark:active:bg-neutral-800;
+  }
+  .icon {
+    @apply size-[18px] shrink-0;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}

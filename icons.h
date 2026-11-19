@@ -57,8 +57,20 @@
 
 /** Material "content_paste" */
 #define ICON_CONTENT_PASTE "M19 2h-4.18C14.4.84 13.3 0 12 0c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm7 18H5V4h2v3h10V4h2v16z"
+/*
+ * Outlined icons, drawn as lines (icon_new_outline()): those of the phone
+ * page (kindle/web/page.html), Lucide (ISC License), with their small arcs
+ * left out, which the round joins of the lines make up for.
+ */
+/** Lucide "send": put in */
+#define OUTLINE_SEND "M15 21.7L22 2.3L2.3 9L10.8 13.2Z M21.9 2.1L10.9 13.1"
+/** Lucide "play": put in and Enter */
+#define OUTLINE_PLAY "M6 3L20 12L6 21Z"
+/** Lucide "x": close, and throw away what it closes */
+#define OUTLINE_X "M18 6L6 18 M6 6L18 18"
 
 void icon_draw(cairo_t *cr, const gchar *path, gdouble x, gdouble y, gdouble size);
 GtkWidget * icon_new(const gchar *path, gint size);
+GtkWidget * icon_new_outline(const gchar *path, gint size);
 
 #endif /* icons_h */

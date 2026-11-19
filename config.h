@@ -123,6 +123,8 @@ typedef struct {
     guint refresh_rate; /** Refreshes a second while the terminal changes on its own, 0: no limit */
     guint full_refresh; /** Pages turned and swipes shown as a full refresh, see flash.h */
     guint idle_pause; /** Minutes untouched after which the screen stops following, 0: never */
+    guint voice_on; /** Typing from a phone switched on, see voice.c */
+    gchar voice_token[32]; /** Key in the address of the phone input page, see voice.c */
 } KTconf;
 
 KTconf * parse_config(void);

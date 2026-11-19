@@ -158,7 +158,20 @@ static gboolean icon_draw_cb(GtkWidget *widget, cairo_t *cr, gpointer path) {
     const gdouble w = gtk_widget_get_allocated_width(widget);
     const gdouble h = gtk_widget_get_allocated_height(widget);
     const gdouble size = MIN(w, h);
-    icon_draw(cr, path, (w - size) / 2, (h - size) / 2, size);
+    if (g_object_get_data(G_OBJECT(widget), "outline")) {
+        // lines 2 wide on the grid of 24, ends and corners round
+        cairo_save(cr);
+        cairo_translate(cr, (w - size) / 2, (h - size) / 2);
+        cairo_scale(cr, size / 24, size / 24);
+        svg_path(cr, path);
+        cairo_set_line_width(cr, 2);
+        cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+        cairo_stroke(cr);
+        cairo_restore(cr);
+    } else {
+        icon_draw(cr, path, (w - size) / 2, (h - size) / 2, size);
+    }
     return FALSE;
 }
 
@@ -173,5 +186,17 @@ GtkWidget * icon_new(const gchar *path, gint size) {
     gtk_widget_set_size_request(icon, size, size);
     gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
     g_signal_connect(icon, "draw", G_CALLBACK(icon_draw_cb), (gpointer) path);
+    return icon;
+}
+
+/**
+ * An outlined icon (OUTLINE_...), drawn as lines, to put next to a label
+ * @param path SVG path, not copied: a constant
+ * @param size Width and height in pixels
+ * @return Widget
+ */
+GtkWidget * icon_new_outline(const gchar *path, gint size) {
+    GtkWidget *icon = icon_new(path, size);
+    g_object_set_data(G_OBJECT(icon), "outline", GINT_TO_POINTER(1));
     return icon;
 }

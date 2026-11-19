@@ -8,8 +8,11 @@ settings: font size, screen orientation, refresh, full refresh, shortcuts),
 preview mode (taps on the top or bottom third turn a page), touch gestures
 (scrolling, long press to copy, paste button while the program waits for
 input, two finger right click), fewer screen refreshes to save the battery,
-full refreshes clearing ghosting, system keyboard (pinyin) bridge, KPM
-packaging. Icons: Material icons by Google (Apache 2.0).
+full refreshes clearing ghosting, system keyboard (pinyin) bridge, typing
+from a phone through a web page (voice.c), KPM packaging.
+Icons: Material icons by Google (Apache 2.0). QR codes: QR Code generator
+library by Project Nayuki (MIT License, qrcodegen.c). Icons of the
+phone page: Lucide (ISC License); its styles: Tailwind CSS (MIT License).
 The complete modified source accompanies this package as source.tar.gz.
 
 libvte-2.91.so.0 is VTE 0.84.0 (LGPL-3.0-or-later), from

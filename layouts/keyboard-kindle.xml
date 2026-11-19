@@ -263,15 +263,18 @@
       <key>
         <default display="中" action="ime" />
       </key>
+      <key>
+        <default display="语音" action="voice" />
+      </key>
       <key portrait="true">
         <default display="," />
         <shifted display="&lt;" />
         <mod1 display=";" />
       </key>
-      <key width="3000" portrait="true">
+      <key width="2000" portrait="true">
         <default display=" " action="space" />
       </key>
-      <key width="2000" extended="true">
+      <key width="1000" extended="true">
         <default display=" " action="space" />
       </key>
       <space width="1600" extended="true" />

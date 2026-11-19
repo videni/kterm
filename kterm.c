@@ -41,6 +41,7 @@
 #ifdef KINDLE
 #include "kindle.h"
 #include "ime.h"
+#include "voice.h"
 #endif
 #include "config.h"
 
@@ -55,6 +56,8 @@ KTconf *conf;
 gboolean debug = FALSE;
 /** The terminal widget */
 static GtkWidget *main_terminal = NULL;
+/** The built-in keyboard */
+static Keyboard *main_keyboard = NULL;
 
 /**
  * @return The terminal widget
@@ -440,6 +443,16 @@ void kterm_use_builtin_keyboard(void) {
 }
 
 /**
+ * Lay the built-in keyboard out again: a key came or went (the "语音"
+ * key, see voice.c)
+ */
+void kterm_keyboard_relayout(void) {
+    if (main_keyboard) {
+        keyboard_set_size(main_keyboard);
+    }
+}
+
+/**
  * Preview: every keyboard folded away, the shortcut bar alone at the foot
  * of the screen. Touches on the terminal only scroll, switch tmux windows
  * or are passed to the program. Left, the built-in keyboard is back.
@@ -737,6 +750,13 @@ static const Choice full_refresh_choices[] = {
 };
 static ChoiceRow full_refresh_row_data = { full_refresh_choices, G_N_ELEMENTS(full_refresh_choices), NULL, "full_refresh", flash_set_when, { NULL } };
 
+/** Typing from a phone, see voice.c: off unless asked for, as it opens a
+ *  port to the local network */
+static const Choice voice_choices[] = {
+    { "关", 0 }, { "开", 1 },
+};
+static ChoiceRow voice_row_data = { voice_choices, G_N_ELEMENTS(voice_choices), NULL, "voice", voice_set_enabled, { NULL } };
+
 /**
  * Draw the choice in effect black
  * @param row Row of choices
@@ -864,6 +884,7 @@ static void add_panel_actions(void) {
     // while typing: then always at once)
     panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));
     panel_add_setting("全刷", choice_row(&full_refresh_row_data, &conf->full_refresh));
+    panel_add_setting("手机输入", choice_row(&voice_row_data, &conf->voice_on));
 #endif
 }
 #endif
@@ -1790,6 +1811,7 @@ gint main(gint argc, gchar **argv) {
     gtk_widget_set_name(keyboard_box, "kbBox");
     
     Keyboard *keyboard = build_layout(keyboard_box, &error);
+    main_keyboard = keyboard;
     if G_UNLIKELY(error) {
         error_handle(window, &error);
         clean_on_exit(keyboard);
@@ -1878,6 +1900,7 @@ gint main(gint argc, gchar **argv) {
 #ifdef KINDLE
     refresh_init(window, terminal);
     flash_init(window, terminal);
+    voice_init(overlay, terminal, shortbar);
 #endif
     gtk_main();
     

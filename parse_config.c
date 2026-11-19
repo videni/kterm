@@ -161,6 +161,15 @@ KTconf *parse_config(void) {
                 conf->full_refresh = MIN(when, FLASH_WRITTEN_OVER);
             }
         }
+        else if (!strncmp(buf, "voice_token", 11)) {
+            sscanf(buf, "voice_token = %31[a-z0-9]", conf->voice_token);
+        }
+        else if (!strncmp(buf, "voice =", 7)) {
+            guint on = 0;
+            if (sscanf(buf, "voice = %u", &on) == 1) {
+                conf->voice_on = on ? 1 : 0;
+            }
+        }
         else if (!strncmp(buf, "idle_pause", 10)) {
             guint minutes = 0;
             if (sscanf(buf, "idle_pause = %u", &minutes) == 1) {
