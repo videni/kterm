@@ -99,7 +99,7 @@ static const gchar VOICE_PAGE[] =
 "    if (r.ok) show(true, '已连接 Kindle');\n"
 "    else show(false, r.status == 403 ? '口令不对：请重新扫 Kindle 上的二维码' : 'Kindle 出错了（' + r.status + '）');\n"
 "  } catch (e) {\n"
-"    show(false, '连不上 Kindle：kterm 开着吗？手机输入打开了吗？');\n"
+"    show(false, '连不上 Kindle：kterm 开着吗？语音输入打开了吗？');\n"
 "  }\n"
 "}\n"
 "\n"

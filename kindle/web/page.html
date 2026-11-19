@@ -95,7 +95,7 @@ async function ping() {
     if (r.ok) show(true, '已连接 Kindle');
     else show(false, r.status == 403 ? '口令不对：请重新扫 Kindle 上的二维码' : 'Kindle 出错了（' + r.status + '）');
   } catch (e) {
-    show(false, '连不上 Kindle：kterm 开着吗？手机输入打开了吗？');
+    show(false, '连不上 Kindle：kterm 开着吗？语音输入打开了吗？');
   }
 }
 

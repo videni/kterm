@@ -273,7 +273,7 @@ void settings_init(void) {
     panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));
     panel_add_setting("全刷", choice_row(&full_refresh_row_data, &conf->full_refresh));
     panel_add_setting("tmux 集成", choice_row(&tmux_row_data, &conf->tmux_on));
-    panel_add_setting("手机输入", choice_row(&voice_row_data, &conf->voice_on));
+    panel_add_setting("语音输入", choice_row(&voice_row_data, &conf->voice_on));
 #endif
 }
 #endif

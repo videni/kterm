@@ -257,7 +257,7 @@ void voice_toggle(void) {
  */
 static GtkWidget * build_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    GtkWidget *header = panel_page_header(page, "手机输入", NULL);
+    GtkWidget *header = panel_page_header(page, "语音输入", NULL);
     GtkWidget *renew = panel_button_new("换口令");
     g_signal_connect(renew, "clicked", G_CALLBACK(new_token_cb), NULL);
     gtk_box_pack_start(GTK_BOX(header), renew, FALSE, FALSE, 0);
