@@ -23,8 +23,11 @@
  * $clients (one line for each: activity, tty, pane, in a mode) and $best,
  * the line of this terminal's client, empty if none is. Its tty is
  * KTERM_TTY here (remote.c), over ssh one the Kindle's address logged in on.
+ * tmux is told to write UTF-8 (-u): run by ssh without a locale it would
+ * print "_" for every other character, Chinese window names among them.
  */
 #define TMUX_FIND_CLIENT \
+    "tmux() { command tmux -u \"$@\"; }\n" \
     "clients=$(tmux list-clients -F '#{client_activity} #{client_tty} #{pane_id} #{pane_in_mode}' 2>/dev/null)\n" \
     "best=\n" \
     "if [ -n \"$clients\" ]; then\n" \

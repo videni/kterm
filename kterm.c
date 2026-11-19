@@ -1310,7 +1310,7 @@ gint main(gint argc, gchar **argv) {
     tmuxpick_init(terminal);
     // over everything, the voice box too
     imageview_init(overlay, terminal);
-    bellbar_init(window, terminal);
+    bellbar_init(overlay, terminal);
 #endif
     gtk_main();
     

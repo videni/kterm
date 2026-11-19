@@ -15,15 +15,14 @@
 
 /*
  * The bell (BEL) of the terminal: a program asking for attention, Claude
- * Code done or waiting, a tmux window's bell passed on. Shown as a bar at
- * the top of the screen, over whatever is shown there, kterm or a book: a
- * window of its own the window manager leaves alone, so kterm is not
- * brought to the front. It says what rang: the tmux window and its pane's
- * title (asked of tmux, tmux.c), or the terminal's title. A tap takes it
- * away; a bell while it is up only changes what it says.
+ * Code done or waiting, a tmux window's bell passed on. Shown as a bar
+ * over the top of the terminal, in kterm's own window: seen once kterm is
+ * looked at, not over other applications. It says what rang: the tmux
+ * window and its pane's title (asked of tmux, tmux.c), or the terminal's
+ * title. A tap takes it away; a bell while it is up only changes what it
+ * says.
  */
 
-#include <math.h>
 #include <string.h>
 #include <vte/vte.h>
 #include "config.h"
@@ -33,8 +32,6 @@
 #include "panel.h"
 #include "tmux.h"
 
-/** Corners of the bar, px; as in kindle.c's styles */
-#define BELL_RADIUS 24
 /** Most characters of what rang */
 #define BELL_LABEL_CHARS 60
 
@@ -42,31 +39,6 @@ static GtkWidget *bar = NULL;
 static GtkWidget *message = NULL;
 /** tmux is being asked which window rang: more bells wait for it */
 static gboolean asking = FALSE;
-
-/**
- * Cut the corners off the bar's window, round as its frame: what is under
- * them shows
- */
-static void round_corners(GtkWidget *widget, GdkRectangle *allocation, gpointer data) {
-    UNUSED(data);
-    const gint width = allocation->width;
-    const gint height = allocation->height;
-    const gint radius = MIN(BELL_RADIUS, MIN(width, height) / 2);
-    cairo_region_t *region = cairo_region_create();
-    for (gint y = 0; y < height; y++) {
-        // rows of the corners start in from the side
-        const gint from_edge = y < radius ? radius - 1 - y : (y >= height - radius ? y - (height - radius) : -1);
-        gint inset = 0;
-        if (from_edge >= 0) {
-            const gdouble dy = from_edge + 0.5;
-            inset = radius - (gint) floor(sqrt((gdouble) radius * radius - dy * dy));
-        }
-        const cairo_rectangle_int_t row = { inset, y, width - 2 * inset, 1 };
-        cairo_region_union_rectangle(region, &row);
-    }
-    gtk_widget_shape_combine_region(widget, region);
-    cairo_region_destroy(region);
-}
 
 static gboolean bar_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer data) {
     UNUSED(widget);
@@ -78,16 +50,12 @@ static gboolean bar_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer 
 }
 
 /**
- * Show the bar, across the top of the screen as it is turned now
+ * Show the bar
  * @param text What rang
  */
 static void show_bar(const gchar *text) {
     D printf("bell: %s\n", text);
     gtk_label_set_text(GTK_LABEL(message), text);
-    GdkScreen *screen = gtk_widget_get_screen(bar);
-    const gint width = gdk_screen_get_width(screen) - 2 * PANEL_SPACING;
-    gtk_widget_set_size_request(bar, width, -1);
-    gtk_window_move(GTK_WINDOW(bar), PANEL_SPACING, PANEL_SPACING);
     gtk_widget_show(bar);
 }
 
@@ -126,24 +94,25 @@ static void bell_cb(VteTerminal *terminal, gpointer data) {
 }
 
 /**
- * @param window kterm's window: the bar is drawn the way it is
+ * @param overlay Window's overlay: the bar is drawn over the terminal's top
  * @param terminal Terminal widget, whose bell is shown
  */
-void bellbar_init(GtkWidget *window, GtkWidget *terminal) {
+void bellbar_init(GtkWidget *overlay, GtkWidget *terminal) {
     // no beep: the Kindle has no speaker
     vte_terminal_set_audible_bell(VTE_TERMINAL(terminal), FALSE);
     g_signal_connect(terminal, "bell", G_CALLBACK(bell_cb), NULL);
 
-    // a window the window manager leaves alone: over everything, kterm's
-    // own window not raised for it
-    bar = gtk_window_new(GTK_WINDOW_POPUP);
-    gtk_widget_set_visual(bar, gtk_widget_get_visual(window));
+    // takes the taps, draws nothing: the row draws the rounded frame
+    bar = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(bar), FALSE);
+    gtk_widget_set_valign(bar, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(bar, PANEL_SPACING);
+    gtk_widget_set_margin_end(bar, PANEL_SPACING);
+    gtk_widget_set_margin_top(bar, PANEL_SPACING);
     gtk_widget_add_events(bar, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
     g_signal_connect(bar, "button-press-event", G_CALLBACK(bar_event_cb), NULL);
     g_signal_connect(bar, "button-release-event", G_CALLBACK(bar_event_cb), NULL);
-    g_signal_connect(bar, "size-allocate", G_CALLBACK(round_corners), NULL);
 
-    // the frame: the box's, the window's corners cut to it
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
     gtk_widget_set_name(row, "ktermBell");
     GtkWidget *bell = icon_new_outline(OUTLINE_BELL, 32);
@@ -157,5 +126,6 @@ void bellbar_init(GtkWidget *window, GtkWidget *terminal) {
     gtk_box_pack_start(GTK_BOX(row), message, TRUE, TRUE, 0);
     gtk_box_pack_end(GTK_BOX(row), x, FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(bar), row);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), bar);
     gtk_widget_show_all(row);
 }

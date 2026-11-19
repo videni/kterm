@@ -238,22 +238,49 @@ gboolean tmux_list_sessions(TmuxSessionsDone done, gpointer data) {
     return run_script("sessions", TRUE, sessions_done, G_CALLBACK(done), data);
 }
 
+/** Windows flagged for a bell at the last bell, " index:" each: one
+ *  flagged since is the one that rang */
+static gchar *flagged_before = NULL;
+
 static void bell_done(gchar *output, GCallback done, gpointer data) {
     gchar **lines = output ? g_strsplit(output, "\n", -1) : NULL;
-    // A window that rang is flagged until it is shown, one shown is not
-    // flagged: of those, the one written to last (a bell is written too)
+    // A window that rang is flagged until it is shown; one shown is not
+    // flagged. The window flagged since the last bell rang (of several,
+    // the one written to last); with none, the one shown did.
     gchar **rang = NULL;
+    gchar **shown = NULL;
     gint64 latest = -1;
+    GString *flagged = g_string_new(NULL);
     for (guint i = 0; lines && lines[i]; i++) {
         gchar **fields = g_strsplit(lines[i], ":", 7);
-        const gint64 written = g_strv_length(fields) == 7 ? g_ascii_strtoll(fields[2], NULL, 10) : -1;
-        if ((!g_strcmp0(fields[0], "1") || !g_strcmp0(fields[1], "1")) && written > latest) {
+        // not every line is a window's: the empty one after the last
+        if (g_strv_length(fields) != 7) {
+            g_strfreev(fields);
+            continue;
+        }
+        gchar *key = g_strconcat(" ", fields[3], ":", NULL);
+        const gint64 written = g_ascii_strtoll(fields[2], NULL, 10);
+        const gboolean is_flagged = !strcmp(fields[0], "1");
+        const gboolean is_new = is_flagged && !(flagged_before && strstr(flagged_before, key));
+        if (is_flagged) {
+            g_string_append(flagged, key);
+        }
+        g_free(key);
+        if (is_new && written > latest) {
             g_strfreev(rang);
             rang = fields;
             latest = written;
+        } else if (!shown && !strcmp(fields[1], "1")) {
+            shown = fields;
         } else {
             g_strfreev(fields);
         }
+    }
+    g_free(flagged_before);
+    flagged_before = g_string_free(flagged, FALSE);
+    if (!rang) {
+        rang = shown;
+        shown = NULL;
     }
     gint index = -1;
     const gchar *label = NULL;
@@ -269,6 +296,7 @@ static void bell_done(gchar *output, GCallback done, gpointer data) {
     }
     ((TmuxBellDone) done)(index, label, data);
     g_strfreev(rang);
+    g_strfreev(shown);
     g_strfreev(lines);
 }
 
