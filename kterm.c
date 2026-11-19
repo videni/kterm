@@ -737,6 +737,21 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
 #endif
 
 #if GTK_CHECK_VERSION(3,2,0)
+#ifdef KINDLE
+/**
+ * "文字加深": on the grey scale screen coloured and dim text turns into
+ * light grey; on, text is drawn far from its background (kterm's own VTE,
+ * kindle/vte/0004-text-contrast.patch)
+ * @param on Non-zero for on
+ */
+void kterm_set_text_contrast(guint on) {
+    conf->text_contrast = on ? 1 : 0;
+    if (main_terminal) {
+        vte_terminal_set_text_contrast(VTE_TERMINAL(main_terminal), on != 0);
+    }
+}
+#endif
+
 /**
  * Set the terminal's font size, as from the settings page
  * @param size Points
@@ -927,6 +942,9 @@ static void setup_terminal(GtkWidget *terminal, gchar *command, gchar **envv, GE
     }
 
     set_terminal_colors(terminal, conf->color_reversed);
+#ifdef KINDLE
+    vte_terminal_set_text_contrast(VTE_TERMINAL(terminal), conf->text_contrast != 0);
+#endif
     vte_terminal_set_scrollback_lines(VTE_TERMINAL(terminal), VTE_SCROLLBACK_LINES);
     set_terminal_font(VTE_TERMINAL(terminal), conf->font_family, (gint) conf->font_size);
 #if VTE_CHECK_VERSION(0,20,0)

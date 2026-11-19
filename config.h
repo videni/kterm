@@ -125,6 +125,7 @@ typedef struct {
     guint idle_pause; /** Minutes untouched after which the screen stops following, 0: never */
     guint voice_on; /** Typing from a phone switched on, see voice.c */
     guint tmux_on; /** "tmux 集成": kterm asks tmux over ssh, see tmux.c */
+    guint text_contrast; /** "文字加深": coloured text drawn dark grey, see kterm_set_text_contrast() */
     gchar voice_token[32]; /** Key in the address of the phone input page, see voice.c */
 } KTconf;
 

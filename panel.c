@@ -252,7 +252,8 @@ static GtkWidget * build_home_page(void) {
 static GtkWidget * build_settings_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
     panel_page_header(page, "设置", NULL);
-    settings_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    // rows closer than the panel's other lists: they all fit above the bar
+    settings_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING / 2);
     gtk_widget_set_name(settings_box, PANEL_SETTINGS_NAME);
     gtk_box_pack_start(GTK_BOX(page), settings_box, FALSE, FALSE, 0);
     return page;

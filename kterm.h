@@ -38,6 +38,7 @@ void kterm_keyboard_back_on_tap(void);
 /* the terminal and what runs in it */
 GtkWidget * kterm_get_terminal(void);
 void kterm_set_font_size(guint size);
+void kterm_set_text_contrast(guint on);
 gboolean kterm_terminal_has_shell(void);
 pid_t kterm_terminal_foreground(void);
 pid_t kterm_terminal_owner(void);

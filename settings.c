@@ -141,6 +141,9 @@ static const Choice on_off[] = {
     { "关", 0 }, { "开", 1 },
 };
 
+/** "文字加深": coloured and dim text drawn dark, see kterm_set_text_contrast() */
+static ChoiceRow contrast_row_data = { on_off, G_N_ELEMENTS(on_off), NULL, "text_contrast", kterm_set_text_contrast, { NULL } };
+
 /** "tmux 集成": kterm asks tmux over the ssh connection (scrolled back?
  *  which sessions?), switches its windows by swipes; see tmux.c */
 static ChoiceRow tmux_row_data = { on_off, G_N_ELEMENTS(on_off), NULL, "tmux", tmux_set_enabled, { NULL } };
@@ -270,6 +273,7 @@ void settings_init(void) {
     // while typing: then always at once)
     panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));
     panel_add_setting("全刷", choice_row(&full_refresh_row_data, &conf->full_refresh));
+    panel_add_setting("文字加深", choice_row(&contrast_row_data, &conf->text_contrast));
     panel_add_setting("tmux 集成", choice_row(&tmux_row_data, &conf->tmux_on));
     panel_add_setting("语音输入", choice_row(&voice_row_data, &conf->voice_on));
 #endif

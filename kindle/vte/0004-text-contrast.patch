@@ -1,0 +1,107 @@
+From: kterm
+Subject: vte_terminal_set_text_contrast()
+
+On the Kindle's grey scale screen coloured and dim text (Claude Code's
+code spans, hints) turns into light grey, hard to read. With text
+contrast on, draw_cells() draws text grey, pushed the way it already
+differs from its background: into the darkest 40% of the scale when it
+is darker than the background, the lightest 40% when lighter. The
+backgrounds keep their colours. kterm switches it with a setting.
+
+--- a/src/vte.cc
++++ b/src/vte.cc
+@@ -8835,6 +8835,24 @@
+ {
+         invalidate_all();
+         return false; /* don't run again */
++}
++
++/* On a grey scale screen (e-ink) coloured text turns into light grey,
++ * hard to read: text is made grey and pushed the way it already differs
++ * from its background, darker than a background it is darker than,
++ * lighter than one it is lighter than. Colours of text all look alike
++ * there anyway; backgrounds keep theirs. */
++static void
++contrast_text(vte::color::rgb& fg,
++              vte::color::rgb const& bg)
++{
++        auto const luma = [](vte::color::rgb const& c) -> unsigned {
++                return (c.red * 299u + c.green * 587u + c.blue * 114u) / 1000u;
++        };
++        auto const text = luma(fg);
++        /* within the darkest (lightest) 40% of the scale */
++        auto const grey = text <= luma(bg) ? text * 2u / 5u : 0xffffu - (0xffffu - text) * 2u / 5u;
++        fg.red = fg.green = fg.blue = grey;
+ }
+ 
+ /* Draw a string of characters with similar attributes. */
+@@ -8860,6 +8878,8 @@
+ 
+         rgb_from_index<8, 8, 8>(fore, fg);
+         rgb_from_index<8, 8, 8>(back, bg);
++        if (m_text_contrast)
++                contrast_text(fg, bg);
+         // FIXMEchpe defer resolving deco color until we actually need to draw an underline?
+         if (deco == VTE_DEFAULT_FG)
+                 dc = fg;
+--- a/src/vteinternal.hh
++++ b/src/vteinternal.hh
+@@ -495,6 +495,8 @@
+         bool m_audible_bell{true};
+         bool m_allow_bold{true};
+         bool m_bold_is_bright{false};
++        /* Text drawn far from its background, see draw_cells() */
++        bool m_text_contrast{false};
+         bool m_rewrap_on_resize{true};
+         gboolean m_text_modified_flag;
+         gboolean m_text_inserted_flag;
+--- a/src/vtegtk.cc
++++ b/src/vtegtk.cc
+@@ -5493,6 +5493,33 @@
+ }
+ 
+ /**
++ * vte_terminal_set_text_contrast:
++ * @terminal: a #VteTerminal
++ * @setting: %TRUE to draw text in grey far from its background
++ *
++ * For grey scale screens (e-ink), where coloured and dim text turns into
++ * light grey: text is drawn dark grey on a light background, light grey
++ * on a dark one. Backgrounds keep their colours.
++ */
++void
++vte_terminal_set_text_contrast(VteTerminal *terminal,
++                               gboolean setting) noexcept
++try
++{
++        g_return_if_fail(VTE_IS_TERMINAL(terminal));
++
++        auto impl = IMPL(terminal);
++        if (impl->m_text_contrast == (setting != FALSE))
++                return;
++        impl->m_text_contrast = setting != FALSE;
++        impl->invalidate_all();
++}
++catch (...)
++{
++        vte::log_exception();
++}
++
++/**
+  * vte_terminal_get_char_height:
+  * @terminal: a #VteTerminal
+  *
+--- a/src/vte/vteterminal.h
++++ b/src/vte/vteterminal.h
+@@ -345,6 +345,11 @@
+ _VTE_PUBLIC
+ VteCursorBlinkMode vte_terminal_get_cursor_blink_mode(VteTerminal *terminal) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
+ 
++/* Text drawn far from its background, for grey scale screens */
++_VTE_PUBLIC
++void vte_terminal_set_text_contrast(VteTerminal *terminal,
++                                    gboolean setting) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
++
+ /* Whether pasted text is to be marked: the program waits for a line */
+ _VTE_PUBLIC
+ gboolean vte_terminal_get_bracketed_paste(VteTerminal *terminal) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);

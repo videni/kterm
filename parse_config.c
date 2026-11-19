@@ -72,6 +72,7 @@ KTconf *parse_config(void) {
     conf->orientation = 0;
     conf->refresh_rate = REFRESH_RATE_DEFAULT;
     conf->tmux_on = 1;
+    conf->text_contrast = 1;
     conf->idle_pause = REFRESH_IDLE_PAUSE_DEFAULT;
     conf->full_refresh = FLASH_DEFAULT;
     
@@ -102,6 +103,12 @@ KTconf *parse_config(void) {
             if (color_reversed == 0 || color_reversed == 1) {
                 conf->color_reversed = color_reversed;
                 D printf("color_scheme = %i\n", conf->color_reversed);
+            }
+        }
+        else if (!strncmp(buf, "text_contrast =", 15)) {
+            guint on = 1;
+            if (sscanf(buf, "text_contrast = %u", &on) == 1) {
+                conf->text_contrast = on ? 1 : 0;
             }
         }
         else if (!strncmp(buf, "tmux =", 6)) {
