@@ -46,6 +46,7 @@
 #include "voice.h"
 #include "bellbar.h"
 #include "imageview.h"
+#include "notice.h"
 #include "tmux.h"
 #include "tmuxpick.h"
 #include "touch.h"
@@ -1151,6 +1152,8 @@ gint main(gint argc, gchar **argv) {
     //      |   \- terminal
     //      |   \- shortcut bar, keyboard_box (or, while the system keyboard
     //      |      is up, the bar above it)
+    //      \- notices over the terminal's top: text from the phone, the
+    //      |  bell (notice.c)
     //      \- panel, drawn over the bottom of the window
     //      \- image shown over the whole window (imageview.c)
     //
@@ -1236,6 +1239,10 @@ gint main(gint argc, gchar **argv) {
     main_terminal = terminal;
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
 #if GTK_CHECK_VERSION(3,2,0)
+#ifdef KINDLE
+    // under the panel: it covers them
+    notices_init(overlay);
+#endif
     GtkWidget *panel = panel_new(terminal);
     connpage_init(terminal);
     add_panel_actions();
@@ -1306,11 +1313,11 @@ gint main(gint argc, gchar **argv) {
 #ifdef KINDLE
     refresh_init(window, terminal);
     flash_init(window, terminal);
-    voice_init(overlay, terminal, shortbar);
+    voice_init(terminal);
     tmuxpick_init(terminal);
     // over everything, the voice box too
     imageview_init(overlay, terminal);
-    bellbar_init(overlay, terminal);
+    bellbar_init(terminal);
 #endif
     gtk_main();
     

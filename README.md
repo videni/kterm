@@ -12,7 +12,7 @@
 - **适合敲命令的键盘**：Esc、Ctrl、Tab、方向键和数字都在第一屏。Shift 出大写和 `!@#`，“符”键出 F1–F12 和各种符号。字母行比其他行高，键之间留了空隙，不容易按错。横屏时键盘分成左右两半，中间留空，两边各有一个空格键，两只手各按一半。点过的键变黑并保持 0.4 秒，打字快时也看得出前几下都按到了；按下的 Shift、Ctrl、Alt、“符”会一直黑着，用完自动恢复。
 - **中文输入**：点“中”调出 Kindle 自带的拼音键盘。
 - **语音输入**：设置 → 语音输入 打开后（默认关），键盘上多一个“语音”键，点它显示二维码和网址。手机扫码打开网页（可以加到书签或主屏幕），在网页的输入框里用手机输入法的麦克风说话（微信输入法、iPhone 听写都行），也可以打字、改错：
-  - “发送”：文字放进快捷栏上方的一个小框里，不碰终端（太长时中间省略）。框里的按钮和网页的一样，只有图标：最左边 ▶ 放入并执行（发送并回车），右边纸飞机放入终端的输入框、不执行（发送），✕ 丢掉文字、关掉框（清空）。放入前都会先退出往上翻的状态。键盘上的回车也能放入。点框外面不会关掉它。没放入前再发的接在后面。
+  - “发送”：文字放进终端顶部的一个提示框里，不碰终端（太长时中间省略）。框里的按钮和网页的一样，只有图标：最左边 ▶ 放入并执行（发送并回车），右边纸飞机放入终端的输入框、不执行（发送），✕ 丢掉文字、关掉框（清空）。放入前都会先退出往上翻的状态。键盘上的回车也能放入。点框外面不会关掉它。没放入前再发的接在后面。
   - “发送并回车”“回车”：终端停在输入行时直接放入并执行；正往上翻着看（kterm 自己的历史，或 tmux 的复制模式）时不打断，先放进框里（▶ 按钮变黑），点一下就退出往上翻、放入并执行。
   - 网页下面是最近发送的 50 条（只存在这台手机的浏览器里）：点一条填回输入框，连点几条一行一条接起来；每条右边可以直接发送、发送并回车、复制。键盘弹出时输入框和按钮总在键盘上方，列表可以往下滚着看。
   - tmux 是不是在往上翻，是收到文字时通过同一个 ssh 连接问 tmux 的（见下面的 tmux 集成）；问不到时文字先放进框里。没有 tmux 也照常用：看的是 kterm 自己的历史。
@@ -45,7 +45,7 @@
   set-hook -g session-created[50] 'if -F "#{==:#{hook_session_name},kindle}" "set -t kindle set-titles on"'
   ```
 Kindle 本机、ssh 里的 tmux、Claude Code 里都能用。
-- **响铃提示**：终端响铃（BEL）时，屏幕顶部出现一条圆角提示条，说是什么响的：在 tmux 里是哪个窗口和它窗格的标题（Claude Code 会把当前任务设成标题），比如“窗口 2 · ✳ 修复登录 bug”，没有标题时是窗口名；不在 tmux 里是终端的标题。提示条在 kterm 自己的窗口里（盖在终端顶部），kterm 在后台时不弹出、也不把 kterm 调回前台，回到终端就能看到；点一下关掉。Claude Code 在 `/config` 里把通知方式设成 terminal bell，干完活或等你确认时就会响铃；tmux 默认把各窗口的响铃转给 kterm。
+- **响铃提示**：终端响铃（BEL）时，终端顶部出现一条圆角提示条（和语音的文字框同一种，同时有两条时上下叠放，新的在上），说是什么响的：在 tmux 里是哪个窗口和它窗格的标题（Claude Code 会把当前任务设成标题），比如“窗口 2 · ✳ 修复登录 bug”，没有标题时是窗口名；不在 tmux 里是终端的标题。提示条在 kterm 自己的窗口里（盖在终端顶部），kterm 在后台时不弹出、也不把 kterm 调回前台，回到终端就能看到。条上的 → 让 tmux 切到响铃的那个窗口；✕ 或点条上别处关掉。Claude Code 在 `/config` 里把通知方式设成 terminal bell，干完活或等你确认时就会响铃；tmux 默认把各窗口的响铃转给 kterm。
 - **看图**：终端里出现图片路径（以 .png、.jpg、.gif、.webp、.bmp 结尾，比如 Claude Code 的 `Read(~/Desktop/a.png)`），点一下路径，图片盖满屏幕；再点一下关掉。ssh 连着时图片从那台电脑上取（走同一个 ssh 连接；自己输入的 ssh 要用密钥登录，从面板连接的密码登录也行），否则读 Kindle 上的文件。不以 `/`、`~` 开头的路径，按 tmux 当前窗格的目录找，没有 tmux 时按终端里程序所在的目录（ssh 连着时是那台电脑的家目录）。路径里有空格的认不全；超过 15MB 的图不取；Claude Code 里粘贴的截图（`[Image #1]`）没有文件，打不开。
 - **文字加深**（设置里，默认开）：墨水屏只有灰度，彩色字（Claude Code 的代码、提交号）和暗淡的提示字会变成浅灰、看不清。打开后所有文字一律画成深灰到黑（深色背景上是浅灰到白），背景色不变。
 - **双指点击**：相当于鼠标右键。在 tmux 里会弹出它的菜单，点菜单项执行，点别处关闭。
@@ -67,6 +67,7 @@ Kindle 本机、ssh 里的 tmux、Claude Code 里都能用。
 ### 和原版的区别
 
 - 在 Kindle 的 X 服务器上跑 GTK+ 3（来自 Alpine 的软件包，程序在 Alpine chroot 里运行）和自己编译的 VTE 0.84（[kindle/build-vte.sh](kindle/build-vte.sh)）：Alpine 的版本和补丁，加上 [kindle/vte/](kindle/vte/) 里的三个补丁——只重画写到的行（原版的改动范围初始值上下颠倒，打一个字也整屏重画，墨水屏上就是整屏刷新）、让 kterm 能问到程序是否在等输入（括号粘贴模式），以及文字加深（文字按背景画成深灰或浅灰）。装在 Alpine 的 `/usr/local/lib/kterm/`，只有 kterm 用它。
+- 顶部提示条（[notice.c](notice.c)）：语音的文字框（[voicebar.c](voicebar.c)）和响铃（[bellbar.c](bellbar.c)）共用。
 - 语音输入（[voice.c](voice.c)、[voicebar.c](voicebar.c)，网页在 [kindle/web/](kindle/web/)）：网页用 Tailwind 写，`sh kindle/build-web.sh` 编译（下载 Tailwind 独立可执行文件，不用 Node）成只含用到的样式，连同页面生成 `voice-page.h`，提交在仓库里，平时构建不需要 Tailwind。图标来自 Lucide（ISC）。打开时 kterm 自己在 7788 端口提供网页（GLib 的 GThreadedSocketService，没人连时只是一个等待的端口），关掉就不监听；启动脚本给 Wi-Fi 放行这个端口。要不要先放进框里：没有 tmux 看 VTE 的滚动位置；有 tmux 时像 rootshell 那样在同一个 ssh 连接上另开通道执行一段脚本（`ControlMaster`，[remote.c](remote.c)，看图取文件也走它），用 `tmux list-clients` 和 `who` 找到这台 Kindle 登录的 tmux 客户端，读 `#{pane_in_mode}`，放入时用 `send-keys -X cancel` 退出复制模式。二维码用 Nayuki 的 [qrcodegen](qrcodegen.c)（MIT）生成。
 - 局域网发现（[kterm-mdns.c](kterm-mdns.c)）：多播 DNS / DNS-SD（苹果的 Bonjour），不常驻后台，要用时才问一次。`kterm-mdns browse _ssh._tcp` 列出能 ssh 的机器，`resolve` 查名字的地址，`connect` 给 ssh 的 `ProxyCommand` 用：先连上次找到的地址（缓存在 `/tmp/kterm-mdns/`），连不上再问，所以命令行里的 ssh、scp、git 也一样。地址是 `.local` 的连接保存时自动加上 `ProxyCommand /usr/local/bin/kterm-mdns connect %h %p`，自己写的 ProxyCommand 不动。Kindle 的防火墙挡掉回答，启动脚本给 Wi-Fi 放行来自 5353 端口的 UDP。
 - 全刷（[flash.c](flash.c)）：Kindle 的窗口管理器（awesome + lab126 脚本）不会主动给 kterm 全刷。翻页、滑动前，kterm 给它发 `lab126_create_trigger` 消息：暂停刷屏，等终端区域整块重画完（最多 0.8 秒）再用 GC 波形全刷，和系统阅读器翻页同一个机制。

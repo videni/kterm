@@ -15,21 +15,20 @@
 
 /*
  * The bell (BEL) of the terminal: a program asking for attention, Claude
- * Code done or waiting, a tmux window's bell passed on. Shown as a bar
- * over the top of the terminal, in kterm's own window: seen once kterm is
- * looked at, not over other applications. It says what rang: the tmux
- * window and its pane's title (asked of tmux, tmux.c), or the terminal's
- * title. A tap takes it away; a bell while it is up only changes what it
- * says.
+ * Code done or waiting, a tmux window's bell passed on. Shown as a notice
+ * at the top of the terminal (notice.c), in kterm's own window: seen once
+ * kterm is looked at, not over other applications. It says what rang: the
+ * tmux window and its pane's title (asked of tmux, tmux.c), or the
+ * terminal's title. Its arrow shows that tmux window; a tap elsewhere
+ * takes it away. A bell while it is up only changes what it says.
  */
 
-#include <string.h>
 #include <vte/vte.h>
 #include "config.h"
 #include "bellbar.h"
 #include "icons.h"
 #include "kterm.h"
-#include "panel.h"
+#include "notice.h"
 #include "tmux.h"
 
 /** Most characters of what rang */
@@ -37,26 +36,35 @@
 
 static GtkWidget *bar = NULL;
 static GtkWidget *message = NULL;
+/** Shows the window that rang */
+static GtkWidget *go_button = NULL;
+/** tmux window that rang, -1 if not known */
+static gint rang = -1;
 /** tmux is being asked which window rang: more bells wait for it */
 static gboolean asking = FALSE;
 
-static gboolean bar_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer data) {
-    UNUSED(widget);
+static void close_bar(void) {
+    gtk_widget_hide(bar);
+}
+
+static void go_cb(GtkWidget *button, gpointer data) {
+    UNUSED(button);
     UNUSED(data);
-    if (event->type == GDK_BUTTON_RELEASE) {
-        gtk_widget_hide(bar);
-    }
-    return TRUE;
+    tmux_select_window(rang);
+    close_bar();
 }
 
 /**
  * Show the bar
+ * @param window tmux window that rang, -1 if not known
  * @param text What rang
  */
-static void show_bar(const gchar *text) {
+static void show_bar(gint window, const gchar *text) {
     D printf("bell: %s\n", text);
+    rang = window;
     gtk_label_set_text(GTK_LABEL(message), text);
-    gtk_widget_show(bar);
+    gtk_widget_set_visible(go_button, window >= 0);
+    notice_show(bar);
 }
 
 /**
@@ -64,7 +72,7 @@ static void show_bar(const gchar *text) {
  */
 static void show_own(void) {
     gchar *title = kterm_terminal_title();
-    show_bar(title ? title : "终端响铃");
+    show_bar(-1, title ? title : "终端响铃");
     g_free(title);
 }
 
@@ -77,7 +85,7 @@ static void bell_done(gint index, const gchar *label, gpointer data) {
     }
     gchar *text = label && *label ? g_strdup_printf("窗口 %d · %s", index, label)
                                   : g_strdup_printf("窗口 %d", index);
-    show_bar(text);
+    show_bar(index, text);
     g_free(text);
 }
 
@@ -94,38 +102,23 @@ static void bell_cb(VteTerminal *terminal, gpointer data) {
 }
 
 /**
- * @param overlay Window's overlay: the bar is drawn over the terminal's top
  * @param terminal Terminal widget, whose bell is shown
  */
-void bellbar_init(GtkWidget *overlay, GtkWidget *terminal) {
+void bellbar_init(GtkWidget *terminal) {
     // no beep: the Kindle has no speaker
     vte_terminal_set_audible_bell(VTE_TERMINAL(terminal), FALSE);
     g_signal_connect(terminal, "bell", G_CALLBACK(bell_cb), NULL);
 
-    // takes the taps, draws nothing: the row draws the rounded frame
-    bar = gtk_event_box_new();
-    gtk_event_box_set_visible_window(GTK_EVENT_BOX(bar), FALSE);
-    gtk_widget_set_valign(bar, GTK_ALIGN_START);
-    gtk_widget_set_margin_start(bar, PANEL_SPACING);
-    gtk_widget_set_margin_end(bar, PANEL_SPACING);
-    gtk_widget_set_margin_top(bar, PANEL_SPACING);
-    gtk_widget_add_events(bar, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-    g_signal_connect(bar, "button-press-event", G_CALLBACK(bar_event_cb), NULL);
-    g_signal_connect(bar, "button-release-event", G_CALLBACK(bar_event_cb), NULL);
-
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
-    gtk_widget_set_name(row, "ktermBell");
-    GtkWidget *bell = icon_new_outline(OUTLINE_BELL, 32);
     message = gtk_label_new(NULL);
     gtk_label_set_ellipsize(GTK_LABEL(message), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(GTK_LABEL(message), BELL_LABEL_CHARS);
     gtk_label_set_xalign(GTK_LABEL(message), 0);
-    // a tap anywhere closes, the ✕ says so
-    GtkWidget *x = icon_new_outline(OUTLINE_X, 32);
-    gtk_box_pack_start(GTK_BOX(row), bell, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), message, TRUE, TRUE, 0);
-    gtk_box_pack_end(GTK_BOX(row), x, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(bar), row);
-    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), bar);
-    gtk_widget_show_all(row);
+    bar = notice_new(message, close_bar);
+    notice_add(bar, icon_new_outline(OUTLINE_BELL, 32), TRUE);
+    go_button = notice_button(OUTLINE_GO);
+    g_signal_connect(go_button, "clicked", G_CALLBACK(go_cb), NULL);
+    notice_add(bar, go_button, FALSE);
+    GtkWidget *x = notice_button(OUTLINE_X);
+    g_signal_connect_swapped(x, "clicked", G_CALLBACK(close_bar), NULL);
+    notice_add(bar, x, FALSE);
 }

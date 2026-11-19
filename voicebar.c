@@ -20,14 +20,14 @@
  * the program at all (tmux takes every letter for a copy mode command:
  * "q" leaves it, and what follows lands half in the input box).
  *
- * So text is kept in a box above the shortcut bar, shown until it is put
- * in with one of its buttons, those of the phone page (run: "send and
- * Enter"; "send": without Enter) or Enter on the keyboard, which leave
- * the scrolled back view first; "clear" throws it away. "Send" from the
- * phone always goes to the box; "send and Enter" goes straight in when
- * the terminal shows its input line, to the box (marked to be run) when
- * it is scrolled back, or when tmux cannot be asked (tmux.c). A tap on
- * the box puts the text in all the same.
+ * So text is kept in a box, a notice at the top of the terminal (notice.c),
+ * shown until it is put in with one of its buttons, those of the phone
+ * page (run: "send and Enter"; "send": without Enter) or Enter on the
+ * keyboard, which leave the scrolled back view first; "clear" throws it
+ * away. "Send" from the phone always goes to the box; "send and Enter"
+ * goes straight in when the terminal shows its input line, to the box
+ * (marked to be run) when it is scrolled back, or when tmux cannot be
+ * asked (tmux.c).
  *
  * Text from the phone and taps on the box are handled one after the
  * other, in the order they came: each may have to wait for tmux.
@@ -39,15 +39,11 @@
 #include "icons.h"
 #include "keyboard.h"
 #include "kterm.h"
+#include "notice.h"
 #include "panel.h"
 #include "tmux.h"
 #include "voicebar.h"
 
-#define VOICEBAR_NAME "ktermVoiceBar"
-#define VOICEBAR_BUTTON_NAME "ktermVoiceButton"
-#define VOICEBAR_ICON_PX 32
-/** Room between the box and the sides of the screen, the shortcut bar, px */
-#define VOICEBAR_MARGIN 12
 /** Something to do, waiting for what came before it */
 typedef struct {
     /** Text from the phone; NULL: a tap putting the box's text in */
@@ -60,7 +56,6 @@ typedef struct {
 } Incoming;
 
 static GtkWidget *terminal_widget = NULL;
-static GtkWidget *shortbar_widget = NULL;
 static GtkWidget *bar = NULL;
 /** The text, on one line */
 static GtkWidget *text_area = NULL;
@@ -120,9 +115,8 @@ static void show_bar(const gchar *note) {
         gtk_style_context_remove_class(style, "primary");
     }
     D printf("voicebar: show \"%s\"\n", staged->str);
-    gtk_widget_show(bar);
+    notice_show(bar);
     gtk_widget_queue_draw(text_area);
-    gtk_widget_queue_resize(bar);
 }
 
 static void clear_staged(void) {
@@ -262,18 +256,6 @@ void voicebar_clear(void) {
 }
 
 /**
- * A touch on the box: taken, so that it does not reach the terminal below;
- * the buttons act, the rest does nothing (the box stays until its text is
- * put in)
- */
-static gboolean bar_event(GtkWidget *widget, GdkEventButton *event, gpointer data) {
-    UNUSED(widget);
-    UNUSED(event);
-    UNUSED(data);
-    return TRUE;
-}
-
-/**
  * Too long for its room, the text loses its middle, a bit right of the
  * centre: most of how it starts and some of how it ends stay in view
  * @param layout Layout to set the text in
@@ -346,111 +328,33 @@ static void put_in_cb(GtkWidget *button, gpointer run) {
 }
 
 /**
- * @param icon Icon, OUTLINE_...: the sign alone, as on the phone page
- * @return A button of the box
- */
-static GtkWidget * bar_button(const gchar *icon) {
-    GtkWidget *button = gtk_button_new();
-    gtk_widget_set_name(button, VOICEBAR_BUTTON_NAME);
-    gtk_widget_set_can_focus(button, FALSE);
-    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
-    gtk_container_add(GTK_CONTAINER(button), icon_new_outline(icon, VOICEBAR_ICON_PX));
-    return button;
-}
-
-/**
- * Lay the box out: over the shortcut bar (over the foot of the terminal
- * without one), a little in from the sides
- */
-static gboolean position_cb(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *rect, gpointer data) {
-    UNUSED(data);
-    if (child != bar) {
-        return FALSE;
-    }
-    const gboolean on_bar = shortbar_widget && gtk_widget_get_visible(shortbar_widget)
-                            && gtk_widget_get_mapped(shortbar_widget);
-    gint x = 0, bottom = 0;
-    if (on_bar) {
-        gtk_widget_translate_coordinates(shortbar_widget, GTK_WIDGET(overlay), 0, 0, &x, &bottom);
-    } else {
-        gtk_widget_translate_coordinates(terminal_widget, GTK_WIDGET(overlay), 0,
-                                         gtk_widget_get_allocated_height(terminal_widget), &x, &bottom);
-    }
-    const gint width = gtk_widget_get_allocated_width(GTK_WIDGET(overlay)) - 2 * VOICEBAR_MARGIN;
-    gint height = 0;
-    gtk_widget_get_preferred_height_for_width(bar, width, NULL, &height);
-    rect->x = VOICEBAR_MARGIN;
-    rect->width = width;
-    rect->height = height;
-    rect->y = MAX(0, bottom - VOICEBAR_MARGIN - height);
-    return TRUE;
-}
-
-static gboolean requeue(gpointer data) {
-    UNUSED(data);
-    if (bar && gtk_widget_get_visible(bar)) {
-        gtk_widget_queue_resize(bar);
-    }
-    return G_SOURCE_REMOVE;
-}
-
-static void anchor_moved(GtkWidget *widget, GdkRectangle *alloc, gpointer data) {
-    UNUSED(widget);
-    UNUSED(alloc);
-    UNUSED(data);
-    g_idle_add(requeue, NULL);
-}
-
-/**
  * Build the box
- * @param overlay Overlay of the window, which it is shown in
  * @param terminal Terminal typed into
- * @param shortbar Shortcut bar it covers, NULL if there is none
  */
-void voicebar_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar) {
+void voicebar_init(GtkWidget *terminal) {
     terminal_widget = terminal;
-    shortbar_widget = shortbar;
     staged = g_string_new(NULL);
-    // takes the touches; drawn by the box inside it, rounded, the
-    // terminal showing at its corners
-    bar = gtk_event_box_new();
-    gtk_event_box_set_visible_window(GTK_EVENT_BOX(bar), FALSE);
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_name(row, VOICEBAR_NAME);
     text_area = gtk_drawing_area_new();
-    gtk_widget_set_hexpand(text_area, TRUE);
     // one line high
     PangoLayout *layout = gtk_widget_create_pango_layout(text_area, "Ag中");
     gint line = 0;
     pango_layout_get_pixel_size(layout, NULL, &line);
     g_object_unref(layout);
     gtk_widget_set_size_request(text_area, 1, line);
-    gtk_widget_set_valign(text_area, GTK_ALIGN_CENTER);
     g_signal_connect(text_area, "draw", G_CALLBACK(text_draw_cb), NULL);
+    // a tap beside the buttons does nothing: the box stays until its text
+    // is put in or thrown away
+    bar = notice_new(text_area, NULL);
     // the buttons of the phone page, same signs
-    GtkWidget *put = bar_button(OUTLINE_SEND);        // 发送
-    run_button = bar_button(OUTLINE_PLAY);            // 发送并回车
-    GtkWidget *clear = bar_button(OUTLINE_X);         // 清空
+    GtkWidget *put = notice_button(OUTLINE_SEND);        // 发送
+    run_button = notice_button(OUTLINE_PLAY);            // 发送并回车
+    GtkWidget *clear = notice_button(OUTLINE_X);         // 清空
     g_signal_connect(put, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(FALSE));
     g_signal_connect(run_button, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(TRUE));
     g_signal_connect(clear, "clicked", G_CALLBACK(voicebar_clear), NULL);
     // Enter at the far left, the text between it and the close button:
     // next to each other, one was hit for the other
-    gtk_box_pack_start(GTK_BOX(row), run_button, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), text_area, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(row), put, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), clear, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(bar), row);
-    gtk_widget_show_all(row);
-    gtk_widget_add_events(bar, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-    g_signal_connect(bar, "button-press-event", G_CALLBACK(bar_event), NULL);
-    g_signal_connect(bar, "button-release-event", G_CALLBACK(bar_event), NULL);
-    g_signal_connect(overlay, "get-child-position", G_CALLBACK(position_cb), NULL);
-    g_signal_connect(terminal, "size-allocate", G_CALLBACK(anchor_moved), NULL);
-    if (shortbar) {
-        g_signal_connect(shortbar, "size-allocate", G_CALLBACK(anchor_moved), NULL);
-    }
-    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), bar);
-    gtk_widget_set_no_show_all(bar, TRUE);
-    gtk_widget_hide(bar);
+    notice_add(bar, run_button, TRUE);
+    notice_add(bar, put, FALSE);
+    notice_add(bar, clear, FALSE);
 }

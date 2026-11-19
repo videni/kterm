@@ -68,6 +68,8 @@
 #define OUTLINE_PLAY "M6 3L20 12L6 21Z"
 /** Lucide "x": close, and throw away what it closes */
 #define OUTLINE_X "M18 6L6 18 M6 6L18 18"
+/** Lucide "arrow-right": go there */
+#define OUTLINE_GO "M5 12L19 12 M12 5L19 12L12 19"
 /** A bell, after Lucide "bell" (its arcs as curves): the terminal rang */
 #define OUTLINE_BELL "M6 16V10C6 6.7 8.7 4 12 4C15.3 4 18 6.7 18 10V16L20 18H4L6 16Z" \
     " M10 21C10.6 21.7 11.3 22 12 22C12.7 22 13.4 21.7 14 21 M12 2V4"

@@ -319,18 +319,16 @@ void voice_set_enabled(guint on) {
 }
 
 /**
- * Add the page to the panel and the box over the shortcut bar; serve the
+ * Add the page to the panel and the box for text to the notices; serve the
  * page if switched on
- * @param overlay Overlay of the window
  * @param terminal Terminal typed into
- * @param shortbar Shortcut bar, NULL if there is none
  */
-void voice_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar) {
+void voice_init(GtkWidget *terminal) {
     if (strlen(conf->voice_token) < TOKEN_LENGTH) {
         new_token();
     }
     voiceserver_set_token(conf->voice_token);
-    voicebar_init(overlay, terminal, shortbar);
+    voicebar_init(terminal);
     voice_page = build_page();
     panel_add_page(voice_page, FALSE);
     if (voice_enabled()) {

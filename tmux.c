@@ -53,6 +53,7 @@ extern KTconf *conf;
  *     output (seconds since 1970), index, host, name, the title of its
  *     pane, between colons (a title may have more of them, so last);
  *     "unknown" as above.
+ *   select:N: shows window N in this terminal's client.
  *   sessions: "inside" if the terminal is in tmux already; else
  *     "sessions NOW" and a line for each session: name, windows, clients
  *     attached, last used (seconds since 1970), between colons (which
@@ -71,6 +72,10 @@ static const gchar PROBE_SCRIPT[] =
     "[ -n \"$clients\" ] || { echo none; exit 0; }\n"
     "[ -n \"$best\" ] || { echo unknown; exit 0; }\n"
     "set -- $best\n"
+    "case $ACTION in select:*)\n"
+    "  s=$(tmux display-message -p -t \"$3\" '#{session_id}')\n"
+    "  tmux select-window -t \"$s:${ACTION#select:}\" && echo selected; exit 0 ;;\n"
+    "esac\n"
     "if [ \"$ACTION\" = bell ]; then\n"
     "  tmux list-windows -t \"$3\" -F '#{window_bell_flag}:#{window_active}:#{window_activity}:#{window_index}:#{host}:#{window_name}:#{pane_title}'\n"
     "  exit 0\n"
@@ -309,6 +314,22 @@ static void bell_done(gchar *output, GCallback done, gpointer data) {
  */
 gboolean tmux_ask_bell(TmuxBellDone done, gpointer data) {
     return run_script("bell", FALSE, bell_done, G_CALLBACK(done), data);
+}
+
+static void select_done(gchar *output, GCallback done, gpointer data) {
+    UNUSED(output);
+    UNUSED(done);
+    UNUSED(data);
+}
+
+/**
+ * Show a window of tmux in the terminal, as a swipe would
+ * @param index Window
+ */
+void tmux_select_window(gint index) {
+    gchar *action = g_strdup_printf("select:%d", index);
+    run_script(action, FALSE, select_done, NULL, NULL);
+    g_free(action);
 }
 
 /**

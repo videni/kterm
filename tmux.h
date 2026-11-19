@@ -81,6 +81,7 @@ typedef void (*TmuxBellDone)(gint index, const gchar *label, gpointer data);
 
 gboolean tmux_enabled(void);
 gboolean tmux_ask_bell(TmuxBellDone done, gpointer data);
+void tmux_select_window(gint index);
 void tmux_set_enabled(guint on);
 gboolean tmux_may_have_terminal(void);
 gboolean tmux_list_sessions(TmuxSessionsDone done, gpointer data);

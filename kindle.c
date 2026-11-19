@@ -342,19 +342,15 @@ void inject_styles(void) {
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
                                     "#ktermShortProblem { color: #000000; padding: 4px 8px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 7pt; }"
-                                    // text from the phone waiting to be put in,
-                                    // over the shortcut bar
-                                    "#ktermVoiceBar { background-color: #ffffff; border: 2px solid #000000; border-radius: 24px;"
-                                    " color: #000000; padding: 6px; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
-                                    "#ktermVoiceButton { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 18px;"
+                                    // notices over the terminal's top (notice.c):
+                                    // text from the phone, the bell
+                                    "#ktermNotice { background-color: #ffffff; border: 2px solid #000000; border-radius: 24px;"
+                                    " color: #000000; padding: 6px 6px 6px 14px; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    "#ktermNoticeButton { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 18px;"
                                     " padding: 6px 14px; min-width: 0; min-height: 0; box-shadow: none; text-shadow: none; }"
-                                    "#ktermVoiceButton label { color: #000000; }"
-                                    "#ktermVoiceButton.primary { background: #000000; color: #ffffff; }"
-                                    "#ktermVoiceButton.primary label { color: #ffffff; }"
-                                    // the bell's bar at the top of the screen (bellbar.c)
-                                    "#ktermBell { background-color: #ffffff; color: #000000; border: 2px solid #000000;"
-                                    " border-radius: 24px; padding: 10px 20px;"
-                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+                                    "#ktermNoticeButton label { color: #000000; }"
+                                    "#ktermNoticeButton.primary { background: #000000; color: #ffffff; }"
+                                    "#ktermNoticeButton.primary label { color: #ffffff; }"
                                     // an image over the whole window (imageview.c)
                                     "#ktermImageView { background-color: #ffffff; color: #000000;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 10pt; }"

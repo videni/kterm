@@ -18,7 +18,7 @@
 
 #include <gtk/gtk.h>
 
-void voice_init(GtkWidget *overlay, GtkWidget *terminal, GtkWidget *shortbar);
+void voice_init(GtkWidget *terminal);
 void voice_toggle(void);
 gboolean voice_enabled(void);
 void voice_set_enabled(guint on);
