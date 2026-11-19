@@ -34,11 +34,12 @@ bind /usr/java/lib/fonts "$MNT/usr/share/fonts/kindle"
 # added to OpenRC's default runlevel inside the image (rc-update add <name>
 # default). Nothing boots the image, so the runlevel is entered here - in the
 # background, a slow service must not delay the terminal. Entering it again
-# while everything is up changes nothing.
+# while everything is up changes nothing. Started from a subshell, so it is
+# not a child of kterm (this shell becomes kterm), which would have to reap it.
 if [ -x "$MNT/sbin/openrc" ]; then
-    setsid chroot "$MNT" /usr/bin/env -i HOME=/root \
+    (setsid chroot "$MNT" /usr/bin/env -i HOME=/root \
         PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-        /sbin/openrc default > /dev/null 2>&1 < /dev/null &
+        /sbin/openrc default > /dev/null 2>&1 < /dev/null &)
 fi
 
 # Default command: a login shell, so /etc/profile sets the prompt and PATH.
