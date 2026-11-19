@@ -27,8 +27,11 @@
 /** Widget name of the settings page's rows, and of the lines between them */
 #define PANEL_SETTINGS_NAME "ktermSettings"
 #define PANEL_LINE_NAME "ktermSettingLine"
+/** Space around and between the panel's parts, in pixels */
+#define PANEL_SPACING 12
 
 GtkWidget * panel_new(GtkWidget *terminal);
+GtkWidget * panel_home_page(void);
 void panel_add_action(GtkWidget *button, gint position);
 void panel_add_page(GtkWidget *page, gboolean typing);
 void panel_show_page(GtkWidget *page);

@@ -39,6 +39,7 @@
 #include "shortpage.h"
 #include "shortcuts.h"
 #include "settings.h"
+#include "connpage.h"
 #ifdef KINDLE
 #include "kindle.h"
 #include "ime.h"
@@ -1152,6 +1153,7 @@ gint main(gint argc, gchar **argv) {
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
 #if GTK_CHECK_VERSION(3,2,0)
     GtkWidget *panel = panel_new(terminal);
+    connpage_init(terminal);
     add_panel_actions();
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
 #ifdef KINDLE

@@ -1,5 +1,5 @@
 bin_PROGRAMS = kterm
-kterm_SOURCES = confedit.c icons.c keyboard.c keyseq.c kterm.c panel.c parse_config.c parse_layout.c refresh.c settings.c shortbar.c shortcuts.c shortpage.c sshconf.c
+kterm_SOURCES = confedit.c icons.c keyboard.c keyseq.c kterm.c panel.c connpage.c parse_config.c parse_layout.c refresh.c settings.c shortbar.c shortcuts.c shortpage.c sshconf.c
 if KINDLE
 kterm_SOURCES += flash.c kindle.c ime.c voice.c voiceserver.c voicebar.c tmux.c touch.c qrcodegen.c
 # finds machines of the local network for ssh, see kterm-mdns.c
