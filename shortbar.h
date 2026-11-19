@@ -27,10 +27,7 @@
 
 /** Widget name of the page number at the end of the row */
 #define SHORTBAR_PAGES_NAME "ktermShortPages"
-/** Widget name of the paste button, there while something was copied and
- *  the program waits for input */
-#define SHORTBAR_PASTE_NAME "ktermShortPaste"
-/** Widget name of the bar's two tools: the panel, the keyboard */
+/** Widget name of the bar's tools: the panel, paste, the keyboard */
 #define SHORTBAR_TOOL_NAME "ktermShortTool"
 /** Widget name of the row of shortcuts between the tools */
 #define SHORTBAR_SLOTS_NAME "ktermShortSlots"

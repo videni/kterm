@@ -32,8 +32,13 @@
 #include "shortbar.h"
 #include "icons.h"
 
-/** Buttons in the row when they all fit */
+/** Places in the row before the row has a width: the first layout */
 #define SHORTBAR_PER_PAGE 8
+/** Room around a shortcut's label, px: a button is never narrower than
+ *  its label and this */
+#define SHORTBAR_LABEL_ROOM 24
+/** A button is at least this many times as wide as the row is high */
+#define SHORTBAR_MIN_WIDTH_RATIO 1.2
 /** A finger moving this far sideways turns the page, upwards opens the panel */
 #define SHORTBAR_SWIPE_PX 60
 
@@ -47,6 +52,11 @@ static GtkWidget *slots = NULL;
 static GtkWidget *menu_tool = NULL;
 /** ...and the keyboard: folds it away (preview) or brings it back */
 static GtkWidget *keyboard_tool = NULL;
+/** Next to the panel's, while there is something to paste and the
+ *  program waits for input: pastes */
+static GtkWidget *paste_tool = NULL;
+/** Shortcuts the row has room for, 0 before it has a width */
+static guint room_for = 0;
 static gchar *file_path = NULL;
 /** Buttons, in order */
 static GPtrArray *items = NULL;
@@ -75,13 +85,32 @@ static gboolean paste_shown(void) {
 }
 
 /**
- * @return Buttons on one page of the bar
+ * @return Buttons on one page of the bar: all of them if there is room;
+ *  else as many as fit, the last place saying which page it is
  */
 static guint per_page(void) {
-    // the two tools take one place between them
-    const guint places = SHORTBAR_PER_PAGE - 1 - (paste_shown() ? 1 : 0);
-    // when there is more than one page, the last place says which page it is
-    return items->len > places ? places - 1 : places;
+    const guint places = room_for ? room_for : SHORTBAR_PER_PAGE - 1;
+    return items->len > places ? MAX(places, 2) - 1 : places;
+}
+
+/**
+ * @return Width a shortcut needs: its label with room around it, and
+ *  enough for a finger
+ */
+static gint button_min_width(void) {
+    gint widest = 0;
+    for (guint i = 0; i < items->len; i++) {
+        const Shortcut *item = g_ptr_array_index(items, i);
+        // measured as the bar shows it: same name, same style
+        GtkWidget *label = g_object_ref_sink(gtk_label_new(item->label));
+        gtk_widget_set_name(label, SHORTBAR_BUTTON_NAME);
+        gint natural = 0;
+        gtk_widget_get_preferred_width(label, NULL, &natural);
+        g_object_unref(label);
+        widest = MAX(widest, natural);
+    }
+    const gint finger = (gint) (gtk_widget_get_allocated_height(row) * SHORTBAR_MIN_WIDTH_RATIO);
+    return MAX(widest + SHORTBAR_LABEL_ROOM, finger);
 }
 
 /**
@@ -118,8 +147,10 @@ static gboolean draw_tool_cb(GtkWidget *tool, cairo_t *cr, gpointer data) {
     gdk_cairo_set_source_rgba(cr, &color);
     // the 24 by 24 grid of the icon, 60 % of the tool, in its middle
     const gdouble size = MIN(w, h) * 0.6;
-    icon_draw(cr, tool == menu_tool ? ICON_MENU : (kterm_previewing() ? ICON_KEYBOARD : ICON_KEYBOARD_HIDE),
-              (w - size) / 2, (h - size) / 2, size);
+    const gchar *icon = tool == menu_tool ? ICON_MENU
+                        : tool == paste_tool ? ICON_CONTENT_PASTE
+                        : (kterm_previewing() ? ICON_KEYBOARD : ICON_KEYBOARD_HIDE);
+    icon_draw(cr, icon, (w - size) / 2, (h - size) / 2, size);
     return FALSE;
 }
 
@@ -196,12 +227,7 @@ static void fill_row(void) {
     if (page_start >= items->len) {
         page_start = items->len ? ((items->len - 1) / count) * count : 0;
     }
-    if (paste_shown()) {
-        GtkWidget *paste = gtk_label_new("粘贴");
-        gtk_widget_set_name(paste, SHORTBAR_PASTE_NAME);
-        g_object_set_data(G_OBJECT(paste), "paste", GINT_TO_POINTER(1));
-        gtk_box_pack_start(GTK_BOX(slots), paste, TRUE, TRUE, 0);
-    }
+    gtk_widget_set_visible(paste_tool, paste_shown());
     for (guint i = page_start; i < items->len && i < page_start + count; i++) {
         const Shortcut *item = g_ptr_array_index(items, i);
         // A label drawn as a key, not a button: a button has an input
@@ -255,16 +281,23 @@ static void turn_page(gint step) {
 static GtkWidget * button_at(gdouble x, gdouble y) {
     GtkWidget *hit = NULL;
     GList *buttons = gtk_container_get_children(GTK_CONTAINER(slots));
+    if (gtk_widget_get_visible(paste_tool)) {
+        buttons = g_list_prepend(buttons, paste_tool);
+    }
     buttons = g_list_prepend(buttons, menu_tool);
     buttons = g_list_append(buttons, keyboard_tool);
     for (GList *l = buttons; l && !hit; l = l->next) {
         GtkWidget *button = l->data;
         gint bx = 0, by = 0;
+        // the whole place counts, not the drawn shape: rounded corners and
+        // the gap around a tool (its margin, outside its allocation) too.
+        // A shortcut's gap is inside its allocation already.
+        const gint gap = g_object_get_data(G_OBJECT(button), "tool") ? SHORTBAR_TOOL_MARGIN : 0;
         if ((g_object_get_data(G_OBJECT(button), "index") || g_object_get_data(G_OBJECT(button), "paste")
              || g_object_get_data(G_OBJECT(button), "tool"))
             && gtk_widget_translate_coordinates(bar, button, (gint) x, (gint) y, &bx, &by)
-            && bx >= 0 && by >= 0 && bx < gtk_widget_get_allocated_width(button)
-            && by < gtk_widget_get_allocated_height(button)) {
+            && bx >= -gap && by >= -gap && bx < gtk_widget_get_allocated_width(button) + gap
+            && by < gtk_widget_get_allocated_height(button) + gap) {
             hit = button;
         }
     }
@@ -346,6 +379,7 @@ static void set_paste(const gchar *text, gboolean wanted) {
     page_start = page * per_page();
     fill_row();
     update_visibility();
+    // the paste tool takes room from the shortcuts: see slots_allocated()
 }
 
 /**
@@ -468,6 +502,35 @@ static void rebuild(const gchar *problems) {
 }
 
 /**
+ * Idle callback: lay the shortcuts out again for the room counted
+ */
+static gboolean refill_cb(gpointer data) {
+    UNUSED(data);
+    const guint count = per_page();
+    page_start = (page_start / count) * count;
+    fill_row();
+    return G_SOURCE_REMOVE;
+}
+
+/**
+ * The shortcuts' part of the row got its width (the screen turned, the
+ * paste tool came or went): as many buttons as fit, all as wide. If all
+ * fit, all are shown, narrower, rather than a page more.
+ */
+static void slots_allocated(GtkWidget *widget, GdkRectangle *alloc, gpointer data) {
+    UNUSED(widget);
+    UNUSED(data);
+    const gint min = button_min_width();
+    const guint room = (guint) MAX(alloc->width / MAX(min, 1), 2);
+    if (room != room_for) {
+        D printf("shortbar: room for %u buttons (%d px, at least %d each)\n", room, alloc->width, min);
+        room_for = room;
+        // not while GTK lays the window out
+        g_idle_add(refill_cb, NULL);
+    }
+}
+
+/**
  * Build the bar
  * @param path shortcuts.conf; the built-in buttons are used when it does
  *  not exist
@@ -496,6 +559,7 @@ GtkWidget * shortbar_new(const gchar *path) {
     row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
     menu_tool = gtk_drawing_area_new();
+    paste_tool = gtk_drawing_area_new();
     keyboard_tool = gtk_drawing_area_new();
     slots = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_box_set_homogeneous(GTK_BOX(slots), TRUE);
@@ -503,9 +567,15 @@ GtkWidget * shortbar_new(const gchar *path) {
     // together, the tools stand apart
     gtk_widget_set_name(slots, SHORTBAR_SLOTS_NAME);
     gtk_box_pack_start(GTK_BOX(row), menu_tool, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), paste_tool, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(row), slots, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(row), keyboard_tool, FALSE, FALSE, 0);
-    for (GtkWidget **tool = (GtkWidget *[]) { menu_tool, keyboard_tool, NULL }; *tool; tool++) {
+    // black: it is there for a while, as the text it pastes
+    g_object_set_data(G_OBJECT(paste_tool), "paste", GINT_TO_POINTER(1));
+    gtk_style_context_add_class(gtk_widget_get_style_context(paste_tool), "paste");
+    gtk_widget_set_no_show_all(paste_tool, TRUE);
+    g_signal_connect(slots, "size-allocate", G_CALLBACK(slots_allocated), NULL);
+    for (GtkWidget **tool = (GtkWidget *[]) { menu_tool, paste_tool, keyboard_tool, NULL }; *tool; tool++) {
         gtk_widget_set_name(*tool, SHORTBAR_TOOL_NAME);
         g_object_set_data(G_OBJECT(*tool), "tool", GINT_TO_POINTER(1));
         g_signal_connect(*tool, "draw", G_CALLBACK(draw_tool_cb), NULL);
@@ -573,6 +643,7 @@ static void follow_height_cb(GObject *object, GParamSpec *spec, gpointer data) {
         // the tools are half a place wide: square
         const gint side = MAX(height - 2 * SHORTBAR_TOOL_MARGIN, 1);
         gtk_widget_set_size_request(menu_tool, side, -1);
+        gtk_widget_set_size_request(paste_tool, side, -1);
         gtk_widget_set_size_request(keyboard_tool, side, -1);
     }
 }

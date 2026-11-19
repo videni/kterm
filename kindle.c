@@ -324,15 +324,13 @@ void inject_styles(void) {
                                     "#ktermShortButton { background: @gray; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
                                     " border: 1px solid @line; border-radius: 4px; color: #2e3436;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
-                                    // the paste button, there for a while: black, set apart from the shortcuts
-                                    "#ktermShortPaste { background: #000000; color: #ffffff; padding: 0; min-width: 0; min-height: 0; margin: 3px;"
-                                    " border: 1px solid #000000; border-radius: 4px;"
-                                    " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     // the two tools at the ends: a sign in a black frame, on white
                                     "#ktermShortTool { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 4px; }"
                                     "#ktermShortTool.pressed { background: #000000; color: #ffffff; }"
+                                    // the paste tool: black, as the text it pastes is there for a while
+                                    "#ktermShortTool.paste { background: #000000; color: #ffffff; }"
+                                    "#ktermShortTool.paste.pressed { background: #ffffff; color: #000000; }"
                                     "#ktermShortButton.pressed { background: #000000; color: #ffffff; border-color: #000000; }"
-                                    "#ktermShortPaste.pressed { background: #ffffff; color: #000000; }"
                                     "#ktermShortPages { color: #000000; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
                                     "#ktermShortProblem { color: #000000; padding: 4px 8px;"
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 7pt; }"
