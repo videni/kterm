@@ -132,6 +132,30 @@ gchar * kterm_process_name(pid_t pid) {
 }
 
 /**
+ * @param pid Process
+ * @param name Command name
+ * @return TRUE if the process is running that command
+ */
+gboolean kterm_process_is(pid_t pid, const gchar *name) {
+    gchar *comm = kterm_process_name(pid);
+    const gboolean is = comm && !strcmp(comm, name);
+    g_free(comm);
+    return is;
+}
+
+/**
+ * Type a command into the shell in the terminal and run it: ^E ^U first,
+ * as anything half typed on the command line would otherwise run together
+ * with it
+ * @param command Command
+ */
+void kterm_type_command(const gchar *command) {
+    gchar *line = g_strconcat("\x05\x15", command, "\r", NULL);
+    vte_terminal_feed_child(VTE_TERMINAL(main_terminal), line, -1);
+    g_free(line);
+}
+
+/**
  * @return TRUE if the terminal keeps lines scrolled off its top: then a
  *         shell is in it, not a full screen program such as tmux (those
  *         use the alternate screen, which has no history).

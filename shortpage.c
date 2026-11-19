@@ -184,11 +184,7 @@ static GtkWidget * build_row(guint index) {
  */
 static void show_list(void) {
     GPtrArray *items = shortbar_items();
-    GList *old = gtk_container_get_children(GTK_CONTAINER(rows_box));
-    for (GList *l = old; l; l = l->next) {
-        gtk_widget_destroy(GTK_WIDGET(l->data));
-    }
-    g_list_free(old);
+    panel_clear_box(rows_box);
     const guint count = items->len;
     if (page_start >= count) {
         page_start = count ? ((count - 1) / ROWS_PER_PAGE) * ROWS_PER_PAGE : 0;

@@ -42,6 +42,8 @@ gboolean kterm_terminal_has_shell(void);
 pid_t kterm_terminal_foreground(void);
 pid_t kterm_terminal_owner(void);
 gchar * kterm_process_name(pid_t pid);
+gboolean kterm_process_is(pid_t pid, const gchar *name);
+void kterm_type_command(const gchar *command);
 
 /* its history: the lines scrolled off its top */
 gboolean kterm_terminal_has_history(void);

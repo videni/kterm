@@ -27,8 +27,6 @@
  * password being typed): it is asked again for a while.
  */
 
-#include <string.h>
-#include <vte/vte.h>
 #include "config.h"
 #include "kterm.h"
 #include "panel.h"
@@ -44,7 +42,6 @@
 /** Sessions offered; the panel has room for this many */
 #define SESSIONS_SHOWN 5
 
-static GtkWidget *terminal_widget = NULL;
 static GtkWidget *page = NULL;
 static GtkWidget *rows = NULL;
 /** Process group that had the terminal at the last look */
@@ -56,29 +53,20 @@ static guint timer = 0;
 
 static void ask(void);
 
-/**
- * Type into the terminal, over anything half typed
- */
-static void type(const gchar *command) {
-    gchar *line = g_strconcat("\x05\x15", command, "\r", NULL);
-    vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), line, -1);
-    g_free(line);
-}
-
 static void attach_cb(GtkWidget *button, gpointer data) {
     UNUSED(data);
     const gchar *name = g_object_get_data(G_OBJECT(button), "session");
     gchar *quoted = g_shell_quote(name);
     gchar *command = g_strconcat("tmux attach -t ", quoted, NULL);
     panel_close();
-    type(command);
+    kterm_type_command(command);
     g_free(command);
     g_free(quoted);
 }
 
 static void new_cb(void) {
     panel_close();
-    type("tmux new-session");
+    kterm_type_command("tmux new-session");
 }
 
 /**
@@ -103,11 +91,7 @@ static gchar * ago(gint64 seconds) {
  * @param sessions TmuxSession, the one used last first
  */
 static void offer(GPtrArray *sessions) {
-    GList *old = gtk_container_get_children(GTK_CONTAINER(rows));
-    for (GList *l = old; l; l = l->next) {
-        gtk_widget_destroy(l->data);
-    }
-    g_list_free(old);
+    panel_clear_box(rows);
     for (guint i = 0; i < sessions->len && i < SESSIONS_SHOWN; i++) {
         const TmuxSession *session = g_ptr_array_index(sessions, i);
         GtkWidget *button = panel_button_new("");
@@ -179,10 +163,7 @@ static void contents_cb(void) {
     if (!tmux_enabled()) {
         return;
     }
-    gchar *name = kterm_process_name(owner);
-    const gboolean ssh = name && !strcmp(name, "ssh");
-    g_free(name);
-    if (!ssh) {
+    if (!kterm_process_is(owner, "ssh")) {
         return;
     }
     asking = owner;
@@ -198,7 +179,6 @@ static void contents_cb(void) {
  * @param terminal Terminal
  */
 void tmuxpick_init(GtkWidget *terminal) {
-    terminal_widget = terminal;
     page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
     panel_page_header(page, "tmux 会话", NULL);
     rows = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);

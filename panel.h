@@ -39,6 +39,7 @@ GtkWidget * panel_page_header(GtkWidget *page, const gchar *title, GtkWidget *pa
 GtkWidget * panel_settings_page(void);
 void panel_add_setting(const gchar *title, GtkWidget *control);
 GtkWidget * panel_button_new(const gchar *label);
+void panel_clear_box(GtkWidget *box);
 GtkWidget * panel_button_with_icon(const gchar *label, const gchar *icon);
 void panel_open(void);
 void panel_close(void);

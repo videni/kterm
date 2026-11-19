@@ -66,6 +66,19 @@ GtkWidget * panel_button_new(const gchar *label) {
     return button;
 }
 
+static void destroy_cb(GtkWidget *widget, gpointer data) {
+    UNUSED(data);
+    gtk_widget_destroy(widget);
+}
+
+/**
+ * Take everything out of a box, to fill it again
+ * @param box Container
+ */
+void panel_clear_box(GtkWidget *box) {
+    gtk_container_foreach(GTK_CONTAINER(box), destroy_cb, NULL);
+}
+
 /**
  * A button of the panel with an icon before its label
  * @param label Text

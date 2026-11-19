@@ -219,11 +219,7 @@ static gboolean draw_prefix_mark_cb(GtkWidget *button, cairo_t *cr, gpointer dat
  * Fill the row with the buttons of the page shown
  */
 static void fill_row(void) {
-    GList *old = gtk_container_get_children(GTK_CONTAINER(slots));
-    for (GList *l = old; l; l = l->next) {
-        gtk_widget_destroy(GTK_WIDGET(l->data));
-    }
-    g_list_free(old);
+    panel_clear_box(slots);
     const guint count = per_page();
     if (page_start >= items->len) {
         page_start = items->len ? ((items->len - 1) / count) * count : 0;

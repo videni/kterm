@@ -137,19 +137,17 @@ static const Choice full_refresh_choices[] = {
 };
 static ChoiceRow full_refresh_row_data = { full_refresh_choices, G_N_ELEMENTS(full_refresh_choices), NULL, "full_refresh", flash_set_when, { NULL } };
 
-/** Typing from a phone, see voice.c: off unless asked for, as it opens a
- *  port to the local network */
+static const Choice on_off[] = {
+    { "关", 0 }, { "开", 1 },
+};
+
 /** "tmux 集成": kterm asks tmux over the ssh connection (scrolled back?
  *  which sessions?), switches its windows by swipes; see tmux.c */
-static const Choice tmux_choices[] = {
-    { "关", 0 }, { "开", 1 },
-};
-static ChoiceRow tmux_row_data = { tmux_choices, G_N_ELEMENTS(tmux_choices), NULL, "tmux", tmux_set_enabled, { NULL } };
+static ChoiceRow tmux_row_data = { on_off, G_N_ELEMENTS(on_off), NULL, "tmux", tmux_set_enabled, { NULL } };
 
-static const Choice voice_choices[] = {
-    { "关", 0 }, { "开", 1 },
-};
-static ChoiceRow voice_row_data = { voice_choices, G_N_ELEMENTS(voice_choices), NULL, "voice", voice_set_enabled, { NULL } };
+/** Typing from a phone (语音输入), see voice.c: off unless asked for, as it
+ *  opens a port to the local network */
+static ChoiceRow voice_row_data = { on_off, G_N_ELEMENTS(on_off), NULL, "voice", voice_set_enabled, { NULL } };
 
 /**
  * Draw the choice in effect black

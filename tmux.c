@@ -182,12 +182,14 @@ static GPtrArray * probe_command(pid_t pid, const gchar *action) {
     return args;
 }
 
-/** Told the script's output, NULL if tmux could not be asked */
-typedef void (*ScriptDone)(gchar *output, gpointer data);
+/** Makes the script's output (NULL if tmux could not be asked) an answer
+ *  for done, the caller's callback */
+typedef void (*ScriptDone)(gchar *output, GCallback done, gpointer data);
 
 /** A question to tmux under way */
 typedef struct {
-    ScriptDone done;
+    ScriptDone parse;
+    GCallback done;
     gpointer data;
     guint timeout;
     GSubprocess *process;
@@ -219,7 +221,7 @@ static void probe_finished(GObject *source, GAsyncResult *result, gpointer data)
     }
     g_free(errors);
     g_object_unref(probe->process);
-    probe->done(output, probe->data);
+    probe->parse(output, probe->done, probe->data);
     g_free(output);
     g_free(probe);
 }
@@ -229,12 +231,13 @@ static void probe_finished(GObject *source, GAsyncResult *result, gpointer data)
  * terminal, or here if tmux runs here
  * @param action ACTION of the script
  * @param ssh_only Not for a tmux here
- * @param done Told the output, later; not called if FALSE is returned
- * @param data For done
+ * @param parse Told the output, later; not called if FALSE is returned
+ * @param done,data The caller's callback and its data, for parse
  * @return FALSE if there is no tmux to ask: switched off, or neither ssh
  *         nor tmux has the terminal
  */
-static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptDone done, gpointer data) {
+static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptDone parse, GCallback done,
+                           gpointer data) {
     if (!tmux_enabled()) {
         return FALSE;
     }
@@ -268,6 +271,7 @@ static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptDone do
     g_ptr_array_add(args, NULL);
     GError *error = NULL;
     Probe *probe = g_new0(Probe, 1);
+    probe->parse = parse;
     probe->done = done;
     probe->data = data;
     probe->process = g_subprocess_launcher_spawnv(launcher, (const gchar * const *) args->pdata, &error);
@@ -277,7 +281,7 @@ static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptDone do
         D printf("tmux: %s\n", error->message);
         g_error_free(error);
         g_free(probe);
-        done(NULL, data);
+        parse(NULL, done, data);
         return TRUE;
     }
     probe->timeout = g_timeout_add(PROBE_TIMEOUT_MS, probe_timeout, probe);
@@ -285,14 +289,7 @@ static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptDone do
     return TRUE;
 }
 
-/** tmux_ask_where() waiting for the script */
-typedef struct {
-    TmuxAnswer done;
-    gpointer data;
-} WhereAsk;
-
-static void where_done(gchar *output, gpointer data) {
-    WhereAsk *ask = data;
+static void where_done(gchar *output, GCallback done, gpointer data) {
     TmuxWhere where = TMUX_UNKNOWN;
     if (output) {
         g_strstrip(output);
@@ -305,8 +302,7 @@ static void where_done(gchar *output, gpointer data) {
             where = TMUX_SCROLLED;
         }
     }
-    ask->done(where, ask->data);
-    g_free(ask);
+    ((TmuxAnswer) done)(where, data);
 }
 
 /**
@@ -317,11 +313,7 @@ static void where_done(gchar *output, gpointer data) {
  * @param data For done
  */
 void tmux_ask_where(gboolean cancel, TmuxAnswer done, gpointer data) {
-    WhereAsk *ask = g_new0(WhereAsk, 1);
-    ask->done = done;
-    ask->data = data;
-    if (!run_script(cancel ? "cancel" : "query", FALSE, where_done, ask)) {
-        g_free(ask);
+    if (!run_script(cancel ? "cancel" : "query", FALSE, where_done, G_CALLBACK(done), data)) {
         // no tmux to ask: kterm's own history is all there is
         if (cancel) {
             kterm_terminal_to_bottom();
@@ -342,14 +334,7 @@ static void session_free(gpointer data) {
     g_free(session);
 }
 
-/** tmux_list_sessions() waiting for the script */
-typedef struct {
-    TmuxSessionsDone done;
-    gpointer data;
-} SessionsAsk;
-
-static void sessions_done(gchar *output, gpointer data) {
-    SessionsAsk *ask = data;
+static void sessions_done(gchar *output, GCallback done, gpointer data) {
     TmuxAsked asked = TMUX_NOT_ASKED;
     GPtrArray *sessions = g_ptr_array_new_with_free_func(session_free);
     gchar **lines = output ? g_strsplit(output, "\n", -1) : NULL;
@@ -376,9 +361,8 @@ static void sessions_done(gchar *output, gpointer data) {
         g_ptr_array_sort(sessions, session_order);
     }
     g_strfreev(lines);
-    ask->done(asked, sessions, ask->data);
+    ((TmuxSessionsDone) done)(asked, sessions, data);
     g_ptr_array_unref(sessions);
-    g_free(ask);
 }
 
 /**
@@ -389,14 +373,7 @@ static void sessions_done(gchar *output, gpointer data) {
  * @return FALSE if there is nothing to ask: switched off, no ssh session
  */
 gboolean tmux_list_sessions(TmuxSessionsDone done, gpointer data) {
-    SessionsAsk *ask = g_new0(SessionsAsk, 1);
-    ask->done = done;
-    ask->data = data;
-    if (!run_script("sessions", TRUE, sessions_done, ask)) {
-        g_free(ask);
-        return FALSE;
-    }
-    return TRUE;
+    return run_script("sessions", TRUE, sessions_done, G_CALLBACK(done), data);
 }
 
 /**

@@ -24,7 +24,6 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/types.h>
-#include <vte/vte.h>
 #include "config.h"
 #include "connpage.h"
 #include "icons.h"
@@ -107,31 +106,19 @@ static guint switch_tries = 0;
 static guint switch_source = 0;
 /**
  * @param name Saved connection, a plain word (validated)
- * @return What is typed to start it, newly allocated. ^E ^U first:
- *         anything half typed on the command line would otherwise run
- *         together with the command. With "tmux 集成" on, the session is
- *         also the connection kterm's questions to tmux go over (tmux.c):
- *         they need no login of their own, a password one works too.
+ * @return The command starting it, newly allocated. With "tmux 集成" on,
+ *         the session is also the connection kterm's questions to tmux go
+ *         over (tmux.c): they need no login of their own, a password one
+ *         works too.
  */
 static gchar * ssh_command(const gchar *name) {
 #ifdef KINDLE
     if (tmux_enabled()) {
-        return g_strconcat("\x05\x15ssh -o ControlMaster=auto -o ControlPath=" TMUX_CONTROL_PATH
-                           " -o ControlPersist=" TMUX_CONTROL_PERSIST " ", name, "\r", NULL);
+        return g_strconcat("ssh -o ControlMaster=auto -o ControlPath=" TMUX_CONTROL_PATH
+                           " -o ControlPersist=" TMUX_CONTROL_PERSIST " ", name, NULL);
     }
 #endif
-    return g_strconcat("\x05\x15ssh ", name, "\r", NULL);
-}
-
-/**
- * @param pgid Process group
- * @return TRUE if its leader is the ssh client
- */
-static gboolean is_ssh(pid_t pgid) {
-    gchar *name = kterm_process_name(pgid);
-    const gboolean ssh = name && !strcmp(name, "ssh");
-    g_free(name);
-    return ssh;
+    return g_strconcat("ssh ", name, NULL);
 }
 
 /**
@@ -140,7 +127,7 @@ static gboolean is_ssh(pid_t pgid) {
  */
 static pid_t ssh_session(void) {
     const pid_t foreground = kterm_terminal_foreground();
-    return (foreground && is_ssh(foreground)) ? foreground : 0;
+    return (foreground && kterm_process_is(foreground, "ssh")) ? foreground : 0;
 }
 
 /**
@@ -169,8 +156,8 @@ static gboolean switch_when_idle(gpointer data) {
     if (busy && ++switch_tries < 30) {
         return TRUE;
     }
-    if (!busy && switch_command && terminal_widget) {
-        vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), switch_command, -1);
+    if (!busy && switch_command) {
+        kterm_type_command(switch_command);
     }
     g_free(switch_command);
     switch_command = NULL;
@@ -225,7 +212,7 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         return;
     }
     gchar *command = ssh_command(host->name);
-    vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), command, -1);
+    kterm_type_command(command);
     g_free(command);
     panel_close();
 }
@@ -338,11 +325,7 @@ static void search_done(GObject *source, GAsyncResult *result, gpointer data) {
  * offers), asked by kterm-mdns
  */
 static void search_cb(void) {
-    GList *old_rows = gtk_container_get_children(GTK_CONTAINER(found_rows));
-    for (GList *cur = old_rows; cur != NULL; cur = cur->next) {
-        gtk_widget_destroy(GTK_WIDGET(cur->data));
-    }
-    g_list_free(old_rows);
+    panel_clear_box(found_rows);
     panel_show_page(found_page);
     focus_terminal();
     if (searching) {
@@ -422,11 +405,7 @@ static void show_list(void) {
     hosts = sshconf_list(path, &error);
     g_free(path);
 
-    GList *old_rows = gtk_container_get_children(GTK_CONTAINER(rows_box));
-    for (GList *cur = old_rows; cur != NULL; cur = cur->next) {
-        gtk_widget_destroy(GTK_WIDGET(cur->data));
-    }
-    g_list_free(old_rows);
+    panel_clear_box(rows_box);
 
     const guint count = hosts ? hosts->len : 0;
     if (page_start >= count) {
