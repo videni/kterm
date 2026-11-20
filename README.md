@@ -53,12 +53,15 @@ Kindle 本机、ssh 里的 tmux、Claude Code 里都能用。
 
 ## 安装
 
-需要：已越狱的 Kindle，装好 [KPM](https://hackerdude.tech) 和 Alpine 镜像（`/mnt/us/alpine`）。
+需要：已越狱的 Kindle，装好 [KPM](https://hackerdude.tech)。
 
 1. 从 [Releases](../../releases) 下载 `kterm-vte_<版本>_kindlehf.kpkg`，拷到 Kindle 根目录。
 2. 在 Kindle 上执行：`kpm -y install file:///mnt/us/kterm-vte_<版本>_kindlehf.kpkg`
-   第一次会在 Alpine 里装 GTK+ 3 和 VTE（约 60 MB），需要联网。
+   Alpine 可选。已安装 Alpine（`/mnt/us/alpine`）时，安装器会尝试在其中安装终端，补齐 GTK+ 3 和 VTE 时需要联网。
 3. 在图书馆里打开“终端”。
+   没有可用的 Alpine 时，终端会使用随包提供的运行环境。首次启动会解压到 `/mnt/us/kterm-vte/runtime.ext3`，无需联网。这个镜像也保存该环境里的用户数据。
+
+每次打开新终端时，启动脚本从当前运行环境的 `/etc/passwd` 读取 root 的登录 shell。用 `chsh` 修改后，关闭终端再打开即可生效。
 
 ---
 
