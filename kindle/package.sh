@@ -14,10 +14,6 @@ trap 'rm -rf "$STAGE"' EXIT
 cp "$PKG/manifest.json" "$PKG/install.sh" "$PKG/uninstall.sh" "$PKG/launch.sh" \
    "$PKG/runtime.sh" "$PKG/bwrap-shim.sh" "$PKG/kterm-mosh.sh" "$PKG/SOURCE.txt" "$STAGE/"
 mkdir -p "$STAGE/scriptlets" "$STAGE/payload"
-if [ ! -s "$BUILD/runtime.ext3.gz" ] || [ "$KINDLE_DIR/build-runtime.sh" -nt "$BUILD/runtime.ext3.gz" ]; then
-    sh "$KINDLE_DIR/build-runtime.sh"
-fi
-cp "$BUILD/runtime.ext3.gz" "$STAGE/payload/"
 # The library cover travels inside the scriptlet, as a data: URL.
 rsvg-convert -w 600 -h 900 "$PKG/icon.svg" -o "$STAGE/icon.png"
 python3 -I -c 'import base64, sys

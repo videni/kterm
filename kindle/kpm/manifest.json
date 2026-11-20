@@ -3,8 +3,8 @@
   "id": "kterm-vte",
   "name": "Terminal 终端 (kterm)",
   "author": "B. Fabiszewski, vidy",
-  "description": "kterm fork: GTK+ 3 / VTE 0.84 terminal with a compact programmer keyboard and the system pinyin keyboard. Uses an installed Alpine environment or its bundled runtime.",
-  "version": [3, 10, 0],
+  "description": "kterm fork: GTK+ 3 / VTE 0.84 terminal with a compact programmer keyboard and the system pinyin keyboard. Uses an installed Alpine environment or downloads a separate runtime.",
+  "version": [3, 10, 1],
   "dependencies": [],
   "supported_platforms": [
     "kindlehf"

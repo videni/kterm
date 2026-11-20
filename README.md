@@ -65,9 +65,9 @@ Kindle 本机、ssh 里的 tmux、Claude Code 里都能用。
 
 1. 从 [Releases](../../releases) 下载 `kterm-vte_<版本>_kindlehf.kpkg`，拷到 Kindle 根目录。
 2. 在 Kindle 上执行：`kpm -y install file:///mnt/us/kterm-vte_<版本>_kindlehf.kpkg`
-   Alpine 可选。已安装 Alpine（`/mnt/us/alpine`）时，安装器会尝试在其中安装终端，补齐 GTK+ 3 和 VTE 时需要联网。
+   已有 Alpine 时，安装器将终端装到 `/mnt/us/alpine` 的环境里。首次补齐 GTK+ 3 和 VTE 时需要联网。
+   没有 Alpine 时，安装器会从 [发布页](../../releases) 下载独立的 `kterm-runtime_armv7.ext3.gz`，校验后解压到 `/mnt/us/kterm-vte/runtime.ext3`，之后可离线启动。也可以在电脑下载运行环境，把它放到 Kindle 的 `/mnt/us/kterm-vte/` 目录后离线安装。
 3. 在图书馆里打开“终端”。
-   没有可用的 Alpine 时，终端会使用随包提供的运行环境。首次启动会解压到 `/mnt/us/kterm-vte/runtime.ext3`，无需联网。这个镜像也保存该环境里的用户数据。
 
 启动终端和新建标签时，都会从当前运行环境的 `/etc/passwd` 读取 root 的登录 shell。用 `chsh` 修改后，新开的标签会使用新的 shell。
 

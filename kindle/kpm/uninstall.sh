@@ -1,7 +1,7 @@
 #!/bin/sh
 # Remove kterm's files. The Alpine image and the GTK+/VTE packages inside it
 # are left alone: other things in the image may use them.
-# The bundled runtime image in /mnt/us/kterm-vte holds the terminal user's data.
+# The private runtime image in /mnt/us/kterm-vte holds the terminal user's data.
 set -eu
 PACKAGE_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ALPINE=/mnt/us/alpine/alpine.sh

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Start kterm in the installed Alpine environment or its bundled runtime.
+# Start kterm in the installed Alpine environment or its private runtime.
 #
 #   kpm launch kterm-vte                   terminal with an Alpine login shell
 #   sh launch.sh -e 'cmd'                 run cmd instead (other kterm options work too)
@@ -17,11 +17,11 @@ fi
 
 PACKAGE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RUNTIME_PARENT=$(cd /tmp && pwd -P)
-if [ "${KTERM_BUNDLED_RUNTIME:-}" = 1 ]; then
+if [ "${KTERM_PRIVATE_RUNTIME:-}" = 1 ]; then
     . "$PACKAGE_ROOT/runtime.sh"
     MNT=$RUNTIME_PARENT/kterm-vte
-    if ! mount_bundled_runtime; then
-        echo "kterm could not start its bundled runtime." >&2
+    if ! mount_runtime; then
+        echo "kterm could not start its private runtime." >&2
         exit 1
     fi
     TERMINAL_FONT="DejaVu Sans Mono"
@@ -33,7 +33,7 @@ else
         [ ! -r "$MNT/usr/local/share/kterm/keyboard-kindle.xml" ] ||
         ! cmp -s "$PACKAGE_ROOT/payload/kterm" "$MNT/usr/local/bin/kterm" ||
         ! cmp -s "$PACKAGE_ROOT/payload/libvte-2.91.so.0" "$MNT/usr/local/lib/kterm/libvte-2.91.so.0"; then
-        exec env KTERM_BUNDLED_RUNTIME=1 unshare -m --propagation private \
+        exec env KTERM_PRIVATE_RUNTIME=1 unshare -m --propagation private \
             /bin/sh "$PACKAGE_ROOT/launch.sh" "$@"
     fi
     TERMINAL_FONT="FiraCode Nerd Font Mono"
@@ -66,7 +66,7 @@ bind /usr/java/lib/fonts "$MNT/usr/share/fonts/kindle"
 # background, a slow service must not delay the terminal. Entering it again
 # while everything is up changes nothing. Started from a subshell, so it is
 # not a child of kterm (this shell becomes kterm), which would have to reap it.
-if [ "${KTERM_BUNDLED_RUNTIME:-}" != 1 ] && [ -x "$MNT/sbin/openrc" ]; then
+if [ "${KTERM_PRIVATE_RUNTIME:-}" != 1 ] && [ -x "$MNT/sbin/openrc" ]; then
     (setsid chroot "$MNT" /usr/bin/env -i HOME=/root \
         PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         /sbin/openrc default > /dev/null 2>&1 < /dev/null &)
