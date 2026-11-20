@@ -294,6 +294,8 @@ void inject_styles(void) {
     static const gchar tab_css[] =
         "#ktermTabs > header { background: #fff; padding: 0 " G_STRINGIFY(TAB_CORNER_PX) "px 0 0;"
         " border-bottom: 2px solid #000; }"
+        "#ktermTabs > header > tabs { margin-left: 0; margin-right: 0;"
+        " padding-left: 0; padding-right: 0; }"
         "#ktermTabs > header tab { background: transparent; margin: 0; padding: 0;"
         " border: 0; border-radius: 0; box-shadow: none; }"
         "#ktermTabTitle { color: #000; margin: 3px 2px 0;"
@@ -307,7 +309,8 @@ void inject_styles(void) {
         "#ktermTabButton { background: transparent; border: 0; box-shadow: none;"
         " color: #000; min-width: 48px; min-height: 56px; padding: 0; }"
         "#ktermTabButton.add { min-width: 56px; }"
-        "#ktermTabs > header arrow { min-width: 42px; min-height: 56px; }";
+        "#ktermTabs > header arrow { min-width: " G_STRINGIFY(TAB_ARROW_PX) "px; min-height: 56px;"
+        " margin: 0; padding: 0; border: 0; }";
     gchar *css = g_strconcat(
                                     // The window has 8 levels of gray (see
                                     // kterm.c): #d8d8d8 shows as the light

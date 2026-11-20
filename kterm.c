@@ -412,24 +412,17 @@ static void fontdown(GtkWidget *widget, gpointer terminal) {
  */
 static void set_terminal_colors(GtkWidget *terminal, gboolean scheme) {
 #if GTK_CHECK_VERSION(3,14,0)
-    // light background
-    GdkRGBA palette_light[8] = {{ 0, 0, 0, 1 }, // black
-        { 0x5050/0xffff, 0x5050/0xffff, 0x5050/0xffff, 1 }, // red
-        { 0x7070/0xffff, 0x7070/0xffff, 0x7070/0xffff, 1 }, // green
-        { 0xa0a0/0xffff, 0xa0a0/0xffff, 0xa0a0/0xffff, 1 }, // yellow
-        { 0x8080/0xffff, 0x8080/0xffff, 0x8080/0xffff, 1 }, // blue
-        { 0x3030/0xffff, 0x3030/0xffff, 0x3030/0xffff, 1 }, // magenta
-        { 0x9090/0xffff, 0x9090/0xffff, 0x9090/0xffff, 1 }, // cyan
-        { 1, 1, 1, 1 }}; // white
-    // dark background
-    GdkRGBA palette_dark[8] = {{ 0, 0, 0, 1 },
-        { 0x8888/0xffff, 0x8888/0xffff, 0x8888/0xffff, 1 },
-        { 0x9898/0xffff, 0x9898/0xffff, 0x9898/0xffff, 1 },
-        { 0xd0d0/0xffff, 0xd0d0/0xffff, 0xd0d0/0xffff, 1 },
-        { 0xa8a8/0xffff, 0xa8a8/0xffff, 0xa8a8/0xffff, 1 },
-        { 0x7070/0xffff, 0x7070/0xffff, 0x7070/0xffff, 1 },
-        { 0xb8b8/0xffff, 0xb8b8/0xffff, 0xb8b8/0xffff, 1 },
-        { 1, 1, 1, 1 }};
+#define ANSI_GRAY(value) { (value) / 255.0, (value) / 255.0, (value) / 255.0, 1.0 }
+    // ANSI order: black, red, green, yellow, blue, magenta, cyan, white.
+    GdkRGBA palette_light[8] = {
+        ANSI_GRAY(0), ANSI_GRAY(0x50), ANSI_GRAY(0x70), ANSI_GRAY(0xa0),
+        ANSI_GRAY(0x80), ANSI_GRAY(0x30), ANSI_GRAY(0x90), ANSI_GRAY(0xff)
+    };
+    GdkRGBA palette_dark[8] = {
+        ANSI_GRAY(0), ANSI_GRAY(0x88), ANSI_GRAY(0x98), ANSI_GRAY(0xd0),
+        ANSI_GRAY(0xa8), ANSI_GRAY(0x70), ANSI_GRAY(0xb8), ANSI_GRAY(0xff)
+    };
+#undef ANSI_GRAY
     GdkRGBA *palette;
     GdkRGBA color_white = { 1, 1, 1, 1 };
     GdkRGBA color_black = { 0, 0, 0, 1 };
@@ -1169,8 +1162,9 @@ static gboolean align_tab_titles(gpointer data) {
     GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
     gint previous;
     gtk_widget_get_size_request(spacer, &previous, NULL);
-    gint offset = 0;
-    if (!tab_titles_overflow(notebook)) {
+    // GTK floors the spacer's width request at one pixel.
+    gint offset = 1;
+    if (!size_tab_titles(notebook, count, width) && !tab_titles_overflow(notebook)) {
         GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
         GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
         GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->title_label);
@@ -1178,16 +1172,61 @@ static gboolean align_tab_titles(gpointer data) {
         gint left, right, end;
         if (gtk_widget_translate_coordinates(first_title, widget, 0, 0, &left, NULL)
             && gtk_widget_translate_coordinates(last_title, widget, gtk_widget_get_allocated_width(last_title), 0, &right, NULL)
+static gboolean size_tab_titles(GtkNotebook *notebook, gint count, gint width) {
+    gint available = width - TAB_CORNER_PX - 1;
+    if (available <= 0) {
+        return FALSE;
+    }
+    typedef struct {
+        GtkWidget *label;
+        gint text_width;
+        gint chrome_width;
+    } TabWidth;
+    g_autofree TabWidth *widths = g_new(TabWidth, count);
+    gint64 total = 0;
+    for (gint i = 0; i < count; ++i) {
+        GtkWidget *page = gtk_notebook_get_nth_page(notebook, i);
+        GtkWidget *label = terminal_state(page)->title_label;
+        GtkWidget *header = gtk_notebook_get_tab_label(notebook, page);
+        PangoLayout *layout = pango_layout_copy(gtk_label_get_layout(GTK_LABEL(label)));
+        pango_layout_set_width(layout, -1);
+        gint text_width, label_min, header_min;
+        pango_layout_get_pixel_size(layout, &text_width, NULL);
+        g_object_unref(layout);
+        gtk_widget_get_preferred_width(label, &label_min, NULL);
+        gtk_widget_get_preferred_width(header, &header_min, NULL);
+        widths[i] = (TabWidth) { label, text_width, header_min - label_min };
+        total += text_width + widths[i].chrome_width;
+    }
+
+    if (count > 1 && total > available) {
+        available -= 2 * TAB_ARROW_PX;
+    }
+    gboolean resized = FALSE;
+    // GtkNotebook uses the minimum width, even when there is room for the full title.
+    for (gint i = 0; i < count; ++i) {
+        TabWidth *tab = &widths[i];
+        const gint wanted = CLAMP(tab->text_width, 1, MAX(1, available - tab->chrome_width));
+        gint current;
+        gtk_widget_get_size_request(tab->label, &current, NULL);
+        if (wanted != current) {
+            gtk_widget_set_size_request(tab->label, wanted, -1);
+            resized = TRUE;
+        }
+    }
+    return resized;
+}
+
             && gtk_widget_translate_coordinates(tabs->add, widget, gtk_widget_get_allocated_width(tabs->add), 0, &end, NULL)) {
-            const gint width = gtk_widget_get_allocated_width(widget);
             const gint centered = (width - (right - left)) / 2;
-            const gint available = MAX(0, previous + width - TAB_CORNER_PX - end);
-            offset = CLAMP(previous + centered - left, 0, available);
+            const gint available = MAX(1, previous + width - TAB_CORNER_PX - end);
+            offset = CLAMP(previous + centered - left, 1, available);
         }
     }
     if (offset != previous) {
         gtk_widget_set_size_request(spacer, offset, 0);
     }
+    const gint width = gtk_widget_get_allocated_width(widget);
     return G_SOURCE_REMOVE;
 }
 
@@ -1312,7 +1351,7 @@ static gboolean widget_contains_point(GtkWidget *widget, GtkWidget *window, gdou
         && local_y >= 0 && local_y < gtk_widget_get_allocated_height(widget);
 }
 
-static void tab_rename_pressed(GtkGestureLongPress *gesture, gdouble x, gdouble y, TerminalTabs *tabs) {
+static void tab_rename_pressed(GtkGesture *gesture, gdouble x, gdouble y, TerminalTabs *tabs) {
     if (!gtk_notebook_get_show_tabs(tabs->notebook) || panel_is_open()) {
         return;
     }
@@ -1322,7 +1361,7 @@ static void tab_rename_pressed(GtkGestureLongPress *gesture, gdouble x, gdouble 
         GtkWidget *title = gtk_widget_get_parent(state->title_label);
         if (widget_contains_point(title, tabs->window, x, y)
             && !widget_contains_point(state->close_button, tabs->window, x, y)) {
-            gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+            gtk_gesture_set_state(gesture, GTK_EVENT_SEQUENCE_CLAIMED);
             gtk_notebook_set_current_page(tabs->notebook, page);
             open_tab_rename(tabs, state);
             return;
@@ -1338,7 +1377,7 @@ static void place_add_tab_button(TerminalTabs *tabs, GtkWidget *header) {
     gtk_box_pack_end(GTK_BOX(header), tabs->add, FALSE, FALSE, 0);
 }
 
-static void update_tab_close_buttons(GtkNotebook *notebook) {
+static void update_tab_headers(GtkNotebook *notebook) {
     const gint count = gtk_notebook_get_n_pages(notebook);
     for (gint index = 0; index < count; ++index) {
         TerminalState *state = terminal_state(gtk_notebook_get_nth_page(notebook, index));
@@ -1352,6 +1391,11 @@ static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_ex
     }
     const gint index = gtk_notebook_page_num(tabs->notebook, terminal);
     if (index < 0) {
+static void tab_rename_held(GtkGestureMultiPress *gesture, gint presses, gdouble x, gdouble y, TerminalTabs *tabs) {
+    UNUSED(presses);
+    tab_rename_pressed(GTK_GESTURE(gesture), x, y, tabs);
+}
+
         return;
     }
     const gint count = gtk_notebook_get_n_pages(tabs->notebook);
@@ -1366,11 +1410,15 @@ static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_ex
         place_add_tab_button(tabs, gtk_notebook_get_tab_label(tabs->notebook, previous));
     }
     // VTE can emit child-exited during disposal. Detach the page first.
+    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
+    gtk_widget_set_size_request(spacer, 1, 0);
+    // Refit before GTK measures the new set of tabs and their buttons.
+    size_tab_titles(notebook, count, gtk_widget_get_allocated_width(GTK_WIDGET(notebook)));
     g_object_ref(terminal);
     gtk_notebook_remove_page(tabs->notebook, index);
     gtk_widget_destroy(terminal);
     g_object_unref(terminal);
-    update_tab_close_buttons(tabs->notebook);
+    update_tab_headers(tabs->notebook);
 }
 
 static void close_tab_cb(GtkButton *button, GtkWidget *terminal) {
@@ -1425,8 +1473,6 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
     state->title_label = label;
     set_tab_title(VTE_TERMINAL(terminal), label);
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
-    gtk_label_set_width_chars(GTK_LABEL(label), 5);
-    gtk_label_set_max_width_chars(GTK_LABEL(label), 15);
     gtk_label_set_single_line_mode(GTK_LABEL(label), TRUE);
     gtk_box_pack_start(GTK_BOX(title_box), label, TRUE, TRUE, 0);
     GtkWidget *close = tab_button(ICON_CLOSE, "关闭标签", 25);
@@ -1455,7 +1501,7 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
 
     gtk_widget_show(terminal);
     const gint index = gtk_notebook_append_page(tabs->notebook, terminal, header);
-    update_tab_close_buttons(tabs->notebook);
+    update_tab_headers(tabs->notebook);
     gtk_notebook_set_current_page(tabs->notebook, index);
     return terminal;
 }
@@ -1499,7 +1545,7 @@ static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gch
     gtk_notebook_set_scrollable(tabs->notebook, TRUE);
     gtk_notebook_set_show_border(tabs->notebook, FALSE);
     GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_size_request(spacer, 0, 0);
+    gtk_widget_set_size_request(spacer, 1, 0);
     gtk_widget_show(spacer);
     gtk_notebook_set_action_widget(tabs->notebook, spacer, GTK_PACK_START);
     g_signal_connect_after(notebook, "size-allocate", G_CALLBACK(tabs_allocated), tabs);
@@ -1542,6 +1588,12 @@ gint main(gint argc, gchar **argv) {
     envv[envc++] = "TERMINFO=" TERMINFO_PATH;
 #endif
     while((c = getopt(argc, argv, "c:de:E:f:hk:l:o:s:t:u:v")) != -1) {
+
+    GtkGesture *hold = gtk_gesture_multi_press_new(window);
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(hold), TOUCH_LONG_PRESS_BUTTON);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(hold), GTK_PHASE_CAPTURE);
+    g_signal_connect(hold, "pressed", G_CALLBACK(tab_rename_held), tabs);
+    g_object_set_data_full(G_OBJECT(window), "kterm-tab-hold", hold, g_object_unref);
         switch(c) {
             case 'c':
                 i = atoi(optarg);

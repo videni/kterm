@@ -288,13 +288,18 @@ static GtkWidget * build_settings_page(void) {
  * Add a row to the settings page: what is set on the left, the widget
  * setting it at the right edge, a line above
  * @param title What is set
+ * @param hint Optional explanation below the title
  * @param control Widget that sets it, kept at its own width
  */
-void panel_add_setting(const gchar *title, GtkWidget *control) {
+void panel_add_setting(const gchar *title, const gchar *hint, GtkWidget *control) {
     GtkWidget *line = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_name(line, PANEL_LINE_NAME);
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING * 2);
     GtkWidget *label = gtk_label_new(title);
+    if (hint) {
+        g_autofree gchar *markup = g_markup_printf_escaped("%s\n<small>%s</small>", title, hint);
+        gtk_label_set_markup(GTK_LABEL(label), markup);
+    }
     gtk_label_set_xalign(GTK_LABEL(label), 0);
     gtk_widget_set_halign(control, GTK_ALIGN_END);
     gtk_widget_set_valign(control, GTK_ALIGN_CENTER);

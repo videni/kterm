@@ -43,7 +43,7 @@ void panel_add_tab(PanelTab tab, GtkWidget *page, void (*refresh)(void));
 void panel_add_page(GtkWidget *page, gboolean typing, PanelTab tab);
 void panel_show_page(GtkWidget *page);
 GtkWidget * panel_page_header(GtkWidget *page, const gchar *title, GtkWidget *parent);
-void panel_add_setting(const gchar *title, GtkWidget *control);
+void panel_add_setting(const gchar *title, const gchar *hint, GtkWidget *control);
 GtkWidget * panel_button_new(const gchar *label);
 void panel_clear_box(GtkWidget *box);
 void panel_open(void);

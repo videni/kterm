@@ -40,6 +40,7 @@ GtkWidget * kterm_get_terminal(void);
 void kterm_set_font_size(guint size);
 void kterm_set_text_contrast(guint on);
 #define TAB_CORNER_PX 96
+#define TAB_ARROW_PX 42
 void kterm_set_tab_hidden(guint hidden);
 gboolean kterm_terminal_has_shell(void);
 pid_t kterm_terminal_foreground(GtkWidget *terminal);

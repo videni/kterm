@@ -271,17 +271,18 @@ void settings_init(void) {
     gtk_box_pack_start(GTK_BOX(font_row), font_size_button("−", -1, size_label), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(font_row), size_label, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(font_row), font_size_button("+", 1, size_label), FALSE, FALSE, 0);
-    panel_add_setting("字号", font_row);
+    panel_add_setting("字号", NULL, font_row);
 #ifdef KINDLE
-    panel_add_setting("屏幕方向", orientation_row());
-    panel_add_setting("标签栏\n轻点终端右上角切换显隐\n长按标签标题改名", choice_row(&tab_row_data, &conf->auto_hide_tabs));
+    panel_add_setting("屏幕方向", NULL, orientation_row());
+    panel_add_setting("标签栏", "轻点终端右上角切换显隐\n长按标签标题改名",
+                      choice_row(&tab_row_data, &conf->auto_hide_tabs));
     // how often the screen follows a terminal changing on its own (not
     // while typing: then always at once)
-    panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));
-    panel_add_setting("全刷", choice_row(&full_refresh_row_data, &conf->full_refresh));
-    panel_add_setting("文字加深", choice_row(&contrast_row_data, &conf->text_contrast));
-    panel_add_setting("tmux 集成", choice_row(&tmux_row_data, &conf->tmux_on));
-    panel_add_setting("语音输入", choice_row(&voice_row_data, &conf->voice_on));
+    panel_add_setting("刷新", NULL, choice_row(&refresh_row_data, &conf->refresh_rate));
+    panel_add_setting("全刷", NULL, choice_row(&full_refresh_row_data, &conf->full_refresh));
+    panel_add_setting("文字加深", NULL, choice_row(&contrast_row_data, &conf->text_contrast));
+    panel_add_setting("tmux 集成", NULL, choice_row(&tmux_row_data, &conf->tmux_on));
+    panel_add_setting("语音输入", NULL, choice_row(&voice_row_data, &conf->voice_on));
 #endif
 }
 #endif

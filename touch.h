@@ -25,6 +25,8 @@
 #define TOUCH_EDGE_TOP_PX 150
 /** and travels at least this far */
 #define TOUCH_SWIPE_MIN_PX 96
+/** X button the Kindle touch driver sends for a long press. */
+#define TOUCH_LONG_PRESS_BUTTON 9
 
 gboolean touch_event(GtkWidget *terminal, GdkEvent *any);
 void touch_cancel_page(void);

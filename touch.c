@@ -1150,7 +1150,7 @@ gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
         }
         return TRUE;
     }
-    if (event->button == 9) {
+    if (event->button == TOUCH_LONG_PRESS_BUTTON) {
         if (event->type == GDK_BUTTON_PRESS && !touch.swiping && !touch.two_fingers
             && !touch.selecting && !touch.dragging_history) {
             selection_start(terminal, event);
