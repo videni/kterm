@@ -292,19 +292,21 @@ void inject_styles(void) {
     GtkCssProvider *provider = gtk_css_provider_new();
     if (!provider) { return; }
     static const gchar tab_css[] =
-        // GTK lays the tab labels over the header rule. Match their bottom edge to it.
-        "#ktermTabs > header { background: @gray; padding: 0 " G_STRINGIFY(TAB_CORNER_PX) "px 0 0;"
+        "#ktermTabs > header { background: #fff; padding: 0 " G_STRINGIFY(TAB_CORNER_PX) "px 0 0;"
         " border-bottom: 2px solid #000; }"
         "#ktermTabs > header tab { background: transparent; margin: 0; padding: 0;"
         " border: 0; border-radius: 0; box-shadow: none; }"
-        "#ktermTabTitle { background: #fff; color: #000; margin: 3px 2px 0;"
+        "#ktermTabTitle { color: #000; margin: 3px 2px 0;"
         " min-height: 56px; padding: 0 2px 1px 16px; border: 2px solid #000;"
-        " border-radius: 24px 24px 0 0; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
-        "#ktermTabs > header tab:checked #ktermTabTitle { background: #000; color: #fff; }"
+        " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+        "#ktermTabTitle, #ktermPanelTabs #ktermPanelButton {"
+        " background: #ececec; border-radius: 20px 20px 0 0; }"
+        "#ktermTabs > header tab:checked #ktermTabTitle,"
+        " #ktermPanelTabs #ktermPanelButton.selected {"
+        " background: #fff; border-bottom-color: #fff; color: #000; font-weight: bold; }"
         "#ktermTabButton { background: transparent; border: 0; box-shadow: none;"
         " color: #000; min-width: 48px; min-height: 56px; padding: 0; }"
         "#ktermTabButton.add { min-width: 56px; }"
-        "#ktermTabs > header tab:checked #ktermTabTitle #ktermTabButton { color: #fff; }"
         "#ktermTabs > header arrow { min-width: 42px; min-height: 56px; }";
     gchar *css = g_strconcat(
                                     // The window has 8 levels of gray (see
@@ -387,10 +389,7 @@ void inject_styles(void) {
                                     " box-shadow: none; text-shadow: none; padding: 4px 24px 4px 0;"
                                     " min-width: 0; min-height: 0; font-size: 16pt; }"
                                     "#ktermPanelTabs { box-shadow: inset 0 -2px 0 #000; }"
-                                    "#ktermPanelTabs #ktermPanelButton { background: #ececec;"
-                                    " padding: 8px 2px; border-radius: 20px 20px 0 0; }"
-                                    "#ktermPanelTabs #ktermPanelButton.selected { background: #fff;"
-                                    " border-bottom-color: #fff; color: #000; font-weight: bold; }"
+                                    "#ktermPanelTabs #ktermPanelButton { padding: 8px 2px; }"
                                     "#ktermPanelTabs #ktermPanelButton.selected label { color: #000; }"
                                     "#ktermPanelButton.quit { padding: 0; border-radius: 50%;"
                                     " min-width: 56px; min-height: 56px; }"

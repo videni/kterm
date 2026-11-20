@@ -69,6 +69,8 @@ typedef struct {
     GtkWidget *add;
     gchar **envv;
     guint next_number;
+    guint align_source;
+    gint swipe_from;
 } TerminalTabs;
 
 static TerminalTabs terminal_tabs;
@@ -1126,28 +1128,100 @@ void kterm_set_tab_hidden(guint hidden) {
     gtk_notebook_set_show_tabs(terminal_tabs.notebook, !hidden);
 }
 
+static gboolean tab_titles_overflow(GtkNotebook *notebook) {
+    const gint count = gtk_notebook_get_n_pages(notebook);
+    if (count < 2) {
+        return FALSE;
+    }
+    GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
+    GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
+    return !gtk_widget_get_child_visible(gtk_notebook_get_tab_label(notebook, first))
+        || !gtk_widget_get_child_visible(gtk_notebook_get_tab_label(notebook, last));
+}
+
+static gboolean align_tab_titles(gpointer data) {
+    TerminalTabs *tabs = data;
+    tabs->align_source = 0;
+    GtkNotebook *notebook = tabs->notebook;
+    const gint count = gtk_notebook_get_n_pages(notebook);
+    if (!count || !gtk_notebook_get_show_tabs(notebook)) {
+        return G_SOURCE_REMOVE;
+    }
+
+    GtkWidget *widget = GTK_WIDGET(notebook);
+    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
+    gint previous;
+    gtk_widget_get_size_request(spacer, &previous, NULL);
+    gint offset = 0;
+    if (!tab_titles_overflow(notebook)) {
+        GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
+        GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
+        GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->close_button);
+        GtkWidget *last_title = gtk_widget_get_parent(terminal_state(last)->close_button);
+        gint left, right, end;
+        if (gtk_widget_translate_coordinates(first_title, widget, 0, 0, &left, NULL)
+            && gtk_widget_translate_coordinates(last_title, widget, gtk_widget_get_allocated_width(last_title), 0, &right, NULL)
+            && gtk_widget_translate_coordinates(tabs->add, widget, gtk_widget_get_allocated_width(tabs->add), 0, &end, NULL)) {
+            const gint width = gtk_widget_get_allocated_width(widget);
+            const gint centered = (width - (right - left)) / 2;
+            const gint available = MAX(0, previous + width - TAB_CORNER_PX - end);
+            offset = CLAMP(previous + centered - left, 0, available);
+        }
+    }
+    if (offset != previous) {
+        gtk_widget_set_size_request(spacer, offset, 0);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+static void tabs_allocated(GtkWidget *notebook, GtkAllocation *allocation, TerminalTabs *tabs) {
+    UNUSED(notebook);
+    UNUSED(allocation);
+    // Changing a size request during allocation can lose the next layout.
+    if (!tabs->align_source) {
+        tabs->align_source = g_idle_add(align_tab_titles, tabs);
+    }
+}
+
 static gboolean tab_corner_contains(TerminalTabs *tabs, gdouble x, gdouble y) {
     const gint width = gtk_widget_get_allocated_width(tabs->window);
     return x >= width - TAB_CORNER_PX && x < width && y >= 0 && y < TAB_CORNER_PX;
 }
 
 static void tab_bar_press(GtkGestureDrag *gesture, gdouble x, gdouble y, TerminalTabs *tabs) {
-    if (panel_is_open() || !tab_corner_contains(tabs, x, y)) {
+    tabs->swipe_from = -1;
+    if (panel_is_open()) {
         return;
     }
     GdkEventSequence *seq = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
     const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), seq);
     GtkWidget *target = event ? gtk_get_event_widget((GdkEvent *) event) : NULL;
     GtkWidget *notebook = GTK_WIDGET(tabs->notebook);
-    if (target && (target == notebook || gtk_widget_is_ancestor(target, notebook)
-                   || gtk_widget_is_ancestor(notebook, target))) {
+    if (!target || (target != notebook && !gtk_widget_is_ancestor(target, notebook)
+                    && !gtk_widget_is_ancestor(notebook, target))) {
+        return;
+    }
+    if (tab_corner_contains(tabs, x, y)) {
         gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+        return;
+    }
+    GtkWidget *terminal = kterm_get_terminal();
+    gint top;
+    if (terminal && gtk_notebook_get_show_tabs(tabs->notebook)
+        && gtk_widget_translate_coordinates(terminal, tabs->window, 0, 0, NULL, &top)
+        && y < top && tab_titles_overflow(tabs->notebook)) {
+        tabs->swipe_from = gtk_notebook_get_current_page(tabs->notebook);
     }
 }
 
 static void tab_bar_release(GtkGestureDrag *gesture, gdouble dx, gdouble dy, TerminalTabs *tabs) {
     GdkEventSequence *seq = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
     if (gtk_gesture_get_sequence_state(GTK_GESTURE(gesture), seq) != GTK_EVENT_SEQUENCE_CLAIMED) {
+        if (tabs->swipe_from >= 0 && ABS(dx) >= TOUCH_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5) {
+            const gint last = gtk_notebook_get_n_pages(tabs->notebook) - 1;
+            const gint destination = tabs->swipe_from + (dx < 0 ? 1 : -1);
+            gtk_notebook_set_current_page(tabs->notebook, CLAMP(destination, 0, last));
+        }
         return;
     }
     // The press claimed the corner. Small movement can cross its edge.
@@ -1338,6 +1412,11 @@ static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gch
     gtk_widget_set_can_focus(notebook, FALSE);
     gtk_notebook_set_scrollable(tabs->notebook, TRUE);
     gtk_notebook_set_show_border(tabs->notebook, FALSE);
+    GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_size_request(spacer, 0, 0);
+    gtk_widget_show(spacer);
+    gtk_notebook_set_action_widget(tabs->notebook, spacer, GTK_PACK_START);
+    g_signal_connect_after(notebook, "size-allocate", G_CALLBACK(tabs_allocated), tabs);
     tabs->add = g_object_ref_sink(tab_button(ICON_NEW_TAB, "新建标签", 32));
     gtk_style_context_add_class(gtk_widget_get_style_context(tabs->add), "add");
     g_object_set_data_full(G_OBJECT(notebook), "kterm-add-tab", tabs->add, g_object_unref);
@@ -1621,6 +1700,9 @@ gint main(gint argc, gchar **argv) {
     }
     gtk_main();
     
+#ifdef KINDLE
+    g_clear_handle_id(&tabs->align_source, g_source_remove);
+#endif
     clean_on_exit(keyboard);
 #ifndef KINDLE
     if (menu) {
