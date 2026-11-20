@@ -1171,13 +1171,17 @@ static gboolean tab_titles_overflow(GtkNotebook *notebook) {
         || !gtk_widget_get_child_visible(gtk_notebook_get_tab_label(notebook, last));
 }
 
-static gboolean size_tab_titles(GtkNotebook *notebook, gint count, gint width) {
-    gint available = width - TAB_CORNER_PX - 1;
-    if (available <= 0) {
-        return FALSE;
+static void layout_tab_titles(TerminalTabs *tabs) {
+    GtkNotebook *notebook = tabs->notebook;
+    const gint count = gtk_notebook_get_n_pages(notebook);
+    const gint width = gtk_widget_get_allocated_width(GTK_WIDGET(notebook));
+    const gint available = width - TAB_CORNER_PX;
+    if (!count || available <= 1 || !gtk_notebook_get_show_tabs(notebook)) {
+        return;
     }
     typedef struct {
         GtkWidget *label;
+        GtkWidget *header;
         gint text_width;
         gint chrome_width;
     } TabWidth;
@@ -1194,61 +1198,48 @@ static gboolean size_tab_titles(GtkNotebook *notebook, gint count, gint width) {
         g_object_unref(layout);
         gtk_widget_get_preferred_width(label, &label_min, NULL);
         gtk_widget_get_preferred_width(header, &header_min, NULL);
-        widths[i] = (TabWidth) { label, text_width, header_min - label_min };
+        widths[i] = (TabWidth) { label, header, text_width, header_min - label_min };
         total += text_width + widths[i].chrome_width;
     }
 
-    if (count > 1 && total > available) {
-        available -= 2 * TAB_ARROW_PX;
-    }
-    gboolean resized = FALSE;
+    const gint arrow_width = count > 1 && total >= available ? 2 * TAB_ARROW_PX : 0;
+    gint64 packed_width = 0;
     // GtkNotebook uses the minimum width, even when there is room for the full title.
     for (gint i = 0; i < count; ++i) {
         TabWidth *tab = &widths[i];
-        const gint wanted = CLAMP(tab->text_width, 1, MAX(1, available - tab->chrome_width));
+        const gint limit = MAX(1, available - 1 - arrow_width - tab->chrome_width);
+        const gint wanted = CLAMP(tab->text_width, 1, limit);
         gint current;
         gtk_widget_get_size_request(tab->label, &current, NULL);
         if (wanted != current) {
             gtk_widget_set_size_request(tab->label, wanted, -1);
-            resized = TRUE;
         }
+        gint header_width;
+        gtk_widget_get_preferred_width(tab->header, &header_width, NULL);
+        packed_width += header_width;
     }
-    return resized;
+
+    // GTK floors the spacer's width request at one pixel.
+    gint offset = 1;
+    if (packed_width < available) {
+        gint add_width;
+        gtk_widget_get_preferred_width(tabs->add, &add_width, NULL);
+        const gint title_width = (gint) packed_width - add_width;
+        offset = CLAMP((width - title_width) / 2, 1, available - (gint) packed_width);
+    }
+
+    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
+    gint previous;
+    gtk_widget_get_size_request(spacer, &previous, NULL);
+    if (offset != previous) {
+        gtk_widget_set_size_request(spacer, offset, 0);
+    }
 }
 
 static gboolean align_tab_titles(gpointer data) {
     TerminalTabs *tabs = data;
     tabs->align_source = 0;
-    GtkNotebook *notebook = tabs->notebook;
-    const gint count = gtk_notebook_get_n_pages(notebook);
-    if (!count || !gtk_notebook_get_show_tabs(notebook)) {
-        return G_SOURCE_REMOVE;
-    }
-
-    GtkWidget *widget = GTK_WIDGET(notebook);
-    const gint width = gtk_widget_get_allocated_width(widget);
-    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
-    gint previous;
-    gtk_widget_get_size_request(spacer, &previous, NULL);
-    // GTK floors the spacer's width request at one pixel.
-    gint offset = 1;
-    if (!size_tab_titles(notebook, count, width) && !tab_titles_overflow(notebook)) {
-        GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
-        GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
-        GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->title_label);
-        GtkWidget *last_title = gtk_widget_get_parent(terminal_state(last)->title_label);
-        gint left, right, end;
-        if (gtk_widget_translate_coordinates(first_title, widget, 0, 0, &left, NULL)
-            && gtk_widget_translate_coordinates(last_title, widget, gtk_widget_get_allocated_width(last_title), 0, &right, NULL)
-            && gtk_widget_translate_coordinates(tabs->add, widget, gtk_widget_get_allocated_width(tabs->add), 0, &end, NULL)) {
-            const gint centered = (width - (right - left)) / 2;
-            const gint available = MAX(1, previous + width - TAB_CORNER_PX - end);
-            offset = CLAMP(previous + centered - left, 1, available);
-        }
-    }
-    if (offset != previous) {
-        gtk_widget_set_size_request(spacer, offset, 0);
-    }
+    layout_tab_titles(tabs);
     return G_SOURCE_REMOVE;
 }
 
@@ -1404,16 +1395,14 @@ static void place_add_tab_button(TerminalTabs *tabs, GtkWidget *header) {
     gtk_box_pack_end(GTK_BOX(header), tabs->add, FALSE, FALSE, 0);
 }
 
-static void update_tab_headers(GtkNotebook *notebook) {
+static void update_tab_headers(TerminalTabs *tabs) {
+    GtkNotebook *notebook = tabs->notebook;
     const gint count = gtk_notebook_get_n_pages(notebook);
     for (gint index = 0; index < count; ++index) {
         TerminalState *state = terminal_state(gtk_notebook_get_nth_page(notebook, index));
         gtk_widget_set_visible(state->close_button, count > 1);
     }
-    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
-    gtk_widget_set_size_request(spacer, 1, 0);
-    // Refit before GTK measures the new set of tabs and their buttons.
-    size_tab_titles(notebook, count, gtk_widget_get_allocated_width(GTK_WIDGET(notebook)));
+    layout_tab_titles(tabs);
 }
 
 static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_exited) {
@@ -1440,7 +1429,7 @@ static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_ex
     gtk_notebook_remove_page(tabs->notebook, index);
     gtk_widget_destroy(terminal);
     g_object_unref(terminal);
-    update_tab_headers(tabs->notebook);
+    update_tab_headers(tabs);
 }
 
 static void close_tab_cb(GtkButton *button, GtkWidget *terminal) {
@@ -1522,8 +1511,8 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
 
     gtk_widget_show(terminal);
     const gint index = gtk_notebook_append_page(tabs->notebook, terminal, header);
-    update_tab_headers(tabs->notebook);
     gtk_notebook_set_current_page(tabs->notebook, index);
+    update_tab_headers(tabs);
     return terminal;
 }
 

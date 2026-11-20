@@ -299,7 +299,7 @@ void inject_styles(void) {
         "#ktermTabs > header tab { background: transparent; margin: 0; padding: 0;"
         " border: 0; border-radius: 0; box-shadow: none; }"
         "#ktermTabTitle { color: #000; margin: 3px 2px 0;"
-        " min-height: 56px; padding: 0 2px 1px 16px; border: 2px solid #000;"
+        " min-height: 56px; padding: 0 22px 1px; border: 2px solid #000;"
         " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
         "#ktermTabTitle, #ktermPanelTabs #ktermPanelButton {"
         " background: #ececec; border-radius: 20px 20px 0 0; }"
@@ -308,6 +308,7 @@ void inject_styles(void) {
         " background: #fff; border-bottom-color: #fff; color: #000; font-weight: bold; }"
         "#ktermTabButton { background: transparent; border: 0; box-shadow: none;"
         " color: #000; min-width: 48px; min-height: 56px; padding: 0; }"
+        "#ktermTabTitle > #ktermTabButton { margin: 0 4px; }"
         "#ktermTabButton.add { min-width: 56px; }"
         "#ktermTabs > header arrow { min-width: " G_STRINGIFY(TAB_ARROW_PX) "px; min-height: 56px;"
         " margin: 0; padding: 0; border: 0; }";
