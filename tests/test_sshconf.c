@@ -18,16 +18,21 @@ static gchar * get(void) {
     return text;
 }
 
-static void save(const gchar *old, const gchar *name, const gchar *host, const gchar *user, const gchar *port) {
-    SshHost *item = ssh_host_new(name, host, user, port);
+static void save_with_key(const gchar *old, const gchar *name, const gchar *host, const gchar *user,
+                          const gchar *port, const gchar *key) {
+    SshHost *item = ssh_host_new(name, host, user, port, key);
     GError *error = NULL;
     g_assert_true(sshconf_save(path, old, item, &error));
     g_assert_no_error(error);
     ssh_host_free(item);
 }
 
+static void save(const gchar *old, const gchar *name, const gchar *host, const gchar *user, const gchar *port) {
+    save_with_key(old, name, host, user, port, NULL);
+}
+
 static void save_fails(const gchar *old, const gchar *name, const gchar *host, const gchar *user, const gchar *port) {
-    SshHost *item = ssh_host_new(name, host, user, port);
+    SshHost *item = ssh_host_new(name, host, user, port, NULL);
     GError *error = NULL;
     g_assert_false(sshconf_save(path, old, item, &error));
     g_assert_nonnull(error);
@@ -138,7 +143,7 @@ static void test_add(void) {
 
 static void test_edit_keeps_the_rest(void) {
     put(SAMPLE);
-    save("vidymacpro", "vidymacpro", "192.168.1.50", "", "22");
+    save_with_key("vidymacpro", "vidymacpro", "192.168.1.50", "", "22", "~/.ssh/id_ed25519");
     gchar *text = get();
     g_assert_cmpstr(text, ==,
         "# my machines\n"
@@ -146,6 +151,7 @@ static void test_edit_keeps_the_rest(void) {
         "    HostName 192.168.1.50\n"
         "    Port 22\n"
         "    IdentityFile ~/.ssh/id_ed25519\n"
+        "    IdentitiesOnly yes\n"
         "\n"
         "# work\n"
         "host=build\n"
@@ -163,7 +169,7 @@ static void test_edit_keeps_the_rest(void) {
 
 static void test_rename_and_fill(void) {
     put(SAMPLE);
-    save("vidymacpro", "mac", "192.168.1.232", "vidy", "");
+    save_with_key("vidymacpro", "mac", "192.168.1.232", "vidy", "", "~/.ssh/id_ed25519");
     save("build", "build", "build.example.org", "ci", "");
     save("bare", "bare", "10.1.1.1", "me", "");
     gchar *text = get();
@@ -173,6 +179,7 @@ static void test_rename_and_fill(void) {
         "    HostName 192.168.1.232\n"
         "    User vidy\n"
         "    IdentityFile ~/.ssh/id_ed25519\n"
+        "    IdentitiesOnly yes\n"
         "\n"
         "# work\n"
         "host=build\n"
@@ -255,14 +262,14 @@ static void test_validate(void) {
         { "ok", "fe80::1%wlan0", "", "" },
     };
     for (gsize i = 0; i < G_N_ELEMENTS(bad); i++) {
-        SshHost *item = ssh_host_new(bad[i][0], bad[i][1], bad[i][2], bad[i][3]);
+        SshHost *item = ssh_host_new(bad[i][0], bad[i][1], bad[i][2], bad[i][3], NULL);
         GError *error = NULL;
         g_assert_false(sshconf_validate(item, &error));
         g_assert_nonnull(error);
         g_error_free(error);
         ssh_host_free(item);
     }
-    SshHost *good = ssh_host_new("my-box_1.lan", "fe80::1", "vidy.v", "65535");
+    SshHost *good = ssh_host_new("my-box_1.lan", "fe80::1", "vidy.v", "65535", NULL);
     g_assert_true(sshconf_validate(good, NULL));
     ssh_host_free(good);
 }
