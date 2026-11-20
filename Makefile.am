@@ -8,6 +8,14 @@ kterm_mdns_SOURCES = kterm-mdns.c
 kterm_mdns_LDADD =
 endif
 
+images = $(wildcard $(srcdir)/assets/icons/*.svg) $(wildcard $(srcdir)/assets/*.svg)
+EXTRA_DIST = assets/images.gresource.xml $(images)
+nodist_kterm_SOURCES = image-resources.c
+CLEANFILES = image-resources.c
+
+image-resources.c: $(srcdir)/assets/images.gresource.xml $(images)
+	$(AM_V_GEN)$(GLIB_COMPILE_RESOURCES) --sourcedir="$(srcdir)/assets" --generate-source --target="$@" "$<"
+
 ktermconfdir = $(sysconfdir)/kterm
 ktermconf_DATA = kterm.conf shortcuts.conf
 layoutsdir = $(ktermconfdir)/layouts

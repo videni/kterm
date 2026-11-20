@@ -128,7 +128,7 @@ GtkWidget * notice_new(gint lines, NoticeTapped tapped, NoticeTapped closed) {
     gtk_widget_set_valign(text, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(top), text, TRUE, TRUE, 0);
     // round, alone at the top right, away from the buttons below
-    GtkWidget *close = notice_button(icon_new_outline(OUTLINE_X, NOTICE_ICON_PX));
+    GtkWidget *close = notice_button(icon_new(ICON_CLOSE, NOTICE_ICON_PX));
     gtk_style_context_add_class(gtk_widget_get_style_context(close), "round");
     gtk_widget_set_valign(close, GTK_ALIGN_START);
     g_signal_connect_swapped(close, "clicked", G_CALLBACK(closed), NULL);
@@ -260,13 +260,13 @@ void notice_set_text(GtkWidget *notice, const gchar *text) {
 /**
  * Add a button to the line of buttons, after those there
  * @param notice Notice
- * @param icon Icon, OUTLINE_...
+ * @param icon SVG resource path
  * @param words What it does
  * @return The button
  */
 GtkWidget * notice_action(GtkWidget *notice, const gchar *icon, const gchar *words) {
     GtkWidget *inside = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_pack_start(GTK_BOX(inside), icon_new_outline(icon, NOTICE_ICON_PX), FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(inside), icon_new(icon, NOTICE_ICON_PX), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(inside), gtk_label_new(words), FALSE, FALSE, 0);
     GtkWidget *button = notice_button(inside);
     GtkWidget *actions = g_object_get_data(G_OBJECT(notice), NOTICE_ACTIONS);

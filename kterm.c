@@ -96,6 +96,7 @@ typedef struct {
     gboolean is_shell;
 #ifdef KINDLE
     guint number;
+    GtkWidget *close_button;
 #endif
 } TerminalState;
 
@@ -1138,7 +1139,8 @@ static void tab_bar_press(GtkGestureDrag *gesture, gdouble x, gdouble y, Termina
     const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), seq);
     GtkWidget *target = event ? gtk_get_event_widget((GdkEvent *) event) : NULL;
     GtkWidget *notebook = GTK_WIDGET(tabs->notebook);
-    if (target == tabs->window || target == notebook || (target && gtk_widget_is_ancestor(target, notebook))) {
+    if (target && (target == notebook || gtk_widget_is_ancestor(target, notebook)
+                   || gtk_widget_is_ancestor(notebook, target))) {
         gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
     }
 }
@@ -1148,11 +1150,8 @@ static void tab_bar_release(GtkGestureDrag *gesture, gdouble dx, gdouble dy, Ter
     if (gtk_gesture_get_sequence_state(GTK_GESTURE(gesture), seq) != GTK_EVENT_SEQUENCE_CLAIMED) {
         return;
     }
-    gdouble x = 0, y = 0;
-    if (!gtk_gesture_drag_get_start_point(gesture, &x, &y)) {
-        return;
-    }
-    if (ABS(dx) < 24 && ABS(dy) < 24 && tab_corner_contains(tabs, x + dx, y + dy)) {
+    // The press claimed the corner. Small movement can cross its edge.
+    if (ABS(dx) < 30 && ABS(dy) < 30) {
         gtk_notebook_set_show_tabs(tabs->notebook, !gtk_notebook_get_show_tabs(tabs->notebook));
     } else {
         top_swipe_cb(gesture, dx, dy, NULL);
@@ -1165,7 +1164,9 @@ static GtkWidget *tab_button(const gchar *icon, const gchar *label, gint size) {
     gtk_widget_set_focus_on_click(button, FALSE);
     gtk_widget_set_tooltip_text(button, label);
     atk_object_set_name(gtk_widget_get_accessible(button), label);
-    gtk_container_add(GTK_CONTAINER(button), icon_new_outline(icon, size));
+    GtkWidget *image = icon_new(icon, size);
+    gtk_container_add(GTK_CONTAINER(button), image);
+    gtk_widget_show(image);
     return button;
 }
 
@@ -1177,7 +1178,15 @@ static void place_add_tab_button(TerminalTabs *tabs, GtkWidget *header) {
     gtk_box_pack_end(GTK_BOX(header), tabs->add, FALSE, FALSE, 0);
 }
 
-static void close_tab(GtkWidget *terminal, TerminalTabs *tabs) {
+static void update_tab_close_buttons(GtkNotebook *notebook) {
+    const gint count = gtk_notebook_get_n_pages(notebook);
+    for (gint index = 0; index < count; ++index) {
+        TerminalState *state = terminal_state(gtk_notebook_get_nth_page(notebook, index));
+        gtk_widget_set_visible(state->close_button, count > 1);
+    }
+}
+
+static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_exited) {
     if (!terminal || gtk_widget_in_destruction(terminal)) {
         return;
     }
@@ -1187,24 +1196,31 @@ static void close_tab(GtkWidget *terminal, TerminalTabs *tabs) {
     }
     const gint count = gtk_notebook_get_n_pages(tabs->notebook);
     if (count == 1) {
-        gtk_main_quit();
+        if (child_exited) {
+            gtk_main_quit();
+        }
         return;
     }
     if (index == count - 1) {
         GtkWidget *previous = gtk_notebook_get_nth_page(tabs->notebook, index - 1);
         place_add_tab_button(tabs, gtk_notebook_get_tab_label(tabs->notebook, previous));
     }
+    // VTE can emit child-exited during disposal. Detach the page first.
+    g_object_ref(terminal);
+    gtk_notebook_remove_page(tabs->notebook, index);
     gtk_widget_destroy(terminal);
+    g_object_unref(terminal);
+    update_tab_close_buttons(tabs->notebook);
 }
 
 static void close_tab_cb(GtkButton *button, GtkWidget *terminal) {
     UNUSED(button);
-    close_tab(terminal, &terminal_tabs);
+    close_tab(terminal, &terminal_tabs, FALSE);
 }
 
 static void terminal_exit(VteTerminal *terminal, gint status, TerminalTabs *tabs) {
     UNUSED(status);
-    close_tab(GTK_WIDGET(terminal), tabs);
+    close_tab(GTK_WIDGET(terminal), tabs, TRUE);
 }
 
 static void switch_tab(GtkNotebook *notebook, GtkWidget *terminal, guint page, gpointer data) {
@@ -1253,7 +1269,9 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
     gtk_label_set_max_width_chars(GTK_LABEL(label), 15);
     gtk_label_set_single_line_mode(GTK_LABEL(label), TRUE);
     gtk_box_pack_start(GTK_BOX(title_box), label, TRUE, TRUE, 0);
-    GtkWidget *close = tab_button(OUTLINE_X, "关闭标签", 25);
+    GtkWidget *close = tab_button(ICON_CLOSE, "关闭标签", 25);
+    state->close_button = close;
+    gtk_widget_set_no_show_all(close, TRUE);
     g_signal_connect_object(close, "clicked", G_CALLBACK(close_tab_cb), terminal, 0);
     gtk_box_pack_end(GTK_BOX(title_box), close, FALSE, FALSE, 0);
     place_add_tab_button(tabs, header);
@@ -1277,6 +1295,7 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
 
     gtk_widget_show(terminal);
     const gint index = gtk_notebook_append_page(tabs->notebook, terminal, header);
+    update_tab_close_buttons(tabs->notebook);
     gtk_notebook_set_current_page(tabs->notebook, index);
     return terminal;
 }
@@ -1289,7 +1308,7 @@ static void add_tab_cb(GtkButton *button, TerminalTabs *tabs) {
     GError *error = NULL;
     spawn_terminal(terminal, NULL, tabs->envv, &error);
     if (error) {
-        close_tab(terminal, tabs);
+        close_tab(terminal, tabs, FALSE);
         error_handle(tabs->window, &error);
     }
 }
@@ -1305,7 +1324,7 @@ static gboolean tab_key_cb(GtkWidget *window, GdkEventKey *event, TerminalTabs *
         add_tab_cb(NULL, tabs);
         return TRUE;
     case GDK_KEY_w:
-        close_tab(kterm_get_terminal(), tabs);
+        close_tab(kterm_get_terminal(), tabs, FALSE);
         return TRUE;
     default:
         return FALSE;
@@ -1319,7 +1338,7 @@ static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gch
     gtk_widget_set_can_focus(notebook, FALSE);
     gtk_notebook_set_scrollable(tabs->notebook, TRUE);
     gtk_notebook_set_show_border(tabs->notebook, FALSE);
-    tabs->add = g_object_ref_sink(tab_button("M12 4V20 M4 12H20", "新建标签", 32));
+    tabs->add = g_object_ref_sink(tab_button(ICON_NEW_TAB, "新建标签", 32));
     gtk_style_context_add_class(gtk_widget_get_style_context(tabs->add), "add");
     g_object_set_data_full(G_OBJECT(notebook), "kterm-add-tab", tabs->add, g_object_unref);
     g_signal_connect(tabs->add, "clicked", G_CALLBACK(add_tab_cb), tabs);

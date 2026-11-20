@@ -222,16 +222,21 @@ static void tab_clicked(GtkButton *button, gpointer data) {
 }
 
 static GtkWidget * build_tab_row(void) {
-    static const gchar *const labels[PANEL_TAB_COUNT] = {
-        [PANEL_TAB_CONNECTIONS] = "连接",
-        [PANEL_TAB_SETTINGS] = "设置",
-        [PANEL_TAB_SHORTCUTS] = "快捷键",
+    static const struct {
+        const gchar *label;
+        const gchar *icon;
+    } items[PANEL_TAB_COUNT] = {
+        [PANEL_TAB_CONNECTIONS] = {"连接", ICON_LINK},
+        [PANEL_TAB_SETTINGS] = {"设置", ICON_SETTINGS},
+        [PANEL_TAB_SHORTCUTS] = {"快捷键", ICON_SHORTCUT},
     };
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_name(row, "ktermPanelTabs");
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     for (PanelTab tab = PANEL_TAB_CONNECTIONS; tab < PANEL_TAB_COUNT; tab++) {
-        GtkWidget *button = panel_button_new(labels[tab]);
+        GtkWidget *button = panel_button_new(items[tab].label);
+        gtk_button_set_image(GTK_BUTTON(button), icon_new(items[tab].icon, 32));
+        gtk_button_set_always_show_image(GTK_BUTTON(button), TRUE);
         tabs[tab].button = button;
         if (tab == selected_tab) {
             gtk_style_context_add_class(gtk_widget_get_style_context(button), "selected");
@@ -250,7 +255,7 @@ static GtkWidget * build_quit_footer(void) {
     gtk_box_pack_start(GTK_BOX(footer), line, FALSE, FALSE, 0);
 
     GtkWidget *button = panel_button_new("");
-    gtk_button_set_image(GTK_BUTTON(button), icon_new_outline("M10 4H4V20H10 M9 12H20 M16 8L20 12L16 16", 32));
+    gtk_button_set_image(GTK_BUTTON(button), icon_new(ICON_POWER, 32));
     gtk_button_set_always_show_image(GTK_BUTTON(button), TRUE);
     gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
     gtk_widget_set_tooltip_text(button, "退出终端");

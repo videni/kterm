@@ -149,7 +149,7 @@ static gboolean draw_tool_cb(GtkWidget *tool, cairo_t *cr, gpointer data) {
     // the 24 by 24 grid of the icon, 60 % of the tool, in its middle
     const gdouble size = MIN(w, h) * 0.6;
     const gchar *icon = tool == menu_tool ? ICON_MENU
-                        : tool == paste_tool ? ICON_CONTENT_PASTE
+                        : tool == paste_tool ? ICON_PASTE
                         : (kterm_previewing() ? ICON_KEYBOARD : ICON_KEYBOARD_HIDE);
     icon_draw(cr, icon, (w - size) / 2, (h - size) / 2, size);
     return FALSE;

@@ -16,8 +16,8 @@
 /*
  * The web server of typing from a phone (voice.c), on the local network:
  *
- *   GET  /favicon.png, /apple-touch-icon.png
- *                        the icon, without the key: it tells nothing
+ *   GET  /favicon.png, /apple-touch-icon.png, /voice-icons.svg
+ *                        public artwork for the phone page
  *   GET  /KEY            the page (kindle/web/, built into voice-page.h)
  *   GET  /KEY/ping       "ok": the page shows it is connected
  *   POST /KEY/send       the body (UTF-8 text) for the terminal; ?run=1:
@@ -32,7 +32,7 @@
  */
 
 #include <string.h>
-#include <cairo.h>
+#include "icons.h"
 #include "config.h"
 #include "voiceserver.h"
 // VOICE_PAGE, built from kindle/web/ by kindle/build-web.sh
@@ -122,6 +122,16 @@ static void respond(GOutputStream *out, const gchar *status, const gchar *type, 
 
 static void respond_text(GOutputStream *out, const gchar *status, const gchar *text) {
     respond(out, status, "text/plain; charset=utf-8", text, strlen(text));
+}
+
+static void respond_image(GOutputStream *out, const gchar *type, GBytes *image) {
+    if (!image) {
+        respond_text(out, "404 Not Found", "Image unavailable");
+        return;
+    }
+    gsize size;
+    const gchar *data = g_bytes_get_data(image, &size);
+    respond(out, "200 OK", type, data, size);
 }
 
 /**
@@ -224,10 +234,10 @@ static gboolean run_cb(GThreadedSocketService *server, GSocketConnection *connec
     const gboolean get = !strcmp(method, "GET");
     if (get && (!strcmp(path, "/favicon.png") || !strcmp(path, "/favicon.ico")
                 || g_str_has_prefix(path, "/apple-touch-icon"))) {
-        GBytes *icon = g_str_has_prefix(path, "/apple") ? touch_icon : favicon;
-        gsize size = 0;
-        const gchar *png = g_bytes_get_data(icon, &size);
-        respond(out, "200 OK", "image/png", png, size);
+        respond_image(out, "image/png", g_str_has_prefix(path, "/apple") ? touch_icon : favicon);
+    } else if (get && !strcmp(path, "/voice-icons.svg")) {
+        g_autoptr(GBytes) icons = g_resources_lookup_data(IMAGE_RESOURCES "voice-icons.svg", G_RESOURCE_LOOKUP_FLAGS_NONE, NULL);
+        respond_image(out, "image/svg+xml", icons);
     } else if (!rest) {
         respond_text(out, "403 Forbidden", "口令不对：请重新扫 Kindle 上的二维码");
     } else if (get && (!*rest || !strcmp(rest, "/"))) {
@@ -263,42 +273,17 @@ static gboolean run_cb(GThreadedSocketService *server, GSocketConnection *connec
     return TRUE;
 }
 
-static cairo_status_t png_write(void *closure, const unsigned char *data, unsigned int length) {
-    g_byte_array_append(closure, data, length);
-    return CAIRO_STATUS_SUCCESS;
-}
-
-/**
- * Draw the icon: the prompt of the library cover (kindle/kpm/icon.svg),
- * white on black
- * @param side Width and height, px
- * @return PNG
- */
-static GBytes * draw_icon(int side) {
-    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, side, side);
-    cairo_t *cr = cairo_create(surface);
-    // drawn on a 100 x 100 square; a home screen rounds the corners itself
-    cairo_scale(cr, side / 100.0, side / 100.0);
-    cairo_set_source_rgb(cr, 0x11 / 255.0, 0x11 / 255.0, 0x11 / 255.0);
-    cairo_paint(cr);
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_set_line_width(cr, 9);
-    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
-    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
-    // >
-    cairo_move_to(cr, 22, 28);
-    cairo_line_to(cr, 46, 46);
-    cairo_line_to(cr, 22, 64);
-    cairo_stroke(cr);
-    // _
-    cairo_move_to(cr, 56, 68);
-    cairo_line_to(cr, 80, 68);
-    cairo_stroke(cr);
-    cairo_destroy(cr);
-    GByteArray *png = g_byte_array_new();
-    cairo_surface_write_to_png_stream(surface, png_write, png);
-    cairo_surface_destroy(surface);
-    return g_byte_array_free_to_bytes(png);
+static GBytes *favicon_png(gint side) {
+    g_autoptr(GError) error = NULL;
+    g_autoptr(GdkPixbuf) icon = gdk_pixbuf_new_from_resource_at_scale(
+        IMAGE_RESOURCES "voice-favicon.svg", side, side, TRUE, &error);
+    gchar *png = NULL;
+    gsize size = 0;
+    if (icon && gdk_pixbuf_save_to_buffer(icon, &png, &size, "png", &error, NULL)) {
+        return g_bytes_new_take(png, size);
+    }
+    g_warning("Cannot load the phone page icon: %s", error->message);
+    return NULL;
 }
 
 /**
@@ -313,8 +298,8 @@ gboolean voiceserver_start(guint16 port, VoiceHandler on_request, GError **error
         return TRUE;
     }
     if (!favicon) {
-        favicon = draw_icon(64);
-        touch_icon = draw_icon(180);
+        favicon = favicon_png(64);
+        touch_icon = favicon_png(180);
     }
     handler = on_request;
     service = g_threaded_socket_service_new(WORKERS);

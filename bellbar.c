@@ -122,7 +122,7 @@ void bellbar_attach(GtkWidget *terminal) {
 
 void bellbar_init(void) {
     bar = notice_new(BELL_LINES, bellbar_hide, bellbar_hide);
-    notice_lead(bar, icon_new_outline(OUTLINE_BELL, 32));
-    go_button = notice_action(bar, OUTLINE_GO, "去看");
+    notice_lead(bar, icon_new(ICON_BELL, 32));
+    go_button = notice_action(bar, ICON_GO, "去看");
     g_signal_connect(go_button, "clicked", G_CALLBACK(go_cb), NULL);
 }

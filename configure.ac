@@ -4,6 +4,8 @@ AC_PROG_CC
 m4_version_prereq([2.70], [], [AC_PROG_CC_C99])
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
+AC_PATH_PROG([GLIB_COMPILE_RESOURCES], [glib-compile-resources])
+AS_IF([test -z "$GLIB_COMPILE_RESOURCES"], [AC_MSG_ERROR([glib-compile-resources is required])])
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_MACRO_DIR([m4])
 

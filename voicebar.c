@@ -280,8 +280,8 @@ void voicebar_init(void) {
     // is put in or thrown away (its close button, the phone's 清空)
     bar = notice_new(VOICEBAR_LINES, NULL, voicebar_clear);
     // the buttons of the phone page, same signs
-    run_button = notice_action(bar, OUTLINE_PLAY, "放入并回车");     // 发送并回车
-    GtkWidget *put = notice_action(bar, OUTLINE_SEND, "只放入");      // 发送
+    run_button = notice_action(bar, ICON_PLAY, "放入并回车");     // 发送并回车
+    GtkWidget *put = notice_action(bar, ICON_SEND, "只放入");      // 发送
     g_signal_connect(run_button, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(TRUE));
     g_signal_connect(put, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(FALSE));
 }
