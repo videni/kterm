@@ -41,6 +41,7 @@
 #include "kterm.h"
 #include "notice.h"
 #include "panel.h"
+#include "shortbar.h"
 #include "tmux.h"
 #include "voicebar.h"
 
@@ -271,6 +272,16 @@ static void put_in_cb(GtkWidget *button, gpointer run) {
     put_in(GPOINTER_TO_INT(run));
 }
 
+static void copy_cb(GtkWidget *button, gpointer data) {
+    UNUSED(button);
+    UNUSED(data);
+    if (staged->len) {
+        GtkClipboard *clipboard = gtk_widget_get_clipboard(kterm_get_terminal(), GDK_SELECTION_CLIPBOARD);
+        gtk_clipboard_set_text(clipboard, staged->str, -1);
+        shortbar_offer_paste(staged->str);
+    }
+}
+
 /**
  * Build the box
  */
@@ -278,10 +289,12 @@ void voicebar_init(void) {
     staged = g_string_new(NULL);
     // a tap beside the buttons does nothing: the box stays until its text
     // is put in or thrown away (its close button, the phone's 清空)
-    bar = notice_new(VOICEBAR_LINES, NULL, voicebar_clear);
+    bar = notice_new(VOICEBAR_LINES, voicebar_clear);
     // the buttons of the phone page, same signs
     run_button = notice_action(bar, ICON_PLAY, "放入并回车");     // 发送并回车
     GtkWidget *put = notice_action(bar, ICON_SEND, "只放入");      // 发送
+    GtkWidget *copy = notice_action(bar, ICON_COPY, "拷贝");
     g_signal_connect(run_button, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(TRUE));
     g_signal_connect(put, "clicked", G_CALLBACK(put_in_cb), GINT_TO_POINTER(FALSE));
+    g_signal_connect(copy, "clicked", G_CALLBACK(copy_cb), NULL);
 }

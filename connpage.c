@@ -76,7 +76,7 @@ static GtkWidget *found_label = NULL;
 static gboolean searching = FALSE;
 
 static void show_list(void);
-static pid_t ssh_session(void);
+static pid_t connection_session(void);
 
 /**
  * Describe where a connection goes: user@address:port
@@ -116,32 +116,52 @@ static void connection_switch_free(gpointer data) {
  *         to tmux, images): they need no login of their own, a password
  *         one works too.
  */
-static gchar * ssh_command(const gchar *name) {
+static gchar * connection_command(const gchar *name, gboolean mosh) {
 #ifdef KINDLE
-    return g_strconcat("ssh -o ControlMaster=auto -o ControlPath=" REMOTE_CONTROL_PATH
-                       " -o ControlPersist=" REMOTE_CONTROL_PERSIST " ", name, NULL);
+    const gchar *ssh = "ssh -o ControlMaster=auto -o ControlPath=" REMOTE_CONTROL_PATH
+                       " -o ControlPersist=" REMOTE_CONTROL_PERSIST;
 #else
-    return g_strconcat("ssh ", name, NULL);
+    const gchar *ssh = "ssh";
 #endif
+    if (!mosh) {
+        return g_strconcat(ssh, " ", name, NULL);
+    }
+    gchar *session = g_uuid_string_random();
+    gchar *bootstrap = g_shell_quote(ssh);
+    gchar *command = g_strdup_printf("kterm-mosh %s %s %s", name, session, bootstrap);
+    g_free(bootstrap);
+    g_free(session);
+    return command;
+}
+
+static gboolean mosh_available(void) {
+    gchar *launcher = g_find_program_in_path("kterm-mosh");
+    gchar *wrapper = g_find_program_in_path("mosh");
+    gchar *client = g_find_program_in_path("mosh-client");
+    const gboolean available = launcher && wrapper && client;
+    g_free(launcher);
+    g_free(wrapper);
+    g_free(client);
+    return available;
 }
 
 /**
- * @return Process group of the ssh client that has the terminal, 0 if
+ * @return Process group of the remote client that has the terminal, 0 if
  *         there is none
  */
-static pid_t ssh_session(void) {
+static pid_t connection_session(void) {
     const pid_t foreground = kterm_terminal_foreground(kterm_get_terminal());
-    return (foreground && kterm_process_is(foreground, "ssh")) ? foreground : 0;
+    return remote_process_is_connection(foreground) ? foreground : 0;
 }
 
 /**
- * Disconnect button callback: hang up the ssh session in the terminal.
+ * Disconnect button callback: hang up the remote session in the terminal.
  * Only the client here ends, as when its window is closed, and the shell
  * it was started from is back; the far machine only sees the connection
  * go (programs left running in tmux there keep running).
  */
 static void disconnect_cb(void) {
-    const pid_t session = ssh_session();
+    const pid_t session = connection_session();
     if (session) {
         kill(-session, SIGHUP);
     }
@@ -177,13 +197,18 @@ static gboolean switch_when_idle(gpointer data) {
  * @param data Index of the connection
  */
 static void connect_cb(GtkWidget *button, gpointer data) {
-    UNUSED(button);
     const guint index = GPOINTER_TO_UINT(data);
     GtkWidget *terminal = kterm_get_terminal();
     if (!hosts || index >= hosts->len || !terminal) {
         return;
     }
     const SshHost *host = g_ptr_array_index(hosts, index);
+    const gboolean mosh = g_object_get_data(G_OBJECT(button), "mosh") != NULL;
+    if (mosh && !mosh_available()) {
+        gtk_label_set_text(GTK_LABEL(empty_label), "Kindle 未安装 Mosh 客户端。可点主机名走 SSH。");
+        gtk_widget_show(empty_label);
+        return;
+    }
     if (!kterm_terminal_has_shell()) {
         // kterm runs a program of its own (kterm -e tmux): there is no
         // shell of ours to type the command into
@@ -194,15 +219,18 @@ static void connect_cb(GtkWidget *button, gpointer data) {
     // Typed while something else has the terminal, the command would go to
     // that program: inside an ssh session it would run on the far machine,
     // which does not know the names saved here.
-    const pid_t session = ssh_session();
+    const pid_t session = connection_session();
     if (session) {
         // Another connection is open: picking one switches to it. The open
         // session is hung up, as when its window is closed, and the new
         // command is typed once the shell is back.
+        // Mosh can wait up to ten seconds for its UDP shutdown to be
+        // acknowledged when the far machine is unreachable.
+        const gint64 seconds = kterm_process_is(session, "mosh-client") ? 12 : 3;
         kill(-session, SIGHUP);
         ConnectionSwitch *pending = g_new0(ConnectionSwitch, 1);
-        pending->command = ssh_command(host->name);
-        pending->deadline = g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+        pending->command = connection_command(host->name, mosh);
+        pending->deadline = g_get_monotonic_time() + seconds * G_USEC_PER_SEC;
         pending->source = g_timeout_add(100, switch_when_idle, terminal);
         g_object_set_data_full(G_OBJECT(terminal), "kterm-connection-switch", pending, connection_switch_free);
         panel_close();
@@ -214,7 +242,7 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         gtk_widget_show(empty_label);
         return;
     }
-    gchar *command = ssh_command(host->name);
+    gchar *command = connection_command(host->name, mosh);
     kterm_type_command(kterm_get_terminal(), command);
     g_free(command);
     panel_close();
@@ -403,6 +431,12 @@ static GtkWidget * build_row(guint index) {
     GtkWidget *edit = panel_button_new("编辑");
     g_signal_connect(edit, "clicked", G_CALLBACK(edit_cb), GUINT_TO_POINTER(index));
     gtk_box_pack_start(GTK_BOX(row), connect, TRUE, TRUE, 0);
+    if (mosh_available()) {
+        GtkWidget *mosh = panel_button_new("Mosh");
+        g_object_set_data(G_OBJECT(mosh), "mosh", GINT_TO_POINTER(TRUE));
+        g_signal_connect(mosh, "clicked", G_CALLBACK(connect_cb), GUINT_TO_POINTER(index));
+        gtk_box_pack_start(GTK_BOX(row), mosh, FALSE, FALSE, 0);
+    }
     gtk_box_pack_start(GTK_BOX(row), edit, FALSE, FALSE, 0);
     return row;
 }
@@ -411,7 +445,7 @@ static GtkWidget * build_row(guint index) {
  * Read the saved connections and refresh the list before display.
  */
 static void refresh_list(void) {
-    gtk_widget_set_visible(disconnect_button, ssh_session() != 0);
+    gtk_widget_set_visible(disconnect_button, connection_session() != 0);
     if (hosts) {
         g_ptr_array_unref(hosts);
     }
@@ -571,7 +605,7 @@ static void install_cb(void) {
         gtk_label_set_text(GTK_LABEL(form_message), "这个密钥旁边没有 .pub 公钥文件，装不了。");
         return;
     }
-    if (ssh_session() || kterm_terminal_foreground(kterm_get_terminal())) {
+    if (connection_session() || kterm_terminal_foreground(kterm_get_terminal())) {
         gtk_label_set_text(GTK_LABEL(form_message), "终端里有程序在运行（或连着 SSH），先退出它再装。");
         g_free(public_key);
         return;

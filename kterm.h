@@ -49,8 +49,6 @@ gchar * kterm_process_name(pid_t pid);
 gboolean kterm_process_is(pid_t pid, const gchar *name);
 void kterm_type_command(GtkWidget *terminal, const gchar *command);
 
-gchar * kterm_terminal_title(void);
-
 /* its history: the lines scrolled off its top */
 gboolean kterm_terminal_has_history(void);
 gboolean kterm_terminal_scrolled(void);

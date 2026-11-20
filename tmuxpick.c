@@ -30,6 +30,7 @@
 #include "config.h"
 #include "kterm.h"
 #include "panel.h"
+#include "remote.h"
 #include "tmux.h"
 #include "tmuxpick.h"
 
@@ -44,6 +45,7 @@
 
 static GtkWidget *page = NULL;
 static GtkWidget *rows = NULL;
+/** Process group that had the terminal at the last look */
 /** The ssh session being asked about, 0 for none */
 static pid_t asking = 0;
 static guint tries = 0;
@@ -146,8 +148,10 @@ static void answer_cb(TmuxAsked asked, GPtrArray *sessions, gpointer data) {
 }
 
 static void ask(void) {
-    if (!still_asking() || !tmux_list_sessions(answer_cb, GINT_TO_POINTER(asking))) {
+    if (!still_asking()) {
         asking = 0;
+    } else if (!tmux_list_sessions(answer_cb, GINT_TO_POINTER(asking))) {
+        answer_cb(TMUX_NOT_ASKED, NULL, GINT_TO_POINTER(asking));
     }
 }
 
@@ -160,7 +164,7 @@ void tmuxpick_check(void) {
     if (owner == GPOINTER_TO_INT(g_object_get_data(G_OBJECT(terminal), "kterm-tmux-owner"))) {
         return;
     }
-    if (!tmux_enabled() || !kterm_process_is(owner, "ssh")) {
+    if (!tmux_enabled() || !remote_process_is_connection(owner)) {
         return;
     }
     g_object_set_data(G_OBJECT(terminal), "kterm-tmux-owner", GINT_TO_POINTER(owner));

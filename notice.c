@@ -18,9 +18,8 @@
  * a rounded frame: what it says and, at its top right, a round close
  * button; under it a line of buttons with words, for what is done with it
  * (none: no line). As wide as what it says, up to NOTICE_MAX_PX, centred;
- * longer, it goes on over a few lines, then loses its middle. Text from
- * the phone (voicebar.c) and the bell (bellbar.c) have one each. Several
- * are stacked, the one shown last on top. The panel is drawn over them,
+ * longer, it goes on over a few lines, then loses its middle. The notice
+ * shows text from the phone (voicebar.c). The panel is drawn over it,
  * an image over everything (kterm.c adds them in that order).
  */
 
@@ -64,21 +63,13 @@ void notices_init(GtkWidget *overlay) {
     gtk_widget_show(stack);
 }
 
-/** Who is told of a tap on a notice */
-typedef struct {
-    NoticeTapped tapped;
-} Tap;
-
 /**
- * A touch on a notice: taken, so that it does not reach the terminal
- * below; its buttons act, a tap elsewhere is told
+ * Keep touches on the notice from reaching the terminal below
  */
 static gboolean notice_event(GtkWidget *widget, GdkEventButton *event, gpointer data) {
     UNUSED(widget);
-    const Tap *tap = data;
-    if (event->type == GDK_BUTTON_RELEASE && tap->tapped) {
-        tap->tapped();
-    }
+    UNUSED(event);
+    UNUSED(data);
     return TRUE;
 }
 
@@ -98,21 +89,17 @@ static GtkWidget * notice_button(GtkWidget *child) {
 /**
  * A new notice, not shown yet
  * @param lines Most lines of text: more loses its middle
- * @param tapped Told of a tap on it, not on a button; NULL for none
  * @param closed Told of the close button
  * @return The notice
  */
-GtkWidget * notice_new(gint lines, NoticeTapped tapped, NoticeTapped closed) {
+GtkWidget * notice_new(gint lines, NoticeClosed closed) {
     // takes the touches; drawn by the box inside it, rounded, the
     // terminal showing at its corners
     GtkWidget *notice = gtk_event_box_new();
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(notice), FALSE);
     gtk_widget_add_events(notice, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-    // notices stay for as long as kterm runs
-    Tap *tap = g_new0(Tap, 1);
-    tap->tapped = tapped;
-    g_signal_connect(notice, "button-press-event", G_CALLBACK(notice_event), tap);
-    g_signal_connect(notice, "button-release-event", G_CALLBACK(notice_event), tap);
+    g_signal_connect(notice, "button-press-event", G_CALLBACK(notice_event), NULL);
+    g_signal_connect(notice, "button-release-event", G_CALLBACK(notice_event), NULL);
     // as wide as it needs, in the middle
     gtk_widget_set_halign(notice, GTK_ALIGN_CENTER);
     GtkWidget *frame = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -145,18 +132,6 @@ GtkWidget * notice_new(gint lines, NoticeTapped tapped, NoticeTapped closed) {
     g_object_set_data(G_OBJECT(notice), NOTICE_LINES, GINT_TO_POINTER(lines));
     gtk_box_pack_start(GTK_BOX(stack), notice, FALSE, FALSE, 0);
     return notice;
-}
-
-/**
- * Put an icon before what a notice says
- * @param notice Notice
- * @param icon Icon widget
- */
-void notice_lead(GtkWidget *notice, GtkWidget *icon) {
-    GtkWidget *top = g_object_get_data(G_OBJECT(notice), NOTICE_TOP);
-    gtk_box_pack_start(GTK_BOX(top), icon, FALSE, FALSE, 0);
-    gtk_box_reorder_child(GTK_BOX(top), icon, 0);
-    gtk_widget_show(icon);
 }
 
 /**

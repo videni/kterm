@@ -18,14 +18,13 @@
 
 #include <gtk/gtk.h>
 
-/** Told of a tap on a notice (not on a button), or of its close button */
-typedef void (*NoticeTapped)(void);
+/** Told when the notice's close button is pressed */
+typedef void (*NoticeClosed)(void);
 
 void notices_init(GtkWidget *overlay);
 void notices_set_top(gint top);
-GtkWidget * notice_new(gint lines, NoticeTapped tapped, NoticeTapped closed);
+GtkWidget * notice_new(gint lines, NoticeClosed closed);
 void notice_set_text(GtkWidget *notice, const gchar *text);
-void notice_lead(GtkWidget *notice, GtkWidget *icon);
 GtkWidget * notice_action(GtkWidget *notice, const gchar *icon, const gchar *words);
 void notice_show(GtkWidget *notice);
 

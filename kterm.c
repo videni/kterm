@@ -44,7 +44,6 @@
 #include "kindle.h"
 #include "ime.h"
 #include "voice.h"
-#include "bellbar.h"
 #include "imageview.h"
 #include "notice.h"
 #include "tmux.h"
@@ -861,22 +860,6 @@ static void paste_target_cb(VteTerminal *terminal, gpointer data) {
     shortbar_paste_wanted(wanted);
 }
 
-/**
- * @return The title the program in the terminal gave it, newly allocated;
- *         NULL if none, or if it is only tmux's mark for the paste button
- */
-gchar * kterm_terminal_title(void) {
-    GtkWidget *terminal = kterm_get_terminal();
-    const char *title = terminal
-                        ? vte_terminal_get_termprop_string_by_id(VTE_TERMINAL(terminal),
-                                                                 VTE_PROPERTY_ID_XTERM_TITLE, NULL)
-                        : NULL;
-    if (!title || !*title || g_str_has_prefix(title, PASTE_TITLE_MARK)) {
-        return NULL;
-    }
-    return g_strdup(title);
-}
-
 static void set_tab_title(VteTerminal *terminal, GtkWidget *label_widget) {
     TerminalState *state = terminal_state(GTK_WIDGET(terminal));
     g_autofree gchar *automatic = NULL;
@@ -1133,6 +1116,45 @@ static void error_handle(GtkWidget *window, GError **error) {
 }
 
 #ifdef KINDLE
+typedef struct {
+    GtkWidget *window;
+    GtkWidget *terminal;
+    gchar *command;
+    gchar **envv;
+    gulong handler;
+    gint status;
+} InitialChild;
+
+static void spawn_after_paint(GdkFrameClock *clock, InitialChild *initial) {
+    g_clear_signal_handler(&initial->handler, clock);
+    GError *error = NULL;
+    spawn_terminal(initial->terminal, initial->command, initial->envv, &error);
+    if (error) {
+        initial->status = 1;
+        error_handle(initial->window, &error);
+        gtk_main_quit();
+    }
+}
+
+/** Run GTK and start the child once the displayed grid has been laid out. */
+static gint run_terminal(GtkWidget *window, GtkWidget *terminal, gchar *command, gchar **envv) {
+    InitialChild initial = {
+        .window = window,
+        .terminal = terminal,
+        .command = command,
+        .envv = envv,
+    };
+    GdkFrameClock *clock = g_object_ref(gtk_widget_get_frame_clock(terminal));
+    initial.handler = g_signal_connect_after(clock, "after-paint", G_CALLBACK(spawn_after_paint), &initial);
+    gtk_widget_queue_draw(terminal);
+    gtk_main();
+    g_clear_signal_handler(&initial.handler, clock);
+    g_object_unref(clock);
+    return initial.status;
+}
+#endif
+
+#ifdef KINDLE
 void kterm_set_tab_hidden(guint hidden) {
     conf->auto_hide_tabs = hidden != 0;
     gtk_notebook_set_show_tabs(terminal_tabs.notebook, !hidden);
@@ -1149,29 +1171,6 @@ static gboolean tab_titles_overflow(GtkNotebook *notebook) {
         || !gtk_widget_get_child_visible(gtk_notebook_get_tab_label(notebook, last));
 }
 
-static gboolean align_tab_titles(gpointer data) {
-    TerminalTabs *tabs = data;
-    tabs->align_source = 0;
-    GtkNotebook *notebook = tabs->notebook;
-    const gint count = gtk_notebook_get_n_pages(notebook);
-    if (!count || !gtk_notebook_get_show_tabs(notebook)) {
-        return G_SOURCE_REMOVE;
-    }
-
-    GtkWidget *widget = GTK_WIDGET(notebook);
-    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
-    gint previous;
-    gtk_widget_get_size_request(spacer, &previous, NULL);
-    // GTK floors the spacer's width request at one pixel.
-    gint offset = 1;
-    if (!size_tab_titles(notebook, count, width) && !tab_titles_overflow(notebook)) {
-        GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
-        GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
-        GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->title_label);
-        GtkWidget *last_title = gtk_widget_get_parent(terminal_state(last)->title_label);
-        gint left, right, end;
-        if (gtk_widget_translate_coordinates(first_title, widget, 0, 0, &left, NULL)
-            && gtk_widget_translate_coordinates(last_title, widget, gtk_widget_get_allocated_width(last_title), 0, &right, NULL)
 static gboolean size_tab_titles(GtkNotebook *notebook, gint count, gint width) {
     gint available = width - TAB_CORNER_PX - 1;
     if (available <= 0) {
@@ -1217,6 +1216,30 @@ static gboolean size_tab_titles(GtkNotebook *notebook, gint count, gint width) {
     return resized;
 }
 
+static gboolean align_tab_titles(gpointer data) {
+    TerminalTabs *tabs = data;
+    tabs->align_source = 0;
+    GtkNotebook *notebook = tabs->notebook;
+    const gint count = gtk_notebook_get_n_pages(notebook);
+    if (!count || !gtk_notebook_get_show_tabs(notebook)) {
+        return G_SOURCE_REMOVE;
+    }
+
+    GtkWidget *widget = GTK_WIDGET(notebook);
+    const gint width = gtk_widget_get_allocated_width(widget);
+    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
+    gint previous;
+    gtk_widget_get_size_request(spacer, &previous, NULL);
+    // GTK floors the spacer's width request at one pixel.
+    gint offset = 1;
+    if (!size_tab_titles(notebook, count, width) && !tab_titles_overflow(notebook)) {
+        GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
+        GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
+        GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->title_label);
+        GtkWidget *last_title = gtk_widget_get_parent(terminal_state(last)->title_label);
+        gint left, right, end;
+        if (gtk_widget_translate_coordinates(first_title, widget, 0, 0, &left, NULL)
+            && gtk_widget_translate_coordinates(last_title, widget, gtk_widget_get_allocated_width(last_title), 0, &right, NULL)
             && gtk_widget_translate_coordinates(tabs->add, widget, gtk_widget_get_allocated_width(tabs->add), 0, &end, NULL)) {
             const gint centered = (width - (right - left)) / 2;
             const gint available = MAX(1, previous + width - TAB_CORNER_PX - end);
@@ -1226,7 +1249,6 @@ static gboolean size_tab_titles(GtkNotebook *notebook, gint count, gint width) {
     if (offset != previous) {
         gtk_widget_set_size_request(spacer, offset, 0);
     }
-    const gint width = gtk_widget_get_allocated_width(widget);
     return G_SOURCE_REMOVE;
 }
 
@@ -1369,6 +1391,11 @@ static void tab_rename_pressed(GtkGesture *gesture, gdouble x, gdouble y, Termin
     }
 }
 
+static void tab_rename_held(GtkGestureMultiPress *gesture, gint presses, gdouble x, gdouble y, TerminalTabs *tabs) {
+    UNUSED(presses);
+    tab_rename_pressed(GTK_GESTURE(gesture), x, y, tabs);
+}
+
 static void place_add_tab_button(TerminalTabs *tabs, GtkWidget *header) {
     GtkWidget *parent = gtk_widget_get_parent(tabs->add);
     if (parent) {
@@ -1383,6 +1410,10 @@ static void update_tab_headers(GtkNotebook *notebook) {
         TerminalState *state = terminal_state(gtk_notebook_get_nth_page(notebook, index));
         gtk_widget_set_visible(state->close_button, count > 1);
     }
+    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
+    gtk_widget_set_size_request(spacer, 1, 0);
+    // Refit before GTK measures the new set of tabs and their buttons.
+    size_tab_titles(notebook, count, gtk_widget_get_allocated_width(GTK_WIDGET(notebook)));
 }
 
 static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_exited) {
@@ -1391,11 +1422,6 @@ static void close_tab(GtkWidget *terminal, TerminalTabs *tabs, gboolean child_ex
     }
     const gint index = gtk_notebook_page_num(tabs->notebook, terminal);
     if (index < 0) {
-static void tab_rename_held(GtkGestureMultiPress *gesture, gint presses, gdouble x, gdouble y, TerminalTabs *tabs) {
-    UNUSED(presses);
-    tab_rename_pressed(GTK_GESTURE(gesture), x, y, tabs);
-}
-
         return;
     }
     const gint count = gtk_notebook_get_n_pages(tabs->notebook);
@@ -1410,10 +1436,6 @@ static void tab_rename_held(GtkGestureMultiPress *gesture, gint presses, gdouble
         place_add_tab_button(tabs, gtk_notebook_get_tab_label(tabs->notebook, previous));
     }
     // VTE can emit child-exited during disposal. Detach the page first.
-    GtkWidget *spacer = gtk_notebook_get_action_widget(notebook, GTK_PACK_START);
-    gtk_widget_set_size_request(spacer, 1, 0);
-    // Refit before GTK measures the new set of tabs and their buttons.
-    size_tab_titles(notebook, count, gtk_widget_get_allocated_width(GTK_WIDGET(notebook)));
     g_object_ref(terminal);
     gtk_notebook_remove_page(tabs->notebook, index);
     gtk_widget_destroy(terminal);
@@ -1439,7 +1461,6 @@ static void switch_tab(GtkNotebook *notebook, GtkWidget *terminal, guint page, g
     panel_close();
     touch_reset();
     imageview_hide();
-    bellbar_hide();
     ime_reset_context();
     kterm_set_font_size(conf->font_size);
     kterm_set_text_contrast(conf->text_contrast);
@@ -1461,7 +1482,7 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
     GtkWidget *terminal = vte_terminal_new();
     configure_terminal(terminal);
     gtk_widget_set_name(terminal, "termBox");
-    bellbar_attach(terminal);
+    vte_terminal_set_audible_bell(VTE_TERMINAL(terminal), FALSE);
 
     TerminalState *state = terminal_state(terminal);
     state->number = ++tabs->next_number;
@@ -1567,6 +1588,12 @@ static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gch
     gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(rename), GTK_PHASE_CAPTURE);
     g_signal_connect(rename, "pressed", G_CALLBACK(tab_rename_pressed), tabs);
     g_object_set_data_full(G_OBJECT(window), "kterm-tab-rename", rename, g_object_unref);
+
+    GtkGesture *hold = gtk_gesture_multi_press_new(window);
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(hold), TOUCH_LONG_PRESS_BUTTON);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(hold), GTK_PHASE_CAPTURE);
+    g_signal_connect(hold, "pressed", G_CALLBACK(tab_rename_held), tabs);
+    g_object_set_data_full(G_OBJECT(window), "kterm-tab-hold", hold, g_object_unref);
 }
 #endif
 
@@ -1588,12 +1615,6 @@ gint main(gint argc, gchar **argv) {
     envv[envc++] = "TERMINFO=" TERMINFO_PATH;
 #endif
     while((c = getopt(argc, argv, "c:de:E:f:hk:l:o:s:t:u:v")) != -1) {
-
-    GtkGesture *hold = gtk_gesture_multi_press_new(window);
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(hold), TOUCH_LONG_PRESS_BUTTON);
-    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(hold), GTK_PHASE_CAPTURE);
-    g_signal_connect(hold, "pressed", G_CALLBACK(tab_rename_held), tabs);
-    g_object_set_data_full(G_OBJECT(window), "kterm-tab-hold", hold, g_object_unref);
         switch(c) {
             case 'c':
                 i = atoi(optarg);
@@ -1682,6 +1703,9 @@ gint main(gint argc, gchar **argv) {
     // modify buttons style (gtk+ 3)
     inject_styles();
     gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
+    // Request screen dimensions before mapping, since maximize is asynchronous.
+    GdkScreen *screen = gtk_widget_get_screen(window);
+    gtk_window_set_default_size(GTK_WINDOW(window), gdk_screen_get_width(screen), gdk_screen_get_height(screen));
 #if GTK_CHECK_VERSION(3,0,0)
     // The Kindle root window is 8-bit StaticGray, which GTK+ 3 cannot draw
     // to. The X server also offers TrueColor visuals. The 8-bit one has the
@@ -1798,7 +1822,6 @@ gint main(gint argc, gchar **argv) {
     flash_init(window);
     voice_init();
     tmuxpick_init();
-    bellbar_init();
     // over everything, the voice box too
     imageview_init(overlay);
     GtkWidget *terminal = new_tab(tabs);
@@ -1825,16 +1848,19 @@ gint main(gint argc, gchar **argv) {
     g_signal_connect(window, "visibility-notify-event", G_CALLBACK(grab_keyboard_cb), NULL);
 #endif
     
-    gtk_widget_show_all(window);
-    if (!conf->kb_on) {
-        gtk_widget_hide(keyboard_box);
-    }
-    g_signal_connect(keyboard_box, "size-allocate", G_CALLBACK(keyboard_update), keyboard);
     gtk_window_maximize(GTK_WINDOW(window));
+    gtk_widget_set_no_show_all(keyboard_box, !conf->kb_on);
+    gtk_widget_show_all(window);
+    gtk_widget_set_no_show_all(keyboard_box, FALSE);
+    g_signal_connect(keyboard_box, "size-allocate", G_CALLBACK(keyboard_update), keyboard);
 #ifdef KINDLE
     gtk_widget_grab_focus(terminal);
 #endif
-    gtk_container_check_resize(GTK_CONTAINER(window));
+#ifdef KINDLE
+    // Font metrics and the window allocation can still change after show_all.
+    // Wait for the first painted grid before giving it to the child.
+    const gint exit_status = run_terminal(window, terminal, command, envv);
+#else
     spawn_terminal(terminal, command, envv, &error);
     if G_UNLIKELY(error) {
         error_handle(window, &error);
@@ -1842,6 +1868,8 @@ gint main(gint argc, gchar **argv) {
         return 1;
     }
     gtk_main();
+    const gint exit_status = 0;
+#endif
     
 #ifdef KINDLE
     g_clear_handle_id(&tabs->align_source, g_source_remove);
@@ -1853,5 +1881,5 @@ gint main(gint argc, gchar **argv) {
     }
 #endif
     D printf("the end\n");
-    return 0;
+    return exit_status;
 }

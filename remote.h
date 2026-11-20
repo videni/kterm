@@ -31,7 +31,8 @@
  */
 typedef void (*RemoteDone)(GBytes *output, gpointer data);
 
-gboolean remote_is_ssh(void);
+gboolean remote_process_is_connection(pid_t pid);
+gboolean remote_is_connected(void);
 gboolean remote_run(const gchar *script, const gchar * const *vars, gboolean here, guint timeout_ms,
                     RemoteDone done, gpointer data);
 

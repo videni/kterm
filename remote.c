@@ -33,11 +33,17 @@
 #include "kterm.h"
 #include "remote.h"
 
-/**
- * @return TRUE if the ssh client has the terminal
- */
-gboolean remote_is_ssh(void) {
-    return kterm_process_is(kterm_terminal_owner(), "ssh");
+/** @return TRUE while a remote client is starting or using the terminal */
+gboolean remote_process_is_connection(pid_t pid) {
+    gchar *name = kterm_process_name(pid);
+    const gboolean connected = name && (!strcmp(name, "ssh") || !strcmp(name, "mosh-client")
+                                         || !strcmp(name, "mosh") || !strcmp(name, "kterm-mosh"));
+    g_free(name);
+    return connected;
+}
+
+gboolean remote_is_connected(void) {
+    return remote_process_is_connection(kterm_terminal_owner());
 }
 
 /**
@@ -49,16 +55,7 @@ gboolean remote_is_ssh(void) {
  * @param command What the far machine runs
  * @return Arguments, NULL if they cannot be read
  */
-static GPtrArray * ssh_command(pid_t pid, const gchar *command) {
-    gchar *path = g_strdup_printf("/proc/%d/cmdline", (int) pid);
-    gchar *raw = NULL;
-    gsize size = 0;
-    const gboolean read = g_file_get_contents(path, &raw, &size, NULL);
-    g_free(path);
-    if (!read || !size) {
-        g_free(raw);
-        return NULL;
-    }
+static GPtrArray * ssh_args(void) {
     GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
     g_ptr_array_add(args, g_strdup("ssh"));
     // first: ssh takes the first value it is given for an option
@@ -71,6 +68,20 @@ static GPtrArray * ssh_command(pid_t pid, const gchar *command) {
         g_ptr_array_add(args, g_strdup("-o"));
         g_ptr_array_add(args, g_strdup(own[i]));
     }
+    return args;
+}
+
+static GPtrArray * ssh_command(pid_t pid, const gchar *command) {
+    gchar *path = g_strdup_printf("/proc/%d/cmdline", (int) pid);
+    gchar *raw = NULL;
+    gsize size = 0;
+    const gboolean read = g_file_get_contents(path, &raw, &size, NULL);
+    g_free(path);
+    if (!read || !size) {
+        g_free(raw);
+        return NULL;
+    }
+    GPtrArray *args = ssh_args();
     const gchar *destination = NULL;
     const gchar *end = raw + size;
     // the arguments start after the program's name: the first word, or
@@ -123,6 +134,46 @@ static GPtrArray * ssh_command(pid_t pid, const gchar *command) {
     }
     g_ptr_array_add(args, g_strdup(destination));
     g_ptr_array_add(args, g_strdup(command));
+    g_free(raw);
+    return args;
+}
+
+/**
+ * Find the login and the remote terminal of a Mosh session from the panel.
+ * Mosh has closed its SSH channel, so use the retained SSH master for scripts.
+ */
+static GPtrArray * mosh_ssh_command(pid_t pid, const gchar *command) {
+    gchar *path = g_strdup_printf("/proc/%d/environ", (int) pid);
+    gchar *raw = NULL;
+    gsize size = 0;
+    const gboolean read = g_file_get_contents(path, &raw, &size, NULL);
+    g_free(path);
+    if (!read) {
+        return NULL;
+    }
+    const gchar *host = NULL;
+    const gchar *session = NULL;
+    for (const gchar *var = raw; var < raw + size; var += strlen(var) + 1) {
+        if (g_str_has_prefix(var, "KTERM_MOSH_HOST=")) {
+            host = strchr(var, '=') + 1;
+        } else if (g_str_has_prefix(var, "KTERM_MOSH_SESSION=")) {
+            session = strchr(var, '=') + 1;
+        }
+    }
+    GPtrArray *args = NULL;
+    if (host && *host && session && g_uuid_string_is_valid(session)) {
+        // The marker is written after the UDP session claims its remote PTY.
+        gchar *script = g_strdup_printf("IFS= read -r KTERM_TTY 2>/dev/null < \"$HOME/.cache/kterm/mosh-%s\""
+                                        " || exit 1\nexport KTERM_TTY\n%s",
+                                        session, command);
+        gchar *quoted = g_shell_quote(script);
+        args = ssh_args();
+        g_ptr_array_add(args, g_strdup("--"));
+        g_ptr_array_add(args, g_strdup(host));
+        g_ptr_array_add(args, g_strconcat("sh -c ", quoted, NULL));
+        g_free(quoted);
+        g_free(script);
+    }
     g_free(raw);
     return args;
 }
@@ -192,7 +243,8 @@ gboolean remote_run(const gchar *script, const gchar * const *vars, gboolean her
                                                               | G_SUBPROCESS_FLAGS_STDOUT_PIPE
                                                               | G_SUBPROCESS_FLAGS_STDERR_PIPE);
     GPtrArray *args = NULL;
-    if (remote_is_ssh()) {
+    const pid_t owner = kterm_terminal_owner();
+    if (remote_process_is_connection(owner)) {
         // NAME='value' ... sh -s
         GString *command = g_string_new(NULL);
         for (const gchar * const *var = vars; var && *var; var++) {
@@ -202,7 +254,11 @@ gboolean remote_run(const gchar *script, const gchar * const *vars, gboolean her
             g_free(value);
         }
         g_string_append(command, "sh -s");
-        args = ssh_command(kterm_terminal_owner(), command->str);
+        if (kterm_process_is(owner, "ssh")) {
+            args = ssh_command(owner, command->str);
+        } else {
+            args = mosh_ssh_command(owner, command->str);
+        }
         g_string_free(command, TRUE);
     } else if (here) {
         VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(kterm_get_terminal()));

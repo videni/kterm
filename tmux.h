@@ -22,7 +22,8 @@
  * Shell lines finding this terminal's tmux client, tmux being there: sets
  * $clients (one line for each: activity, tty, pane, in a mode) and $best,
  * the line of this terminal's client, empty if none is. Its tty is
- * KTERM_TTY here (remote.c), over ssh one the Kindle's address logged in on.
+ * KTERM_TTY for local and Mosh sessions (remote.c), over SSH one the
+ * Kindle's address logged in on.
  * tmux is told to write UTF-8 (-u): run by ssh without a locale it would
  * print "_" for every other character, Chinese window names among them.
  */
@@ -71,17 +72,8 @@ typedef enum {
 /** @param sessions TmuxSession, the one used last first; not to be kept */
 typedef void (*TmuxSessionsDone)(TmuxAsked asked, GPtrArray *sessions, gpointer data);
 
-/**
- * @param index Window that rang, -1 if not known
- * @param label Its pane's title, or the window's name if the pane has no
- *        title of its own; NULL if not known
- * @param data The caller's
- */
-typedef void (*TmuxBellDone)(gint index, const gchar *label, gpointer data);
-
 gboolean tmux_enabled(void);
-gboolean tmux_ask_bell(TmuxBellDone done, gpointer data);
-void tmux_select_window(gint index);
+gboolean tmux_turn_window(gboolean forward);
 void tmux_set_enabled(guint on);
 gboolean tmux_may_have_terminal(void);
 gboolean tmux_list_sessions(TmuxSessionsDone done, gpointer data);

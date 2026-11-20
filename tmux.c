@@ -49,19 +49,11 @@ extern KTconf *conf;
  *     (copy mode: scrolled back), "none" without tmux clients, "unknown"
  *     if there are clients but none is this terminal's. With "cancel", a
  *     pane in a mode leaves it.
- *   bell: "rang:" and the id of the window that rang last, as tmux's
- *     alert-bell hook noted it (none if it did not), then a line for each
- *     window of its session: bell flag, active, last output (seconds since
- *     1970), index, id, host, name, the title of its pane, between colons
- *     (a title may have more of them, so last); "unknown" as above.
- *   select:N: shows window N in this terminal's client.
+ *   next-window, previous-window: switches windows in the client's session.
  *   sessions: "inside" if the terminal is in tmux already; else
  *     "sessions NOW" and a line for each session: name, windows, clients
  *     attached, last used (seconds since 1970), between colons (which
  *     tmux does not allow in names; a tab it would print as "_").
- * Once it has found the client, it has tmux note the window of every bell
- * in the option @kterm-bell, with a hook added to those there may be, if
- * it is not there yet: in tmux's memory only, gone when the server stops.
  */
 static const gchar PROBE_SCRIPT[] =
     "PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin\"\n"
@@ -76,18 +68,11 @@ static const gchar PROBE_SCRIPT[] =
     "[ -n \"$clients\" ] || { echo none; exit 0; }\n"
     "[ -n \"$best\" ] || { echo unknown; exit 0; }\n"
     "set -- $best\n"
-    "tmux show-hooks -g 2>/dev/null | grep -q kterm-bell"
-    " || tmux set-hook -ga alert-bell \"set -gF @kterm-bell '#{window_id}'\"\n"
-    "case $ACTION in select:*)\n"
+    "case $ACTION in\n"
+    "next-window|previous-window)\n"
     "  s=$(tmux display-message -p -t \"$3\" '#{session_id}')\n"
-    "  tmux select-window -t \"$s:${ACTION#select:}\" && echo selected; exit 0 ;;\n"
+    "  [ -n \"$s\" ] && tmux \"$ACTION\" -t \"$s\" && echo selected; exit 0 ;;\n"
     "esac\n"
-    "if [ \"$ACTION\" = bell ]; then\n"
-    "  echo \"rang:$(tmux show -gv @kterm-bell 2>/dev/null)\"\n"
-    "  tmux set -gu @kterm-bell 2>/dev/null\n"
-    "  tmux list-windows -t \"$3\" -F '#{window_bell_flag}:#{window_active}:#{window_activity}:#{window_index}:#{window_id}:#{host}:#{window_name}:#{pane_title}'\n"
-    "  exit 0\n"
-    "fi\n"
     "if [ \"$ACTION\" = cancel ] && [ \"$4\" = 1 ]; then tmux send-keys -t \"$3\" -X cancel && echo \"$3 0\"; exit 0; fi\n"
     "echo \"$3 $4\"\n";
 
@@ -142,7 +127,7 @@ static gboolean run_script(const gchar *action, gboolean ssh_only, ScriptParse p
         return FALSE;
     }
     gboolean here = FALSE;
-    if (!ssh_only && !remote_is_ssh()) {
+    if (!ssh_only && !remote_is_connected()) {
         gchar *name = kterm_process_name(kterm_terminal_owner());
         here = name && g_str_has_prefix(name, "tmux");
         g_free(name);
@@ -251,99 +236,22 @@ gboolean tmux_list_sessions(TmuxSessionsDone done, gpointer data) {
     return run_script("sessions", TRUE, sessions_done, G_CALLBACK(done), data);
 }
 
-/** Windows flagged for a bell at the last bell, " index:" each: one
- *  flagged since is the one that rang */
-static gchar *flagged_before = NULL;
-
-static void bell_done(gchar *output, GCallback done, gpointer data) {
-    gchar **lines = output ? g_strsplit(output, "\n", -1) : NULL;
-    // The window tmux's hook noted rang. Without (the hook just added):
-    // a window that rang is flagged until it is shown, one shown is not
-    // flagged; the window flagged since the last bell rang (of several,
-    // the one written to last); with none, the one shown did.
-    const gchar *noted = lines && lines[0] && g_str_has_prefix(lines[0], "rang:") ? lines[0] + 5 : "";
-    gchar **rang = NULL;
-    gchar **shown = NULL;
-    gint64 latest = -1;
-    GString *flagged = g_string_new(NULL);
-    for (guint i = 0; lines && lines[i]; i++) {
-        gchar **fields = g_strsplit(lines[i], ":", 8);
-        // not every line is a window's: "rang:", the empty one at the end
-        if (g_strv_length(fields) != 8) {
-            g_strfreev(fields);
-            continue;
-        }
-        gchar *key = g_strconcat(" ", fields[3], ":", NULL);
-        const gint64 written = g_ascii_strtoll(fields[2], NULL, 10);
-        const gboolean is_flagged = !strcmp(fields[0], "1");
-        const gboolean is_new = is_flagged && !(flagged_before && strstr(flagged_before, key));
-        if (is_flagged) {
-            g_string_append(flagged, key);
-        }
-        g_free(key);
-        if (*noted && !strcmp(fields[4], noted)) {
-            g_strfreev(rang);
-            rang = fields;
-            latest = G_MAXINT64;
-        } else if (is_new && written > latest) {
-            g_strfreev(rang);
-            rang = fields;
-            latest = written;
-        } else if (!shown && !strcmp(fields[1], "1")) {
-            shown = fields;
-        } else {
-            g_strfreev(fields);
-        }
-    }
-    g_free(flagged_before);
-    flagged_before = g_string_free(flagged, FALSE);
-    if (!rang) {
-        rang = shown;
-        shown = NULL;
-    }
-    gint index = -1;
-    const gchar *label = NULL;
-    if (rang) {
-        index = (gint) g_ascii_strtoll(rang[3], NULL, 10);
-        // a pane without a title of its own has the host's name
-        const gchar *host = rang[5];
-        const gchar *title = rang[7];
-        const gsize short_host = strcspn(host, ".");
-        const gboolean own = *title && strcmp(title, host)
-                             && !(strlen(title) == short_host && !strncmp(title, host, short_host));
-        label = own ? title : rang[6];
-    }
-    ((TmuxBellDone) done)(index, label, data);
-    g_strfreev(rang);
-    g_strfreev(shown);
-    g_strfreev(lines);
-}
-
-/**
- * Ask tmux, here or over the ssh session, which of its windows rang the
- * bell the terminal got
- * @param done Told the window, later; not called if FALSE is returned
- * @param data For done
- * @return FALSE if there is no tmux to ask
- */
-gboolean tmux_ask_bell(TmuxBellDone done, gpointer data) {
-    return run_script("bell", FALSE, bell_done, G_CALLBACK(done), data);
-}
-
 static void select_done(gchar *output, GCallback done, gpointer data) {
     UNUSED(output);
     UNUSED(done);
     UNUSED(data);
 }
 
-/**
- * Show a window of tmux in the terminal, as a swipe would
- * @param index Window
- */
-void tmux_select_window(gint index) {
-    gchar *action = g_strdup_printf("select:%d", index);
-    run_script(action, FALSE, select_done, NULL, NULL);
-    g_free(action);
+gboolean tmux_turn_window(gboolean forward) {
+    if (!tmux_enabled()) {
+        return FALSE;
+    }
+    if (kterm_process_is(kterm_terminal_owner(), "mosh-client")) {
+        // Mosh always uses the alternate screen, even for a plain shell.
+        // Only send the action when the SSH probe locates its tmux client.
+        return run_script(forward ? "next-window" : "previous-window", FALSE, select_done, NULL, NULL);
+    }
+    return tmux_may_have_terminal() && tmux_send_command(forward ? "n" : "p");
 }
 
 /**
@@ -378,8 +286,8 @@ gboolean tmux_send_command(const gchar *key) {
  */
 gboolean tmux_may_have_terminal(void) {
     gchar *name = kterm_process_name(kterm_terminal_owner());
-    const gboolean tmux = name && (g_str_has_prefix(name, "tmux")
-                                   || (g_str_has_prefix(name, "ssh") && !kterm_terminal_has_history()));
+    const gboolean tmux = (name && g_str_has_prefix(name, "tmux"))
+                           || (remote_is_connected() && !kterm_terminal_has_history());
     g_free(name);
     return tmux;
 }

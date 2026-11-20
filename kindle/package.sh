@@ -12,7 +12,7 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
 cp "$PKG/manifest.json" "$PKG/install.sh" "$PKG/uninstall.sh" "$PKG/launch.sh" \
-   "$PKG/runtime.sh" "$PKG/bwrap-shim.sh" "$PKG/SOURCE.txt" "$STAGE/"
+   "$PKG/runtime.sh" "$PKG/bwrap-shim.sh" "$PKG/kterm-mosh.sh" "$PKG/SOURCE.txt" "$STAGE/"
 mkdir -p "$STAGE/scriptlets" "$STAGE/payload"
 if [ ! -s "$BUILD/runtime.ext3.gz" ] || [ "$KINDLE_DIR/build-runtime.sh" -nt "$BUILD/runtime.ext3.gz" ]; then
     sh "$KINDLE_DIR/build-runtime.sh"

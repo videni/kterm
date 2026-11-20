@@ -158,8 +158,8 @@ static void fetched_cb(GBytes *output, gpointer data) {
         show_message(fetch->path, "找不到这个文件");
     } else if (status == 3 && !strncmp(bytes, "big", 3)) {
         show_message(fetch->path, "图片太大（超过 " IMAGE_MAX_TEXT "）");
-    } else if (remote_is_ssh()) {
-        show_message(fetch->path, "取不到图片\n自己输入的 ssh 要用密钥登录，或者从面板连接");
+    } else if (remote_is_connected()) {
+        show_message(fetch->path, "取不到远端图片\n请在面板中连接，或用密钥登录 SSH");
     } else {
         show_message(fetch->path, "取不到图片");
     }

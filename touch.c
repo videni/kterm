@@ -113,12 +113,10 @@ static void terminal_wheel(GtkWidget *terminal, const GdkEventButton *source, Gd
  * @param dx Distance moved, pixels; negative is left
  */
 static void terminal_swipe_switch(gdouble dx) {
-    if (!tmux_enabled() || !tmux_may_have_terminal()) {
-        return;
-    }
     // towards the left brings the next one in, like turning a page
-    flash_next_draw();
-    tmux_send_command(dx < 0 ? "n" : "p");
+    if (tmux_turn_window(dx < 0)) {
+        flash_next_draw();
+    }
 }
 
 /*
@@ -1025,6 +1023,10 @@ static void move_history_drag(GtkWidget *terminal, gdouble dy, gboolean released
     gtk_adjustment_set_value(adjustment, value);
 }
 
+static gboolean pulling_from_top(gdouble dy) {
+    return touch.y_root <= TOUCH_EDGE_TOP_PX && dy > 0;
+}
+
 static void follow_history_drag(GtkWidget *terminal, const GdkEventMotion *event) {
     if (!(event->state & GDK_BUTTON1_MASK) || !touch.pressed_at || touch.two_fingers || right_held) {
         return;
@@ -1032,7 +1034,8 @@ static void follow_history_drag(GtkWidget *terminal, const GdkEventMotion *event
     const gdouble dy = event->y_root - touch.y_root;
     if (!touch.dragging_history) {
         const gdouble dx = event->x_root - touch.x_root;
-        if (event->time - touch.pressed_at <= FLICK_MAX_MS || ABS(dy) < TAP_SLOP_PX
+        // A downward pull from the edge may open the system menu on release.
+        if (pulling_from_top(dy) || event->time - touch.pressed_at <= FLICK_MAX_MS || ABS(dy) < TAP_SLOP_PX
             || ABS(dy) < ABS(dx) * 1.5 || !kterm_terminal_has_history()) {
             return;
         }
@@ -1215,7 +1218,9 @@ gboolean touch_event(GtkWidget *terminal, GdkEvent *any) {
         }
     }
     if (vertical) {
-        if (held_ms <= FLICK_MAX_MS && ABS(dy) >= TOUCH_SWIPE_MIN_PX) {
+        if (pulling_from_top(dy) && dy >= TOUCH_SWIPE_MIN_PX) {
+            show_system_menu();
+        } else if (held_ms <= FLICK_MAX_MS && ABS(dy) >= TOUCH_SWIPE_MIN_PX) {
             terminal_flick_page(terminal, event, touch.x, touch.y, dy);
         } else {
             terminal_drag_scroll(terminal, event, touch.x, touch.y, dy);

@@ -17,6 +17,7 @@ install_file() {
 
 install_terminal() {
     install_file "$PACKAGE_ROOT/payload/kterm-mdns" "$MNT/usr/local/bin/kterm-mdns" 755 || return
+    install_file "$PACKAGE_ROOT/kterm-mosh.sh" "$MNT/usr/local/bin/kterm-mosh" 755 || return
     install_file "$PACKAGE_ROOT/bwrap-shim.sh" "$MNT/usr/local/bin/bwrap" 755 || return
     install_file "$PACKAGE_ROOT/payload/keyboard-kindle.xml" "$MNT/usr/local/share/kterm/keyboard-kindle.xml" 644 || return
     if [ ! -e "$MNT/usr/local/etc/kterm/shortcuts.conf" ]; then
