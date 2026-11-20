@@ -28,15 +28,23 @@
  *  out for the one key that follows, then goes away again */
 #define SHORTCUT_KEYBOARD_MARK "+键盘"
 
+typedef enum {
+    SHORTCUT_SHOW_ALWAYS,
+    SHORTCUT_SHOW_WITH_KEYBOARD,
+    SHORTCUT_SHOW_IN_PREVIEW
+} ShortcutVisibility;
+
 /** One button of the shortcut bar */
 typedef struct {
     gchar *label; /** Text on the button */
     gchar *spec; /** Keys as written, see keyseq.c */
     GBytes *keys; /** What a tap sends to the terminal */
     gboolean keyboard; /** A prefix: the keyboard comes out for one key */
+    ShortcutVisibility visibility; /** When the button appears in the bar */
 } Shortcut;
 
 Shortcut * shortcut_new(const gchar *name, const gchar *spec, gboolean keyboard, GError **error);
+gboolean shortcut_is_visible(const Shortcut *item, gboolean previewing);
 void shortcut_free(gpointer item);
 GPtrArray * shortcuts_parse(const gchar *text, gchar **problems);
 GPtrArray * shortcuts_load(const gchar *path, gchar **problems);

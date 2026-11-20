@@ -61,6 +61,10 @@ static guint room_for = 0;
 static gchar *file_path = NULL;
 /** Buttons, in order */
 static GPtrArray *items = NULL;
+/** Indices in the full list of shortcuts shown in the current mode */
+static guint visible_indices[SHORTCUTS_MAX];
+static guint visible_count = 0;
+static gboolean showing_preview = FALSE;
 /** First button of the page shown */
 static guint page_start = 0;
 /** Text last copied from the terminal: once there is some, a paste
@@ -78,6 +82,8 @@ static GtkWidget *keyboard_box = NULL;
 static GtkWidget *other_keyboard = NULL;
 static guint keyboard_rows = 0;
 
+static void refresh_items(void);
+
 /**
  * @return TRUE if the paste button is in the row
  */
@@ -91,7 +97,7 @@ static gboolean paste_shown(void) {
  */
 static guint per_page(void) {
     const guint places = room_for ? room_for : SHORTBAR_PER_PAGE - 1;
-    return items->len > places ? MAX(places, 2) - 1 : places;
+    return visible_count > places ? MAX(places, 2) - 1 : places;
 }
 
 /**
@@ -100,8 +106,8 @@ static guint per_page(void) {
  */
 static gint button_min_width(void) {
     gint widest = 0;
-    for (guint i = 0; i < items->len; i++) {
-        const Shortcut *item = g_ptr_array_index(items, i);
+    for (guint i = 0; i < visible_count; i++) {
+        const Shortcut *item = g_ptr_array_index(items, visible_indices[i]);
         // measured as the bar shows it: same name, same style
         GtkWidget *label = g_object_ref_sink(gtk_label_new(item->label));
         gtk_widget_set_name(label, SHORTBAR_BUTTON_NAME);
@@ -112,6 +118,10 @@ static gint button_min_width(void) {
     }
     const gint finger = (gint) (gtk_widget_get_allocated_height(row) * SHORTBAR_MIN_WIDTH_RATIO);
     return MAX(widest + SHORTBAR_LABEL_ROOM, finger);
+}
+
+static guint places_for_width(gint width) {
+    return (guint) MAX(width / MAX(button_min_width(), 1), 2);
 }
 
 /**
@@ -168,6 +178,9 @@ static void update_keyboard_tool(void) {
  * The keyboard was folded away or brought back: the bar follows
  */
 void shortbar_update(void) {
+    if (slots && showing_preview != kterm_previewing()) {
+        refresh_items();
+    }
     update_keyboard_tool();
     update_visibility();
 }
@@ -221,12 +234,14 @@ static gboolean draw_prefix_mark_cb(GtkWidget *button, cairo_t *cr, gpointer dat
 static void fill_row(void) {
     panel_clear_box(slots);
     const guint count = per_page();
-    if (page_start >= items->len) {
-        page_start = items->len ? ((items->len - 1) / count) * count : 0;
+    page_start = (page_start / count) * count;
+    if (page_start >= visible_count) {
+        page_start = visible_count ? ((visible_count - 1) / count) * count : 0;
     }
     gtk_widget_set_visible(paste_tool, paste_shown());
-    for (guint i = page_start; i < items->len && i < page_start + count; i++) {
-        const Shortcut *item = g_ptr_array_index(items, i);
+    for (guint i = page_start; i < visible_count && i < page_start + count; i++) {
+        const guint index = visible_indices[i];
+        const Shortcut *item = g_ptr_array_index(items, index);
         // A label drawn as a key, not a button: a button has an input
         // window of its own, put above the bar's when the row is filled
         // again, and the bar would miss the touches it needs to tell a
@@ -234,19 +249,19 @@ static void fill_row(void) {
         GtkWidget *button = gtk_label_new(item->label);
         gtk_widget_set_name(button, SHORTBAR_BUTTON_NAME);
         gtk_label_set_ellipsize(GTK_LABEL(button), PANGO_ELLIPSIZE_END);
-        g_object_set_data(G_OBJECT(button), "index", GUINT_TO_POINTER(i + 1));
+        g_object_set_data(G_OBJECT(button), "index", GUINT_TO_POINTER(index + 1));
         if (item->keyboard) {
             g_signal_connect_after(button, "draw", G_CALLBACK(draw_prefix_mark_cb), NULL);
         }
         gtk_box_pack_start(GTK_BOX(slots), button, TRUE, TRUE, 0);
     }
-    if (items->len > count) {
+    if (visible_count > count) {
         // the last page may be short: keep the places, so that the page
         // number stays at the end of the row
-        for (guint i = items->len - page_start; i < count; i++) {
+        for (guint i = visible_count - page_start; i < count; i++) {
             gtk_box_pack_start(GTK_BOX(slots), gtk_label_new(NULL), TRUE, TRUE, 0);
         }
-        gchar *text = g_strdup_printf("%u/%u", page_start / count + 1, (items->len + count - 1) / count);
+        gchar *text = g_strdup_printf("%u/%u", page_start / count + 1, (visible_count + count - 1) / count);
         GtkWidget *pages = gtk_label_new(text);
         gtk_widget_set_name(pages, SHORTBAR_PAGES_NAME);
         g_free(text);
@@ -261,10 +276,10 @@ static void fill_row(void) {
  */
 static void turn_page(gint step) {
     const guint count = per_page();
-    if (items->len <= count) {
+    if (visible_count <= count) {
         return;
     }
-    const guint pages = (items->len + count - 1) / count;
+    const guint pages = (visible_count + count - 1) / count;
     const guint page = page_start / count;
     // round: past the last page comes the first one
     page_start = ((page + pages + (guint) (step > 0 ? 1 : pages - 1)) % pages) * count;
@@ -479,6 +494,23 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
     return TRUE;
 }
 
+/** Rebuild the visible shortcuts after editing or switching keyboard modes. */
+static void refresh_items(void) {
+    showing_preview = kterm_previewing();
+    visible_count = 0;
+    for (guint i = 0; i < items->len; i++) {
+        const Shortcut *item = g_ptr_array_index(items, i);
+        if (shortcut_is_visible(item, showing_preview)) {
+            visible_indices[visible_count++] = i;
+        }
+    }
+    const gint width = gtk_widget_get_allocated_width(slots);
+    if (width > 1) {
+        room_for = places_for_width(width);
+    }
+    fill_row();
+}
+
 /**
  * Show the buttons again, from the first page
  * @param problems Mistakes found in the file, or NULL
@@ -494,7 +526,7 @@ static void rebuild(const gchar *problems) {
     }
     gtk_widget_set_visible(problem_label, problems != NULL);
     page_start = 0;
-    fill_row();
+    refresh_items();
     update_visibility();
 }
 
@@ -503,8 +535,6 @@ static void rebuild(const gchar *problems) {
  */
 static gboolean refill_cb(gpointer data) {
     UNUSED(data);
-    const guint count = per_page();
-    page_start = (page_start / count) * count;
     fill_row();
     return G_SOURCE_REMOVE;
 }
@@ -517,10 +547,9 @@ static gboolean refill_cb(gpointer data) {
 static void slots_allocated(GtkWidget *widget, GdkRectangle *alloc, gpointer data) {
     UNUSED(widget);
     UNUSED(data);
-    const gint min = button_min_width();
-    const guint room = (guint) MAX(alloc->width / MAX(min, 1), 2);
+    const guint room = places_for_width(alloc->width);
     if (room != room_for) {
-        D printf("shortbar: room for %u buttons (%d px, at least %d each)\n", room, alloc->width, min);
+        D printf("shortbar: room for %u buttons (%d px)\n", room, alloc->width);
         room_for = room;
         // not while GTK lays the window out
         g_idle_add(refill_cb, NULL);

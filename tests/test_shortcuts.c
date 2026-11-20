@@ -155,6 +155,32 @@ static void test_load(void) {
     g_free(dir);
 }
 
+static void test_visibility_marks(void) {
+    const gchar *source = "Enter +仅预览\nC-u +仅展开\nTX = C-Space +键盘 +仅预览\n文字 = \"+仅预览\"\nC-a\n";
+    gchar *problems = NULL;
+    GPtrArray *list = shortcuts_parse(source, &problems);
+    g_assert_cmpuint(list->len, ==, 5);
+    g_assert_null(problems);
+    has(list, 0, "Enter", "\r", 1);
+    has(list, 1, "C-u", "\x15", 1);
+    has(list, 2, "TX", "\0", 1);
+    has(list, 3, "文字", "+仅预览", strlen("+仅预览"));
+    has(list, 4, "C-a", "\x01", 1);
+    g_assert_true(((Shortcut *) list->pdata[2])->keyboard);
+    g_assert_false(shortcut_is_visible(list->pdata[0], FALSE));
+    g_assert_true(shortcut_is_visible(list->pdata[0], TRUE));
+    g_assert_true(shortcut_is_visible(list->pdata[1], FALSE));
+    g_assert_false(shortcut_is_visible(list->pdata[1], TRUE));
+    g_assert_true(shortcut_is_visible(list->pdata[3], FALSE));
+    g_assert_true(shortcut_is_visible(list->pdata[3], TRUE));
+    g_assert_true(shortcut_is_visible(list->pdata[4], FALSE));
+    g_assert_true(shortcut_is_visible(list->pdata[4], TRUE));
+    gchar *formatted = shortcuts_format("", list);
+    g_assert_cmpstr(formatted, ==, source);
+    g_free(formatted);
+    g_ptr_array_unref(list);
+}
+
 static void test_new(void) {
     GError *error = NULL;
     Shortcut *item = shortcut_new("", "C-u", FALSE, &error);
@@ -276,6 +302,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/shortcuts/too-many", test_too_many);
     g_test_add_func("/shortcuts/defaults", test_defaults);
     g_test_add_func("/shortcuts/keyboard-mark", test_keyboard_mark);
+    g_test_add_func("/shortcuts/visibility-marks", test_visibility_marks);
     g_test_add_func("/shortcuts/load", test_load);
     g_test_add_func("/shortcuts/new", test_new);
     g_test_add_func("/shortcuts/format", test_format);

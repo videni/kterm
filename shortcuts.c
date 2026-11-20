@@ -31,6 +31,14 @@
 #include "keyseq.h"
 #include "shortcuts.h"
 
+#define SHORTCUT_PREVIEW_MARK "+仅预览"
+#define SHORTCUT_EXPANDED_MARK "+仅展开"
+
+gboolean shortcut_is_visible(const Shortcut *item, gboolean previewing) {
+    return item->visibility == SHORTCUT_SHOW_ALWAYS
+        || item->visibility == (previewing ? SHORTCUT_SHOW_IN_PREVIEW : SHORTCUT_SHOW_WITH_KEYBOARD);
+}
+
 /**
  * Free a button
  * @param data Shortcut
@@ -65,24 +73,34 @@ static const gchar * find_separator(const gchar *line) {
     return NULL;
 }
 
+/** Remove a trailing option separated by whitespace. */
+static gboolean take_mark(gchar *line, const gchar *suffix) {
+    const gsize mark = strlen(suffix);
+    const gsize length = strlen(line);
+    if (length > mark && g_str_has_suffix(line, suffix)
+        && g_ascii_isspace(line[length - mark - 1])) {
+        line[length - mark] = '\0';
+        g_strchomp(line);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 /**
  * Read one line
- * @param line Line without surrounding blanks, not empty
+ * @param source Line without surrounding blanks, not empty
  * @param error Set when the line makes no button
  * @return Button, or NULL
  */
-static Shortcut * parse_line(const gchar *line, GError **error) {
-    // "+键盘" at the end, after a blank: a prefix
-    gboolean keyboard = FALSE;
-    gchar *own = NULL;
-    const gsize mark = strlen(SHORTCUT_KEYBOARD_MARK);
-    const gsize length = strlen(line);
-    if (length > mark && g_str_has_suffix(line, SHORTCUT_KEYBOARD_MARK)
-        && g_ascii_isspace(line[length - mark - 1])) {
-        keyboard = TRUE;
-        own = g_strstrip(g_strndup(line, length - mark));
-        line = own;
+static Shortcut * parse_line(const gchar *source, GError **error) {
+    gchar *line = g_strdup(source);
+    ShortcutVisibility visibility = SHORTCUT_SHOW_ALWAYS;
+    if (take_mark(line, SHORTCUT_PREVIEW_MARK)) {
+        visibility = SHORTCUT_SHOW_IN_PREVIEW;
+    } else if (take_mark(line, SHORTCUT_EXPANDED_MARK)) {
+        visibility = SHORTCUT_SHOW_WITH_KEYBOARD;
     }
+    const gboolean keyboard = take_mark(line, SHORTCUT_KEYBOARD_MARK);
     const gchar *separator = find_separator(line);
     gchar *label = NULL;
     gchar *spec = NULL;
@@ -106,7 +124,7 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
     if (!(error && *error)) {
         keys = keyseq_parse(spec, error);
     }
-    g_free(own);
+    g_free(line);
     if (!keys) {
         g_free(spec);
         g_free(label);
@@ -117,6 +135,7 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
     item->spec = spec;
     item->keys = keys;
     item->keyboard = keyboard;
+    item->visibility = visibility;
     return item;
 }
 
@@ -125,14 +144,18 @@ static Shortcut * parse_line(const gchar *line, GError **error) {
  * @param label Text on the button
  * @param spec Keys as written
  * @param keyboard TRUE for a prefix, marked SHORTCUT_KEYBOARD_MARK
+ * @param visibility When the button is shown
  * @return Line without newline, free with g_free()
  */
-static gchar * format_line(const gchar *label, const gchar *spec, gboolean keyboard) {
-    const gchar *mark = keyboard ? " " SHORTCUT_KEYBOARD_MARK : "";
+static gchar * format_line(const gchar *label, const gchar *spec, gboolean keyboard,
+                           ShortcutVisibility visibility) {
+    const gchar *prefix = keyboard ? " " SHORTCUT_KEYBOARD_MARK : "";
+    const gchar *mode = visibility == SHORTCUT_SHOW_IN_PREVIEW ? " " SHORTCUT_PREVIEW_MARK
+                        : visibility == SHORTCUT_SHOW_WITH_KEYBOARD ? " " SHORTCUT_EXPANDED_MARK : "";
     if (!strcmp(label, spec)) {
-        return g_strdup_printf("%s%s", spec, mark);
+        return g_strdup_printf("%s%s%s", spec, prefix, mode);
     }
-    return g_strdup_printf("%s = %s%s", label, spec, mark);
+    return g_strdup_printf("%s = %s%s%s", label, spec, prefix, mode);
 }
 
 /**
@@ -151,7 +174,7 @@ Shortcut * shortcut_new(const gchar *name, const gchar *spec, gboolean keyboard,
         g_free(label);
         label = g_strdup(keys_text);
     }
-    gchar *line = format_line(label, keys_text, keyboard);
+    gchar *line = format_line(label, keys_text, keyboard, SHORTCUT_SHOW_ALWAYS);
     Shortcut *item = NULL;
     if (strcmp(label, keys_text) && strchr(label, '=')) {
         g_set_error(error, G_FILE_ERROR, G_FILE_ERROR_INVAL, "名字里不能有 = 号");
@@ -278,7 +301,7 @@ gchar * shortcuts_format(const gchar *old_text, GPtrArray *list) {
     g_strfreev(lines);
     for (guint i = 0; i < list->len; i++) {
         const Shortcut *item = g_ptr_array_index(list, i);
-        gchar *line = format_line(item->label, item->spec, item->keyboard);
+        gchar *line = format_line(item->label, item->spec, item->keyboard, item->visibility);
         g_string_append_printf(head, "%s\n", line);
         g_free(line);
     }
