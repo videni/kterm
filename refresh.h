@@ -28,6 +28,8 @@
 void refresh_init(GtkWidget *window);
 void refresh_activity(void);
 void refresh_attach(GtkWidget *terminal);
+void refresh_hold_page(void);
+void refresh_show_page(void);
 void refresh_set_rate(guint per_second);
 
 #endif /* refresh_h */

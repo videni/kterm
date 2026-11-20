@@ -39,7 +39,8 @@ void kterm_keyboard_back_on_tap(void);
 GtkWidget * kterm_get_terminal(void);
 void kterm_set_font_size(guint size);
 void kterm_set_text_contrast(guint on);
-void kterm_set_tab_auto_hide(guint on);
+#define TAB_CORNER_PX 52
+void kterm_set_tab_hidden(guint hidden);
 gboolean kterm_terminal_has_shell(void);
 pid_t kterm_terminal_foreground(GtkWidget *terminal);
 pid_t kterm_terminal_owner(void);

@@ -35,7 +35,7 @@ static GtkStack *content = NULL;
 static GtkScrolledWindow *scroll = NULL;
 #endif
 static GtkWidget *tab_row = NULL;
-static GtkWidget *quit_button = NULL;
+static GtkWidget *quit_footer = NULL;
 static PanelTab selected_tab = PANEL_TAB_CONNECTIONS;
 static struct {
     GtkWidget *page;
@@ -125,7 +125,7 @@ void panel_show_page(GtkWidget *page) {
         tabs[tab].refresh();
     }
     gtk_widget_set_visible(tab_row, tab != PANEL_TAB_NONE);
-    gtk_widget_set_visible(quit_button, tab != PANEL_TAB_NONE);
+    gtk_widget_set_visible(quit_footer, tab != PANEL_TAB_NONE);
     gtk_stack_set_visible_child(content, page);
 #if GTK_CHECK_VERSION(3,22,0)
     gtk_adjustment_set_value(gtk_scrolled_window_get_vadjustment(scroll), 0);
@@ -154,6 +154,7 @@ void panel_add_page(GtkWidget *page, gboolean typing, PanelTab tab) {
 void panel_add_tab(PanelTab tab, GtkWidget *page, void (*refresh)(void)) {
     tabs[tab].page = page;
     tabs[tab].refresh = refresh;
+    gtk_widget_set_margin_top(page, PANEL_SPACING);
     panel_add_page(page, FALSE, tab);
 }
 
@@ -226,7 +227,7 @@ static GtkWidget * build_tab_row(void) {
         [PANEL_TAB_SETTINGS] = "设置",
         [PANEL_TAB_SHORTCUTS] = "快捷键",
     };
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_name(row, "ktermPanelTabs");
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     for (PanelTab tab = PANEL_TAB_CONNECTIONS; tab < PANEL_TAB_COUNT; tab++) {
@@ -242,17 +243,23 @@ static GtkWidget * build_tab_row(void) {
     return row;
 }
 
-static GtkWidget * build_quit_button(void) {
+static GtkWidget * build_quit_footer(void) {
+    GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    GtkWidget *line = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_name(line, PANEL_LINE_NAME);
+    gtk_box_pack_start(GTK_BOX(footer), line, FALSE, FALSE, 0);
+
     GtkWidget *button = panel_button_new("");
-    gtk_button_set_image(GTK_BUTTON(button), icon_new(ICON_LOGOUT, 32));
+    gtk_button_set_image(GTK_BUTTON(button), icon_new_outline("M10 4H4V20H10 M9 12H20 M16 8L20 12L16 16", 32));
     gtk_button_set_always_show_image(GTK_BUTTON(button), TRUE);
-    gtk_widget_set_halign(button, GTK_ALIGN_END);
-    gtk_widget_set_tooltip_text(button, "退出");
-    atk_object_set_name(gtk_widget_get_accessible(button), "退出");
+    gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(button, "退出终端");
+    atk_object_set_name(gtk_widget_get_accessible(button), "退出终端");
     gtk_style_context_add_class(gtk_widget_get_style_context(button), "quit");
     g_signal_connect(button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
-    gtk_widget_show_all(button);
-    return button;
+    gtk_box_pack_start(GTK_BOX(footer), button, FALSE, FALSE, 0);
+    gtk_widget_show_all(footer);
+    return footer;
 }
 
 /**
@@ -322,7 +329,7 @@ GtkWidget * panel_new(GtkWidget *overlay) {
     gtk_widget_set_valign(root, GTK_ALIGN_START);
     gtk_widget_set_halign(root, GTK_ALIGN_FILL);
 
-    GtkWidget *layout = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+    GtkWidget *layout = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_set_border_width(GTK_CONTAINER(layout), PANEL_SPACING * 2);
     gtk_container_add(GTK_CONTAINER(root), layout);
     tab_row = build_tab_row();
@@ -341,8 +348,9 @@ GtkWidget * panel_new(GtkWidget *overlay) {
 #else
     gtk_box_pack_start(GTK_BOX(layout), GTK_WIDGET(content), FALSE, FALSE, 0);
 #endif
-    quit_button = build_quit_button();
-    gtk_box_pack_start(GTK_BOX(layout), quit_button, FALSE, FALSE, 0);
+    quit_footer = build_quit_footer();
+    gtk_widget_set_margin_top(quit_footer, PANEL_SPACING);
+    gtk_box_pack_start(GTK_BOX(layout), quit_footer, FALSE, FALSE, 0);
     panel_add_tab(PANEL_TAB_SETTINGS, build_settings_page(), NULL);
     gtk_widget_show(GTK_WIDGET(content));
     gtk_widget_show(layout);

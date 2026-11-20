@@ -145,9 +145,9 @@ static const Choice on_off[] = {
 static ChoiceRow contrast_row_data = { on_off, G_N_ELEMENTS(on_off), NULL, "text_contrast", kterm_set_text_contrast, { NULL } };
 
 static const Choice tab_choices[] = {
-    { "自动隐藏", 1 }, { "常显", 0 },
+    { "隐藏", 1 }, { "常显", 0 },
 };
-static ChoiceRow tab_row_data = { tab_choices, G_N_ELEMENTS(tab_choices), NULL, "auto_hide_tabs", kterm_set_tab_auto_hide, { NULL } };
+static ChoiceRow tab_row_data = { tab_choices, G_N_ELEMENTS(tab_choices), NULL, "auto_hide_tabs", kterm_set_tab_hidden, { NULL } };
 
 /** "tmux 集成": kterm asks tmux over the ssh connection (scrolled back?
  *  which sessions?), switches its windows by swipes; see tmux.c */
@@ -274,7 +274,7 @@ void settings_init(void) {
     panel_add_setting("字号", font_row);
 #ifdef KINDLE
     panel_add_setting("屏幕方向", orientation_row());
-    panel_add_setting("标签栏", choice_row(&tab_row_data, &conf->auto_hide_tabs));
+    panel_add_setting("标签栏\n轻点终端右上角切换显隐", choice_row(&tab_row_data, &conf->auto_hide_tabs));
     // how often the screen follows a terminal changing on its own (not
     // while typing: then always at once)
     panel_add_setting("刷新", choice_row(&refresh_row_data, &conf->refresh_rate));

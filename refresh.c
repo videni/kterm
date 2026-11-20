@@ -35,12 +35,17 @@
 #include "config.h"
 #include "refresh.h"
 #include "kterm.h"
+#ifdef KINDLE
+#include "touch.h"
+#endif
 
 extern KTconf *conf;
 
 static GtkWidget *window = NULL;
 /** The window's drawing is frozen */
 static gboolean frozen = FALSE;
+/** A page is still calculating where its content lands. */
+static gboolean page_held = FALSE;
 /** Timer letting the drawing go */
 static guint thaw_source = 0;
 /** Monotonic time of the last touch or key */
@@ -50,6 +55,9 @@ static gint64 last_input = 0;
  * Let the window draw what changed
  */
 static void thaw(void) {
+    if (page_held) {
+        return;
+    }
     if (thaw_source) {
         g_source_remove(thaw_source);
         thaw_source = 0;
@@ -61,6 +69,27 @@ static void thaw(void) {
 }
 
 void refresh_activity(void) {
+    last_input = g_get_monotonic_time();
+    thaw();
+}
+
+/** Keep showing the current frame while the terminal's model scrolls. */
+void refresh_hold_page(void) {
+    GdkWindow *gdk_window = window ? gtk_widget_get_window(window) : NULL;
+    if (!gdk_window) {
+        return;
+    }
+    g_clear_handle_id(&thaw_source, g_source_remove);
+    if (!frozen) {
+        gdk_window_freeze_updates(gdk_window);
+        frozen = TRUE;
+    }
+    page_held = TRUE;
+}
+
+/** Publish the finished page in one draw. */
+void refresh_show_page(void) {
+    page_held = FALSE;
     last_input = g_get_monotonic_time();
     thaw();
 }
@@ -78,6 +107,11 @@ static gboolean thaw_cb(gpointer data) {
  */
 static void event_handler(GdkEvent *event, gpointer data) {
     UNUSED(data);
+#ifdef KINDLE
+    if (event->type == GDK_BUTTON_PRESS || event->type == GDK_KEY_PRESS || event->type == GDK_TOUCH_BEGIN) {
+        touch_cancel_page();
+    }
+#endif
     switch (event->type) {
     case GDK_BUTTON_PRESS:
     case GDK_BUTTON_RELEASE:

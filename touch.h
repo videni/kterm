@@ -27,6 +27,7 @@
 #define TOUCH_SWIPE_MIN_PX 96
 
 gboolean touch_event(GtkWidget *terminal, GdkEvent *any);
+void touch_cancel_page(void);
 void touch_reset(void);
 gboolean touch_forwarding(void);
 gboolean touch_scroll_event(GtkWidget *terminal, GdkEventScroll *event, gpointer data);

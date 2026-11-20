@@ -23,6 +23,7 @@
 #include <gio/gio.h>
 #include "kindle.h"
 #include "config.h"
+#include "kterm.h"
 
 /** Global config */
 extern KTconf *conf;
@@ -291,18 +292,20 @@ void inject_styles(void) {
     GtkCssProvider *provider = gtk_css_provider_new();
     if (!provider) { return; }
     static const gchar tab_css[] =
-        "#ktermTabs > header { background: @gray; padding: 0; border-bottom: 2px solid #000; }"
-        "#ktermTabs > header tab { background: #fff; color: #000; margin: 3px 2px;"
-        " padding: 0 2px 0 10px; border: 2px solid #000;"
-        " border-radius: 10px; box-shadow: none; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
-        "#ktermTabs > header tab:checked { background: #000; color: #fff;"
-        " margin-bottom: 0; padding-bottom: 3px; border-radius: 10px 10px 0 0; }"
+        // GTK lays the tab labels over the header rule. Match their bottom edge to it.
+        "#ktermTabs > header { background: @gray; padding: 0 " G_STRINGIFY(TAB_CORNER_PX) "px 0 0;"
+        " border-bottom: 2px solid #000; }"
+        "#ktermTabs > header tab { background: transparent; margin: 0; padding: 0;"
+        " border: 0; border-radius: 0; box-shadow: none; }"
+        "#ktermTabTitle { background: #fff; color: #000; margin: 3px 2px 0;"
+        " padding: 0 2px 1px 16px; border: 2px solid #000;"
+        " border-radius: 24px 24px 0 0; font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
+        "#ktermTabs > header tab:checked #ktermTabTitle { background: #000; color: #fff; }"
         "#ktermTabButton { background: transparent; border: 0; box-shadow: none;"
-        " color: #000; min-width: 44px; min-height: 44px; padding: 0; }"
-        "#ktermTabs > header tab:checked #ktermTabButton { color: #fff; }"
-        "#ktermTabs > header arrow { min-width: 42px; min-height: 44px; }"
-        "#ktermTabHandle { background: @gray; border: 0; border-radius: 0; box-shadow: none;"
-        " color: #000; min-height: 24px; padding: 0; }";
+        " color: #000; min-width: 48px; min-height: 56px; padding: 0; }"
+        "#ktermTabButton.add { min-width: 56px; }"
+        "#ktermTabs > header tab:checked #ktermTabTitle #ktermTabButton { color: #fff; }"
+        "#ktermTabs > header arrow { min-width: 42px; min-height: 56px; }";
     gchar *css = g_strconcat(
                                     // The window has 8 levels of gray (see
                                     // kterm.c): #d8d8d8 shows as the light
@@ -383,9 +386,14 @@ void inject_styles(void) {
                                     "#ktermPanelBack { background: transparent; color: #000000; border: none;"
                                     " box-shadow: none; text-shadow: none; padding: 4px 24px 4px 0;"
                                     " min-width: 0; min-height: 0; font-size: 16pt; }"
-                                    "#ktermPanelTabs #ktermPanelButton { padding: 8px 2px; }"
-                                    "#ktermPanelButton.quit { padding: 6px; border-radius: 14px;"
-                                    " min-width: 44px; min-height: 44px; }"
+                                    "#ktermPanelTabs { box-shadow: inset 0 -2px 0 #000; }"
+                                    "#ktermPanelTabs #ktermPanelButton { background: #ececec;"
+                                    " padding: 8px 2px; border-radius: 20px 20px 0 0; }"
+                                    "#ktermPanelTabs #ktermPanelButton.selected { background: #fff;"
+                                    " border-bottom-color: #fff; font-weight: bold; }"
+                                    "#ktermPanelTabs #ktermPanelButton.selected label { color: #000; }"
+                                    "#ktermPanelButton.quit { padding: 0; border-radius: 50%;"
+                                    " min-width: 56px; min-height: 56px; }"
                                     "#ktermPanel entry { background: #ffffff; color: #000000; border: 2px solid #000000;"
                                     " border-radius: 20px; padding: 12px 16px; min-height: 0; box-shadow: none; }"
                                     "#ktermPanel scrollbar.vertical { background: @gray; }"
