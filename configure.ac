@@ -6,6 +6,8 @@ AM_PROG_CC_C_O
 AC_PROG_INSTALL
 AC_PATH_PROG([GLIB_COMPILE_RESOURCES], [glib-compile-resources])
 AS_IF([test -z "$GLIB_COMPILE_RESOURCES"], [AC_MSG_ERROR([glib-compile-resources is required])])
+AC_PATH_PROG([RSVG_CONVERT], [rsvg-convert])
+AS_IF([test -z "$RSVG_CONVERT"], [AC_MSG_ERROR([rsvg-convert is required to build the icons])])
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_MACRO_DIR([m4])
 

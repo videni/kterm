@@ -77,7 +77,7 @@ Kindle 本机、ssh 里的 tmux、Claude Code 里都能用。
 
 - 在 Kindle 的 X 服务器上跑 GTK+ 3（来自 Alpine 的软件包，程序在 Alpine chroot 里运行）和自己编译的 VTE 0.84（[kindle/build-vte.sh](kindle/build-vte.sh)）：Alpine 的版本和补丁，加上 [kindle/vte/](kindle/vte/) 里的三个补丁——只重画写到的行（原版的改动范围初始值上下颠倒，打一个字也整屏重画，墨水屏上就是整屏刷新）、让 kterm 能问到程序是否在等输入（括号粘贴模式），以及文字加深（文字按背景画成深灰或浅灰）。装在 Alpine 的 `/usr/local/lib/kterm/`，只有 kterm 用它。
 - 顶部提示条（[notice.c](notice.c)）：语音的文字框（[voicebar.c](voicebar.c)）和响铃（[bellbar.c](bellbar.c)）共用。
-- 图标 SVG 在 [assets/](assets/)，由 `glib-compile-resources` 随程序构建，界面按资源路径加载。
+- 终端图标的 SVG 源文件在 [assets/icons/](assets/icons/)。构建时生成 PNG 并嵌入程序，Kindle 显示这些图标时无需 SVG 解码器。
 - 语音输入（[voice.c](voice.c)、[voicebar.c](voicebar.c)，网页在 [kindle/web/](kindle/web/)）：网页用 Tailwind 写，`sh kindle/build-web.sh` 编译（下载 Tailwind 独立可执行文件，不用 Node）成只含用到的样式，连同页面生成 `voice-page.h`，提交在仓库里，平时构建不需要 Tailwind。图标来自 Lucide（ISC）。打开时 kterm 自己在 7788 端口提供网页（GLib 的 GThreadedSocketService，没人连时只是一个等待的端口），关掉就不监听；启动脚本给 Wi-Fi 放行这个端口。要不要先放进框里：没有 tmux 看 VTE 的滚动位置；有 tmux 时像 rootshell 那样在同一个 ssh 连接上另开通道执行一段脚本（`ControlMaster`，[remote.c](remote.c)，看图取文件也走它），用 `tmux list-clients` 和 `who` 找到这台 Kindle 登录的 tmux 客户端，读 `#{pane_in_mode}`，放入时用 `send-keys -X cancel` 退出复制模式。二维码用 Nayuki 的 [qrcodegen](qrcodegen.c)（MIT）生成。
 - 局域网发现（[kterm-mdns.c](kterm-mdns.c)）：多播 DNS / DNS-SD（苹果的 Bonjour），不常驻后台，要用时才问一次。`kterm-mdns browse _ssh._tcp` 列出能 ssh 的机器，`resolve` 查名字的地址，`connect` 给 ssh 的 `ProxyCommand` 用：先连上次找到的地址（缓存在 `/tmp/kterm-mdns/`），连不上再问，所以命令行里的 ssh、scp、git 也一样。地址是 `.local` 的连接保存时自动加上 `ProxyCommand /usr/local/bin/kterm-mdns connect %h %p`，自己写的 ProxyCommand 不动。Kindle 的防火墙挡掉回答，启动脚本给 Wi-Fi 放行来自 5353 端口的 UDP。
 - 全刷（[flash.c](flash.c)）：Kindle 的窗口管理器（awesome + lab126 脚本）不会主动给 kterm 全刷。翻页、滑动前，kterm 给它发 `lab126_create_trigger` 消息：暂停刷屏，等终端区域整块重画完（最多 0.8 秒）再用 GC 波形全刷，和系统阅读器翻页同一个机制。
@@ -202,7 +202,7 @@ For a list of what constitutes valid encodings, check [this list][iana-character
   * **0.1**: first release
 
 #### Building
-* dependencies: [GTK+](https://github.com/GNOME/gtk) version 2 or 3 (use `--enable-gtk3`), [VTE](https://github.com/GNOME/vte), optionally [dbus](https://www.freedesktop.org/wiki/Software/dbus/) for Kindle screen rotation
+* dependencies: [GTK+](https://github.com/GNOME/gtk) version 2 or 3 (use `--enable-gtk3`), [VTE](https://github.com/GNOME/vte), `glib-compile-resources`, `rsvg-convert`, and optionally [dbus](https://www.freedesktop.org/wiki/Software/dbus/) for Kindle screen rotation
 * `$ ./autogen.sh`
 * `$ ./configure`
 * `$ make`

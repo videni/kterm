@@ -15,7 +15,7 @@ REPO=$(dirname "$KINDLE_DIR")
 BUILD="${KTERM_BUILD:-$REPO/build}"
 IMAGE=kterm-build:armv7
 mkdir -p "$BUILD/obj"
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+if [ "$(docker image inspect --format '{{index .Config.Labels "kterm.build.rsvg-convert"}}' "$IMAGE" 2>/dev/null)" != 1 ]; then
     docker build --platform linux/arm/v7 \
         --build-arg APK_MIRROR="${APK_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}" \
         -t "$IMAGE" "$KINDLE_DIR/docker"

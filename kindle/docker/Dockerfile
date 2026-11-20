@@ -4,3 +4,5 @@ FROM alpine:3.24
 ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 RUN sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${APK_MIRROR}|" /etc/apk/repositories \
  && apk add --no-cache build-base autoconf automake libtool pkgconf gtk+3.0-dev vte3-dev
+RUN apk add --no-cache rsvg-convert
+LABEL kterm.build.rsvg-convert=1

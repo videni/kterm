@@ -8,13 +8,22 @@ kterm_mdns_SOURCES = kterm-mdns.c
 kterm_mdns_LDADD =
 endif
 
-images = $(wildcard $(srcdir)/assets/icons/*.svg) $(wildcard $(srcdir)/assets/*.svg)
+icon_svgs = $(wildcard $(srcdir)/assets/icons/*.svg)
+icon_pngs = $(patsubst $(srcdir)/assets/icons/%.svg,generated-icons/%.png,$(icon_svgs)) \
+	generated-icons/voice-64.png generated-icons/voice-180.png
+images = $(icon_svgs) $(wildcard $(srcdir)/assets/*.svg)
 EXTRA_DIST = assets/images.gresource.xml $(images)
 nodist_kterm_SOURCES = image-resources.c
-CLEANFILES = image-resources.c
+CLEANFILES = image-resources.c $(icon_pngs)
 
-image-resources.c: $(srcdir)/assets/images.gresource.xml $(images)
-	$(AM_V_GEN)$(GLIB_COMPILE_RESOURCES) --sourcedir="$(srcdir)/assets" --generate-source --target="$@" "$<"
+generated-icons/%.png: $(srcdir)/assets/icons/%.svg
+	$(AM_V_GEN)$(MKDIR_P) generated-icons && $(RSVG_CONVERT) -o "$@" "$<"
+
+generated-icons/voice-%.png: $(srcdir)/assets/voice-favicon.svg
+	$(AM_V_GEN)$(MKDIR_P) generated-icons && $(RSVG_CONVERT) -w "$*" -h "$*" -o "$@" "$<"
+
+image-resources.c: $(srcdir)/assets/images.gresource.xml $(images) $(icon_pngs)
+	$(AM_V_GEN)$(GLIB_COMPILE_RESOURCES) --sourcedir="$(srcdir)/assets" --sourcedir=. --generate-source --target="$@" "$<"
 
 ktermconfdir = $(sysconfdir)/kterm
 ktermconf_DATA = kterm.conf shortcuts.conf

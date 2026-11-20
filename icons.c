@@ -63,7 +63,7 @@ static gboolean icon_draw_cb(GtkWidget *widget, cairo_t *cr, gpointer resource) 
     return FALSE;
 }
 
-/** Show an SVG resource in the surrounding text color. */
+/** Show an icon resource in the surrounding text color. */
 GtkWidget * icon_new(const gchar *resource, gint size) {
     GtkWidget *icon = gtk_drawing_area_new();
     gtk_widget_set_size_request(icon, size, size);

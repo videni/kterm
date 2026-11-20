@@ -55,10 +55,6 @@ static VoiceHandler handler = NULL;
 /** The key in the page's address; read by the workers */
 static gchar *token = NULL;
 G_LOCK_DEFINE_STATIC(token);
-/** The page's icon as PNG, small for the tab and large for a home screen;
- *  made once, only read after that */
-static GBytes *favicon = NULL;
-static GBytes *touch_icon = NULL;
 
 /**
  * Set the key the page's address must hold: addresses with another one
@@ -234,7 +230,10 @@ static gboolean run_cb(GThreadedSocketService *server, GSocketConnection *connec
     const gboolean get = !strcmp(method, "GET");
     if (get && (!strcmp(path, "/favicon.png") || !strcmp(path, "/favicon.ico")
                 || g_str_has_prefix(path, "/apple-touch-icon"))) {
-        respond_image(out, "image/png", g_str_has_prefix(path, "/apple") ? touch_icon : favicon);
+        const gchar *resource = g_str_has_prefix(path, "/apple")
+            ? IMAGE_RESOURCES "voice-180.png" : IMAGE_RESOURCES "voice-64.png";
+        g_autoptr(GBytes) icon = g_resources_lookup_data(resource, G_RESOURCE_LOOKUP_FLAGS_NONE, NULL);
+        respond_image(out, "image/png", icon);
     } else if (get && !strcmp(path, "/voice-icons.svg")) {
         g_autoptr(GBytes) icons = g_resources_lookup_data(IMAGE_RESOURCES "voice-icons.svg", G_RESOURCE_LOOKUP_FLAGS_NONE, NULL);
         respond_image(out, "image/svg+xml", icons);
@@ -273,19 +272,6 @@ static gboolean run_cb(GThreadedSocketService *server, GSocketConnection *connec
     return TRUE;
 }
 
-static GBytes *favicon_png(gint side) {
-    g_autoptr(GError) error = NULL;
-    g_autoptr(GdkPixbuf) icon = gdk_pixbuf_new_from_resource_at_scale(
-        IMAGE_RESOURCES "voice-favicon.svg", side, side, TRUE, &error);
-    gchar *png = NULL;
-    gsize size = 0;
-    if (icon && gdk_pixbuf_save_to_buffer(icon, &png, &size, "png", &error, NULL)) {
-        return g_bytes_new_take(png, size);
-    }
-    g_warning("Cannot load the phone page icon: %s", error->message);
-    return NULL;
-}
-
 /**
  * Start listening, if not listening yet
  * @param port Port
@@ -296,10 +282,6 @@ static GBytes *favicon_png(gint side) {
 gboolean voiceserver_start(guint16 port, VoiceHandler on_request, GError **error) {
     if (service) {
         return TRUE;
-    }
-    if (!favicon) {
-        favicon = favicon_png(64);
-        touch_icon = favicon_png(180);
     }
     handler = on_request;
     service = g_threaded_socket_service_new(WORKERS);

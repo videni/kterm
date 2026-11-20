@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/net/fabiszewski/kterm">
-    <file>icons/bell.svg</file>
-    <file>icons/close.svg</file>
-    <file>icons/copy.svg</file>
-    <file>icons/go.svg</file>
-    <file>icons/keyboard-hide.svg</file>
-    <file>icons/keyboard.svg</file>
-    <file>icons/menu.svg</file>
-    <file>icons/new-tab.svg</file>
-    <file>icons/paste.svg</file>
-    <file>icons/play.svg</file>
-    <file>icons/power.svg</file>
-    <file>icons/send.svg</file>
-    <file>voice-favicon.svg</file>
+    <file alias="icons/bell.png">generated-icons/bell.png</file>
+    <file alias="icons/close.png">generated-icons/close.png</file>
+    <file alias="icons/copy.png">generated-icons/copy.png</file>
+    <file alias="icons/go.png">generated-icons/go.png</file>
+    <file alias="icons/keyboard-hide.png">generated-icons/keyboard-hide.png</file>
+    <file alias="icons/keyboard.png">generated-icons/keyboard.png</file>
+    <file alias="icons/menu.png">generated-icons/menu.png</file>
+    <file alias="icons/new-tab.png">generated-icons/new-tab.png</file>
+    <file alias="icons/paste.png">generated-icons/paste.png</file>
+    <file alias="icons/play.png">generated-icons/play.png</file>
+    <file alias="icons/power.png">generated-icons/power.png</file>
+    <file alias="icons/send.png">generated-icons/send.png</file>
+    <file alias="voice-64.png">generated-icons/voice-64.png</file>
+    <file alias="voice-180.png">generated-icons/voice-180.png</file>
     <file>voice-icons.svg</file>
-    <file>icons/link.svg</file>
-    <file>icons/settings.svg</file>
-    <file>icons/shortcut.svg</file>
+    <file alias="icons/link.png">generated-icons/link.png</file>
+    <file alias="icons/settings.png">generated-icons/settings.png</file>
+    <file alias="icons/shortcut.png">generated-icons/shortcut.png</file>
   </gresource>
 </gresources>
