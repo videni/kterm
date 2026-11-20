@@ -189,7 +189,7 @@ void tmuxpick_init(void) {
     gtk_box_pack_start(GTK_BOX(actions), create, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions), none, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(page), actions, FALSE, FALSE, 0);
-    panel_add_page(page, FALSE);
+    panel_add_page(page, FALSE, PANEL_TAB_NONE);
 }
 
 static void contents_cb(GtkWidget *terminal, gpointer data) {

@@ -17,7 +17,7 @@
  * The panel's ssh connections: the 连接 page lists the saved ones (Host
  * blocks of ~/.ssh/config, sshconf.c), a tap types "ssh NAME" into the
  * terminal; a form adds or edits one; 查找 lists the machines of the local
- * network (kterm-mdns) to add. 断开 on the first page, while an ssh session
+ * network (kterm-mdns) to add. 断开 in the connections tab, while a remote session
  * has the terminal, hangs it up.
  */
 
@@ -27,7 +27,6 @@
 #include <vte/vte.h>
 #include "config.h"
 #include "connpage.h"
-#include "icons.h"
 #include "kterm.h"
 #include "panel.h"
 #include "sshconf.h"
@@ -41,7 +40,7 @@
  *  Dragging a list with a finger needs touch events the Kindle's X server
  *  does not deliver. */
 #define ROWS_PER_PAGE 4
-/** On the first page while an ssh session has the terminal */
+/** Shown in the connection list while a remote session owns the terminal. */
 static GtkWidget *disconnect_button = NULL;
 static GtkWidget *list_page = NULL;
 static GtkWidget *form_page = NULL;
@@ -78,13 +77,6 @@ static gboolean searching = FALSE;
 
 static void show_list(void);
 static pid_t ssh_session(void);
-
-/**
- * Give the keyboard back to the terminal
- */
-static void focus_terminal(void) {
-    gtk_widget_grab_focus(kterm_get_terminal());
-}
 
 /**
  * Describe where a connection goes: user@address:port
@@ -350,7 +342,6 @@ static void search_done(GObject *source, GAsyncResult *result, gpointer data) {
 static void search_cb(void) {
     panel_clear_box(found_rows);
     panel_show_page(found_page);
-    focus_terminal();
     if (searching) {
         return;
     }
@@ -417,9 +408,10 @@ static GtkWidget * build_row(guint index) {
 }
 
 /**
- * Read the connections again and show the list page
+ * Read the saved connections and refresh the list before display.
  */
-static void show_list(void) {
+static void refresh_list(void) {
+    gtk_widget_set_visible(disconnect_button, ssh_session() != 0);
     if (hosts) {
         g_ptr_array_unref(hosts);
     }
@@ -468,16 +460,10 @@ static void show_list(void) {
         gtk_widget_set_sensitive(prev_button, page_start > 0);
         gtk_widget_set_sensitive(next_button, page_start + ROWS_PER_PAGE < count);
     }
-    panel_show_page(list_page);
-    focus_terminal();
 }
 
-/**
- * The first page's connections button: the list, from its first page
- */
-static void connections_cb(void) {
-    page_start = 0;
-    show_list();
+static void show_list(void) {
+    panel_show_page(list_page);
 }
 
 /**
@@ -725,7 +711,12 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
  */
 static GtkWidget * build_list_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
-    GtkWidget *header = panel_page_header(page, "SSH 连接", NULL);
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
+    gtk_widget_set_halign(header, GTK_ALIGN_END);
+    gtk_box_pack_start(GTK_BOX(page), header, FALSE, FALSE, 0);
+    disconnect_button = panel_button_new("断开");
+    g_signal_connect(disconnect_button, "clicked", G_CALLBACK(disconnect_cb), NULL);
+    gtk_box_pack_start(GTK_BOX(header), disconnect_button, FALSE, FALSE, 0);
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
@@ -825,31 +816,13 @@ static GtkWidget * build_form_page(void) {
     return page;
 }
 
-/**
- * The first page is shown: 断开 only while there is a session to hang up
- */
-static void home_shown_cb(void) {
-    gtk_widget_set_visible(disconnect_button, ssh_session() != 0);
-}
-
-/**
- * Add the connection pages to the panel, and 连接 and 断开 at the start of
- * its first page
- */
+/** Add the connection list, discovery and editor to the connections tab. */
 void connpage_init(void) {
     list_page = build_list_page();
     form_page = build_form_page();
     found_page = build_found_page();
-    panel_add_page(list_page, FALSE);
-    panel_add_page(found_page, FALSE);
-    panel_add_page(form_page, TRUE);
-    GtkWidget *connections = panel_button_with_icon("连接", ICON_LINK);
-    disconnect_button = panel_button_with_icon("断开", ICON_LINK_OFF);
-    g_signal_connect(connections, "clicked", G_CALLBACK(connections_cb), NULL);
-    g_signal_connect(disconnect_button, "clicked", G_CALLBACK(disconnect_cb), NULL);
-    panel_add_action(connections, 0);
-    panel_add_action(disconnect_button, 1);
-    // shown again each time the panel opens on its first page
-    g_signal_connect(panel_home_page(), "map", G_CALLBACK(home_shown_cb), NULL);
+    panel_add_tab(PANEL_TAB_CONNECTIONS, list_page, refresh_list);
+    panel_add_page(found_page, FALSE, PANEL_TAB_CONNECTIONS);
+    panel_add_page(form_page, TRUE, PANEL_TAB_CONNECTIONS);
 }
 #endif

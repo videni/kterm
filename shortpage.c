@@ -179,10 +179,8 @@ static GtkWidget * build_row(guint index) {
     return row;
 }
 
-/**
- * Show the list page
- */
-static void show_list(void) {
+/** Refresh the shortcut list before display. */
+static void refresh_list(void) {
     GPtrArray *items = shortbar_items();
     panel_clear_box(rows_box);
     const guint count = items->len;
@@ -215,6 +213,9 @@ static void show_list(void) {
         gtk_widget_set_sensitive(prev_button, page_start > 0);
         gtk_widget_set_sensitive(next_button, page_start + ROWS_PER_PAGE < count);
     }
+}
+
+static void show_list(void) {
     panel_show_page(list_page);
 }
 
@@ -225,14 +226,6 @@ static void page_cb(GtkWidget *button, gpointer data) {
     } else {
         page_start += ROWS_PER_PAGE;
     }
-    show_list();
-}
-
-/**
- * The home page's button: the list from its first page
- */
-static void open_cb(void) {
-    page_start = 0;
     show_list();
 }
 
@@ -326,7 +319,9 @@ static GtkWidget * add_field(GtkWidget *grid, gint row, const gchar *title, cons
 
 static GtkWidget * build_list_page(void) {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING);
-    GtkWidget *header = panel_page_header(page, "快捷键", panel_settings_page());
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING);
+    gtk_widget_set_halign(header, GTK_ALIGN_END);
+    gtk_box_pack_start(GTK_BOX(page), header, FALSE, FALSE, 0);
     prev_button = panel_button_new("‹");
     next_button = panel_button_new("›");
     page_label = gtk_label_new(NULL);
@@ -400,16 +395,10 @@ static GtkWidget * build_form_page(void) {
     return page;
 }
 
-/**
- * Add the shortcuts pages to the panel, and the row leading to them to its
- * settings page. Needs panel_new() and shortbar_new() done.
- */
+/** Add the list and editor to the shortcuts tab. */
 void shortpage_init(void) {
     list_page = build_list_page();
     form_page = build_form_page();
-    panel_add_page(list_page, FALSE);
-    panel_add_page(form_page, TRUE);
-    GtkWidget *open = panel_button_new("编辑 ›");
-    g_signal_connect(open, "clicked", G_CALLBACK(open_cb), NULL);
-    panel_add_setting("快捷键", open);
+    panel_add_tab(PANEL_TAB_SHORTCUTS, list_page, refresh_list);
+    panel_add_page(form_page, TRUE, PANEL_TAB_SHORTCUTS);
 }

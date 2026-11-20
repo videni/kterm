@@ -222,7 +222,7 @@ static void request_cb(const VoiceRequest *request) {
         voicebar_receive(request->text, request->run, voiceserver_answer, request->reply);
     }
     // the code was scanned: it is in the way now
-    if (first && panel_is_open() && gtk_widget_get_visible(voice_page)) {
+    if (first && panel_showing(voice_page)) {
         panel_close();
     } else if (first) {
         update_page();
@@ -238,7 +238,7 @@ void voice_toggle(void) {
     if (!voice_page) {
         return;
     }
-    if (panel_is_open() && gtk_widget_get_visible(voice_page)) {
+    if (panel_showing(voice_page)) {
         panel_close();
         return;
     }
@@ -311,7 +311,7 @@ void voice_set_enabled(guint on) {
     } else {
         voiceserver_stop();
         voicebar_clear();
-        if (voice_page && panel_is_open() && gtk_widget_get_visible(voice_page)) {
+        if (panel_showing(voice_page)) {
             panel_close();
         }
     }
@@ -329,7 +329,7 @@ void voice_init(void) {
     voiceserver_set_token(conf->voice_token);
     voicebar_init();
     voice_page = build_page();
-    panel_add_page(voice_page, FALSE);
+    panel_add_page(voice_page, FALSE, PANEL_TAB_NONE);
     if (voice_enabled()) {
         start_serving();
     }

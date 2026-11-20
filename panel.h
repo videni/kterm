@@ -30,20 +30,26 @@
 /** Space around and between the panel's parts, in pixels */
 #define PANEL_SPACING 12
 
-GtkWidget * panel_new(void);
-GtkWidget * panel_home_page(void);
-void panel_add_action(GtkWidget *button, gint position);
-void panel_add_page(GtkWidget *page, gboolean typing);
+typedef enum {
+    PANEL_TAB_NONE,
+    PANEL_TAB_CONNECTIONS,
+    PANEL_TAB_SETTINGS,
+    PANEL_TAB_SHORTCUTS,
+    PANEL_TAB_COUNT
+} PanelTab;
+
+GtkWidget * panel_new(GtkWidget *overlay);
+void panel_add_tab(PanelTab tab, GtkWidget *page, void (*refresh)(void));
+void panel_add_page(GtkWidget *page, gboolean typing, PanelTab tab);
 void panel_show_page(GtkWidget *page);
 GtkWidget * panel_page_header(GtkWidget *page, const gchar *title, GtkWidget *parent);
-GtkWidget * panel_settings_page(void);
 void panel_add_setting(const gchar *title, GtkWidget *control);
 GtkWidget * panel_button_new(const gchar *label);
 void panel_clear_box(GtkWidget *box);
-GtkWidget * panel_button_with_icon(const gchar *label, const gchar *icon);
 void panel_open(void);
 void panel_close(void);
 gboolean panel_is_open(void);
+gboolean panel_showing(GtkWidget *page);
 gboolean panel_wants_keys(void);
 
 #endif /* panel_h */

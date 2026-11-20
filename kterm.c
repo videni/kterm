@@ -825,15 +825,6 @@ void kterm_set_font_size(guint size) {
     }
 }
 
-/**
- * Fill the panel: the quit action on its first page, the settings page
- */
-static void add_panel_actions(void) {
-    GtkWidget *quit_button = panel_button_with_icon("退出", ICON_LOGOUT);
-    g_signal_connect(quit_button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
-    panel_add_action(quit_button, -1);
-    settings_init();
-}
 #endif
 
 #ifdef KINDLE
@@ -1558,12 +1549,13 @@ gint main(gint argc, gchar **argv) {
     // under the panel: it covers them
     notices_init(overlay);
 #endif
-    GtkWidget *panel = panel_new();
+    GtkWidget *panel = panel_new(overlay);
     connpage_init();
-    add_panel_actions();
-    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
+    settings_init();
 #ifdef KINDLE
     watch_top_swipe(panel);
+#else
+    UNUSED(panel);
 #endif
 #endif
     
