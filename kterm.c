@@ -1556,8 +1556,79 @@ static void position_notices(GtkWidget *terminal, GtkAllocation *allocation, Gtk
     }
 }
 
+#if GTK_CHECK_VERSION(3,22,0)
+typedef VteTerminal KtermTerminal;
+typedef VteTerminalClass KtermTerminalClass;
+
+G_DEFINE_TYPE(KtermTerminal, kterm_terminal, VTE_TYPE_TERMINAL)
+
+static gboolean kterm_terminal_draw(GtkWidget *widget, cairo_t *cr) {
+    GtkWidgetClass *parent = GTK_WIDGET_CLASS(kterm_terminal_parent_class);
+    const GdkRectangle bounds = {0, 0, gtk_widget_get_allocated_width(widget),
+                                gtk_widget_get_allocated_height(widget)};
+    GdkRectangle panel, covered;
+    if (!panel_opaque_area(widget, &panel) || !gdk_rectangle_intersect(&bounds, &panel, &covered)) {
+        return parent->draw(widget, cr);
+    }
+    if (gdk_rectangle_equal(&bounds, &covered)) {
+        return FALSE;
+    }
+
+    cairo_save(cr);
+    cairo_new_path(cr);
+    gdk_cairo_rectangle(cr, &bounds);
+    gdk_cairo_rectangle(cr, &covered);
+    const cairo_fill_rule_t rule = cairo_get_fill_rule(cr);
+    cairo_set_fill_rule(cr, CAIRO_FILL_RULE_EVEN_ODD);
+    cairo_clip(cr);
+    cairo_set_fill_rule(cr, rule);
+    const gboolean handled = parent->draw(widget, cr);
+    cairo_restore(cr);
+    return handled;
+}
+
+static void kterm_terminal_queue_draw_region(GtkWidget *widget, const cairo_region_t *region) {
+    GtkWidgetClass *parent = GTK_WIDGET_CLASS(kterm_terminal_parent_class);
+    GtkWidget *toplevel = gtk_widget_get_toplevel(widget);
+    GdkRectangle damage, covered, overlap;
+    cairo_region_get_extents(region, &damage);
+    // GTK expects the damage region in this widget's GDK window coordinates.
+    if (gtk_widget_get_window(widget) != gtk_widget_get_window(toplevel)
+        || !panel_opaque_area(toplevel, &covered)
+        || !gdk_rectangle_intersect(&damage, &covered, &overlap)) {
+        parent->queue_draw_region(widget, region);
+        return;
+    }
+    if (gdk_rectangle_equal(&damage, &overlap)) {
+        return;
+    }
+    cairo_region_t *visible = cairo_region_copy(region);
+    cairo_region_subtract_rectangle(visible, &covered);
+    if (cairo_region_status(visible) != CAIRO_STATUS_SUCCESS) {
+        parent->queue_draw_region(widget, region);
+    } else if (!cairo_region_is_empty(visible)) {
+        parent->queue_draw_region(widget, visible);
+    }
+    cairo_region_destroy(visible);
+}
+
+static void kterm_terminal_init(KtermTerminal *terminal) {
+    UNUSED(terminal);
+}
+
+static void kterm_terminal_class_init(KtermTerminalClass *klass) {
+    GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
+    widget_class->draw = kterm_terminal_draw;
+    widget_class->queue_draw_region = kterm_terminal_queue_draw_region;
+}
+#endif
+
 static GtkWidget *new_tab(TerminalTabs *tabs) {
+#if GTK_CHECK_VERSION(3,22,0)
+    GtkWidget *terminal = g_object_new(kterm_terminal_get_type(), NULL);
+#else
     GtkWidget *terminal = vte_terminal_new();
+#endif
     configure_terminal(terminal);
     gtk_widget_set_name(terminal, "termBox");
     vte_terminal_set_audible_bell(VTE_TERMINAL(terminal), FALSE);
@@ -1683,6 +1754,10 @@ static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gch
 
 /** main */
 gint main(gint argc, gchar **argv) {
+#if defined(KINDLE) && GTK_CHECK_VERSION(3,2,0)
+    // Draw GTK widgets in memory, then copy the result to the Kindle's X11 window.
+    g_setenv("GDK_RENDERING", "image", FALSE);
+#endif
     conf = parse_config(); // call first so args overide defaults/config
     
     gint c = -1;
@@ -1875,8 +1950,6 @@ gint main(gint argc, gchar **argv) {
 #ifdef KINDLE
     kterm_watch_top_swipe(panel);
     panel_add_tab(PANEL_TAB_TERMINALS, tabs->tab_list, refresh_tab_list);
-#else
-    UNUSED(panel);
 #endif
 #endif
     
@@ -1892,7 +1965,7 @@ gint main(gint argc, gchar **argv) {
 #endif
 #if GTK_CHECK_VERSION(3,2,0)
     // above whichever keyboard is up
-    GtkWidget *shortbar = shortbar_new(SYSCONFDIR "/kterm/" SHORTCUTS_FILE);
+    GtkWidget *shortbar = shortbar_new(SYSCONFDIR "/kterm/" SHORTCUTS_FILE, panel);
     gtk_box_pack_end(GTK_BOX(vbox), shortbar, FALSE, FALSE, 0);
     GtkWidget *system_keyboard_bar = NULL;
 #ifdef KINDLE

@@ -19,6 +19,7 @@
  */
 
 #include <gtk/gtk.h>
+#include <string.h>
 #include "config.h"
 #include "panel.h"
 #include "icons.h"
@@ -44,6 +45,68 @@ static struct {
 } tabs[PANEL_TAB_COUNT];
 /** Rows of the settings page */
 static GtkWidget *settings_box = NULL;
+
+#if defined(KINDLE) && GTK_CHECK_VERSION(3,22,0)
+static gint opacity_width;
+static gint opacity_height;
+static gboolean opaque_background;
+
+static void invalidate_panel_opacity(GtkWidget *widget, gpointer data) {
+    UNUSED(widget);
+    UNUSED(data);
+    opacity_width = 0;
+}
+
+/** Check the same background and border that GtkEventBox paints. */
+static gboolean panel_background_is_opaque(gint width, gint height) {
+    GtkStyleContext *style = gtk_widget_get_style_context(root);
+    gdouble opacity = 1.0;
+    gtk_style_context_get(style, gtk_style_context_get_state(style), "opacity", &opacity, NULL);
+    if (opacity < 1.0) {
+        return FALSE;
+    }
+
+    cairo_surface_t *mask = cairo_image_surface_create(CAIRO_FORMAT_A8, width, height);
+    cairo_t *cr = cairo_create(mask);
+    gtk_render_background(style, cr, 0, 0, width, height);
+    gtk_render_frame(style, cr, 0, 0, width, height);
+    gboolean opaque = cairo_status(cr) == CAIRO_STATUS_SUCCESS;
+    cairo_destroy(cr);
+    cairo_surface_flush(mask);
+    const guchar *row = cairo_image_surface_get_data(mask);
+    const gint stride = cairo_image_surface_get_stride(mask);
+    for (gint y = 0; opaque && y < height; y++, row += stride) {
+        // Equal neighboring pixels and an opaque first pixel imply a solid row.
+        opaque = row[0] == 255 && memcmp(row, row + 1, width - 1) == 0;
+    }
+    cairo_surface_destroy(mask);
+    return opaque;
+}
+
+gboolean panel_opaque_area(GtkWidget *relative_to, GdkRectangle *area) {
+    if (!root || !gtk_widget_get_mapped(root) || panel_is_dialog()
+        || gtk_widget_get_scale_factor(root) != 1 || gtk_widget_get_opacity(root) < 1.0
+        || !gtk_event_box_get_visible_window(GTK_EVENT_BOX(root)) || gtk_widget_get_app_paintable(root)) {
+        return FALSE;
+    }
+    const gint width = gtk_widget_get_allocated_width(root);
+    const gint height = gtk_widget_get_allocated_height(root);
+    if (width <= 0 || height <= 0) {
+        return FALSE;
+    }
+    if (width != opacity_width || height != opacity_height) {
+        opaque_background = panel_background_is_opaque(width, height);
+        opacity_width = width;
+        opacity_height = height;
+    }
+    if (!opaque_background || !gtk_widget_translate_coordinates(root, relative_to, 0, 0, &area->x, &area->y)) {
+        return FALSE;
+    }
+    area->width = width;
+    area->height = height;
+    return TRUE;
+}
+#endif
 
 /**
  * Create a button in the panel's style.
@@ -405,6 +468,9 @@ GtkWidget * panel_new(GtkWidget *overlay) {
     // an event box has a window of its own: it paints a background over the
     // terminal and keeps touches on the panel from reaching it
     root = gtk_event_box_new();
+#if defined(KINDLE) && GTK_CHECK_VERSION(3,22,0)
+    g_signal_connect(root, "style-updated", G_CALLBACK(invalidate_panel_opacity), NULL);
+#endif
     gtk_widget_set_name(root, PANEL_NAME);
     // at the top, as the Kindle's own menu bar when reading: the keyboard
     // and the newest output, at the foot of the terminal, stay in view

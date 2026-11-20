@@ -54,6 +54,8 @@ void panel_open_dialog(GtkWidget *page);
 void panel_close(void);
 gboolean panel_is_open(void);
 gboolean panel_is_dialog(void);
+/** Get the panel's fully opaque bounds relative to the requested widget. */
+gboolean panel_opaque_area(GtkWidget *relative_to, GdkRectangle *area);
 gboolean panel_showing(GtkWidget *page);
 gboolean panel_wants_keys(void);
 

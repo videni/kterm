@@ -165,6 +165,16 @@ static gboolean draw_tool_cb(GtkWidget *tool, cairo_t *cr, gpointer data) {
     return FALSE;
 }
 
+static void sync_menu_tool(GtkWidget *panel, GParamSpec *property, GtkWidget *tool) {
+    UNUSED(property);
+    GtkStyleContext *style = gtk_widget_get_style_context(tool);
+    if (gtk_widget_get_visible(panel)) {
+        gtk_style_context_add_class(style, "selected");
+    } else {
+        gtk_style_context_remove_class(style, "selected");
+    }
+}
+
 /**
  * Draw the keyboard tool again, for the state it changes
  */
@@ -479,12 +489,14 @@ static gboolean touch_cb(GtkWidget *widget, GdkEventButton *event, gpointer data
     const gdouble dx = event->x - press_x;
     const gdouble dy = event->y - press_y;
     const gboolean tapped = ABS(dx) < SHORTBAR_SWIPE_PX && ABS(dy) < SHORTBAR_SWIPE_PX;
-    unpress(tapped && !(panel_is_open() && !panel_wants_keys()));
+    const gboolean menu = pressed_button == menu_tool;
+    const gboolean dismiss = panel_is_open() && (menu || !panel_wants_keys());
+    unpress(tapped && !menu && !dismiss);
     if (ABS(dx) >= SHORTBAR_SWIPE_PX && ABS(dx) > ABS(dy)) {
         // towards the left brings the next page in, like turning a page
         turn_page(dx < 0 ? 1 : -1);
-    } else if (ABS(dx) < SHORTBAR_SWIPE_PX && ABS(dy) < SHORTBAR_SWIPE_PX) {
-        if (panel_is_open() && !panel_wants_keys()) {
+    } else if (tapped) {
+        if (dismiss) {
             // as on the keyboard: a tap puts the panel away, types nothing
             panel_close();
         } else {
@@ -560,9 +572,10 @@ static void slots_allocated(GtkWidget *widget, GdkRectangle *alloc, gpointer dat
  * Build the bar
  * @param path shortcuts.conf; the built-in buttons are used when it does
  *  not exist
+ * @param panel Panel controlled by the menu tool
  * @return Bar widget
  */
-GtkWidget * shortbar_new(const gchar *path) {
+GtkWidget * shortbar_new(const gchar *path, GtkWidget *panel) {
     file_path = g_strdup(path);
     gchar *problems = NULL;
     items = shortcuts_load(path, &problems);
@@ -612,6 +625,8 @@ GtkWidget * shortbar_new(const gchar *path) {
         gtk_widget_set_margin_start(*tool, SHORTBAR_TOOL_MARGIN);
         gtk_widget_set_margin_end(*tool, SHORTBAR_TOOL_MARGIN);
     }
+    g_signal_connect_object(panel, "notify::visible", G_CALLBACK(sync_menu_tool), menu_tool, 0);
+    sync_menu_tool(panel, NULL, menu_tool);
     update_keyboard_tool();
     gtk_widget_show_all(box);
     // shown and hidden with the keyboard only, see update_visibility()

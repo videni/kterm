@@ -98,6 +98,7 @@ static void visibility_clicked_cb(GtkWidget *button, gpointer data) {
 
 /** First button of the list page shown */
 static guint page_start = 0;
+static guint rendered_page_start = G_MAXUINT;
 /** Index of the button in the form, -1 for a new one */
 static gint editing = -1;
 
@@ -170,6 +171,7 @@ static void up_cb(GtkWidget *button, gpointer data) {
     if (index - 1 < page_start) {
         page_start -= ROWS_PER_PAGE;
     }
+    rendered_page_start = G_MAXUINT;
     show_list();
     save_list(empty_label);
 }
@@ -210,23 +212,26 @@ static GtkWidget * build_row(guint index) {
 /** Refresh the shortcut list before display. */
 static void refresh_list(void) {
     GPtrArray *items = shortbar_items();
-    panel_clear_box(rows_box);
     const guint count = items->len;
     if (page_start >= count) {
         page_start = count ? ((count - 1) / ROWS_PER_PAGE) * ROWS_PER_PAGE : 0;
     }
-    guint shown = 0;
-    for (guint i = page_start; i < count && i < page_start + ROWS_PER_PAGE; i++, shown++) {
-        gtk_box_pack_start(GTK_BOX(rows_box), build_row(i), FALSE, FALSE, 0);
+    if (rendered_page_start != page_start) {
+        panel_clear_box(rows_box);
+        guint shown = 0;
+        for (guint i = page_start; i < count && i < page_start + ROWS_PER_PAGE; i++, shown++) {
+            gtk_box_pack_start(GTK_BOX(rows_box), build_row(i), FALSE, FALSE, 0);
+        }
+        // Pad a short last page to keep the paging buttons in place.
+        for (; count > ROWS_PER_PAGE && shown < ROWS_PER_PAGE; shown++) {
+            GtkWidget *filler = panel_button_new(" ");
+            gtk_widget_set_sensitive(filler, FALSE);
+            gtk_widget_set_opacity(filler, 0);
+            gtk_box_pack_start(GTK_BOX(rows_box), filler, FALSE, FALSE, 0);
+        }
+        gtk_widget_show_all(rows_box);
+        rendered_page_start = page_start;
     }
-    // a short last page is padded: the page buttons stay under the finger
-    for (; count > ROWS_PER_PAGE && shown < ROWS_PER_PAGE; shown++) {
-        GtkWidget *filler = panel_button_new(" ");
-        gtk_widget_set_sensitive(filler, FALSE);
-        gtk_widget_set_opacity(filler, 0);
-        gtk_box_pack_start(GTK_BOX(rows_box), filler, FALSE, FALSE, 0);
-    }
-    gtk_widget_show_all(rows_box);
     gtk_label_set_text(GTK_LABEL(empty_label), "还没有快捷键，点“新建”添加");
     gtk_widget_set_visible(empty_label, count == 0);
     const gboolean paged = count > ROWS_PER_PAGE;
@@ -304,6 +309,7 @@ static void save_cb(void) {
         // the new one is on the last page of the list
         page_start = ((items->len - 1) / ROWS_PER_PAGE) * ROWS_PER_PAGE;
     }
+    rendered_page_start = G_MAXUINT;
     show_list();
     save_list(empty_label);
 }
@@ -312,6 +318,7 @@ static void delete_cb(void) {
     GPtrArray *items = shortbar_items();
     if (editing >= 0 && (guint) editing < items->len) {
         g_ptr_array_remove_index(items, (guint) editing);
+        rendered_page_start = G_MAXUINT;
     }
     show_list();
     save_list(empty_label);

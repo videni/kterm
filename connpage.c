@@ -64,6 +64,8 @@ static gchar *chosen_key = NULL;
 static GPtrArray *hosts = NULL;
 /** First connection of the page shown */
 static guint page_start = 0;
+static guint rendered_page_start = G_MAXUINT;
+static gboolean rendered_with_mosh = FALSE;
 /** Name of the connection in the form, NULL for a new one */
 static gchar *editing_name = NULL;
 /** Delete was pressed once and waits for the second press */
@@ -410,9 +412,10 @@ static void new_cb(void) {
 /**
  * Build one row of the list: the connection itself, and its edit button
  * @param index Index of the connection
+ * @param with_mosh Whether to include the Mosh button
  * @return Row widget
  */
-static GtkWidget * build_row(guint index) {
+static GtkWidget * build_row(guint index, gboolean with_mosh) {
     const SshHost *host = g_ptr_array_index(hosts, index);
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
     gchar *where = describe(host);
@@ -431,7 +434,7 @@ static GtkWidget * build_row(guint index) {
     GtkWidget *edit = panel_button_new("编辑");
     g_signal_connect(edit, "clicked", G_CALLBACK(edit_cb), GUINT_TO_POINTER(index));
     gtk_box_pack_start(GTK_BOX(row), connect, TRUE, TRUE, 0);
-    if (mosh_available()) {
+    if (with_mosh) {
         GtkWidget *mosh = panel_button_new("Mosh");
         g_object_set_data(G_OBJECT(mosh), "mosh", GINT_TO_POINTER(TRUE));
         g_signal_connect(mosh, "clicked", G_CALLBACK(connect_cb), GUINT_TO_POINTER(index));
@@ -441,39 +444,58 @@ static GtkWidget * build_row(guint index) {
     return row;
 }
 
+/** Check whether the existing rows still describe the requested page. */
+static gboolean rows_match(const GPtrArray *previous, guint count, gboolean with_mosh) {
+    const guint previous_count = previous ? previous->len : 0;
+    if (rendered_page_start != page_start || rendered_with_mosh != with_mosh || previous_count != count) {
+        return FALSE;
+    }
+    for (guint i = page_start; i < count && i < page_start + ROWS_PER_PAGE; i++) {
+        const SshHost *old = g_ptr_array_index(previous, i);
+        const SshHost *current = g_ptr_array_index(hosts, i);
+        if (g_strcmp0(old->name, current->name) || g_strcmp0(old->host, current->host)
+            || g_strcmp0(old->user, current->user) || g_strcmp0(old->port, current->port)) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
 /**
  * Read the saved connections and refresh the list before display.
  */
 static void refresh_list(void) {
     gtk_widget_set_visible(disconnect_button, connection_session() != 0);
-    if (hosts) {
-        g_ptr_array_unref(hosts);
-    }
+    GPtrArray *previous = hosts;
     gchar *path = sshconf_default_path();
     GError *error = NULL;
     hosts = sshconf_list(path, &error);
     g_free(path);
-
-    panel_clear_box(rows_box);
 
     const guint count = hosts ? hosts->len : 0;
     if (page_start >= count) {
         // the last connection of the last page was removed
         page_start = count ? ((count - 1) / ROWS_PER_PAGE) * ROWS_PER_PAGE : 0;
     }
-    guint shown = 0;
-    for (guint i = page_start; i < count && i < page_start + ROWS_PER_PAGE; i++, shown++) {
-        gtk_box_pack_start(GTK_BOX(rows_box), build_row(i), FALSE, FALSE, 0);
+    const gboolean with_mosh = count > 0 && mosh_available();
+    if (!rows_match(previous, count, with_mosh)) {
+        panel_clear_box(rows_box);
+        guint shown = 0;
+        for (guint i = page_start; i < count && i < page_start + ROWS_PER_PAGE; i++, shown++) {
+            gtk_box_pack_start(GTK_BOX(rows_box), build_row(i, with_mosh), FALSE, FALSE, 0);
+        }
+        // Pad a short last page to keep the paging buttons in place.
+        for (; count > ROWS_PER_PAGE && shown < ROWS_PER_PAGE; shown++) {
+            GtkWidget *filler = panel_button_new(" ");
+            gtk_widget_set_sensitive(filler, FALSE);
+            gtk_widget_set_opacity(filler, 0);
+            gtk_box_pack_start(GTK_BOX(rows_box), filler, FALSE, FALSE, 0);
+        }
+        gtk_widget_show_all(rows_box);
+        rendered_page_start = page_start;
+        rendered_with_mosh = with_mosh;
     }
-    // A short last page is padded to full height: the page buttons must not
-    // move under the finger between one press and the next.
-    for (; count > ROWS_PER_PAGE && shown < ROWS_PER_PAGE; shown++) {
-        GtkWidget *filler = panel_button_new(" ");
-        gtk_widget_set_sensitive(filler, FALSE);
-        gtk_widget_set_opacity(filler, 0);
-        gtk_box_pack_start(GTK_BOX(rows_box), filler, FALSE, FALSE, 0);
-    }
-    gtk_widget_show_all(rows_box);
+    g_clear_pointer(&previous, g_ptr_array_unref);
 
     if (error) {
         gtk_label_set_text(GTK_LABEL(empty_label), error->message);

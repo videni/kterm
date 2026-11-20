@@ -34,7 +34,7 @@
   - 右边 **键盘**：带向下箭头的是收起键盘，进入**预览**：终端占满屏幕专心看输出，上下滑动翻屏，在 tmux 里左右滑动切窗口；快捷栏留在底部。不带箭头的是把键盘放回来。在键盘上往下滑也能收起。
   - **显示时机**：在「快捷键」里编辑单个按钮，可选「始终显示」「仅键盘展开时」或「仅预览时」。已有按钮默认始终显示。把 `Enter` 和 `Type` 设为「仅预览时」，就只在键盘收起时出现。
   - **前缀**：快捷键可以标成前缀（在面板的「快捷键」里打开，或在 `shortcuts.conf` 的按键后加 `+键盘`）。预览时点它，发完前缀键盘就弹出来，再按一个键（比如 tmux 的 `c`、`[`）键盘自动收回，接着预览。Shift、Ctrl 这些不算那一个键。前缀按钮右下角有一个深色小三角。
-- **面板**：从顶部出现，有「连接」「设置」「快捷键」「标签页」四个标签。启动后首次打开直接显示连接列表，收起再打开时回到上次选中的标签。点右下角「关闭」可收起面板，点键盘或终端也可以。从屏幕顶部往下滑仍是 Kindle 自己的快捷设置（亮度、深色模式）。
+- **面板**：从顶部出现，有「连接」「设置」「快捷键」「标签页」四个标签。启动后首次打开直接显示连接列表，收起再打开时回到上次选中的标签。面板打开时，快捷栏左侧的菜单键显示黑底白图标，再点一次即可关闭。也可点右下角「关闭」、键盘或终端收起面板。从屏幕顶部往下滑仍是 Kindle 自己的快捷设置（亮度、深色模式）。
   - **连接**：保存 SSH 服务器，点一下就连上；正在连着别的也能直接切过去。点“查找”列出局域网里能 ssh 的机器（Mac 要在 系统设置 → 通用 → 共享 里打开“远程登录”），点一台、填上用户名就存好了：存的是它在局域网里的名字（如 `vidy-macbookpro.local`），路由器换了 IP 也照样连得上。
     - **Mosh**：Alpine 里装了 `mosh` 后，连接右侧会出现 Mosh 按钮。沿用该主机的 SSH 登录配置，登录后通过 UDP 传输，可在 Wi-Fi 断开再恢复后继续同一个会话。远端也需装 `mosh-server`，UDP 60000–61000 需要可达。用户态 Tailscale 的入口继续点主机名走 SSH。Mosh 只同步当前屏幕，保留完整历史可用远端 tmux。
     - **密钥**：表单里选登录用的密钥（`~/.ssh` 里带 `.pub` 的），选了就不用输密码；“不用”是每次输密码。Kindle 上只有一个密钥时，新建和“查找”添加的连接自动选上它。一个都没有时点“生成密钥”（`id_ed25519_kindle`）。
@@ -210,7 +210,7 @@ For a list of what constitutes valid encodings, check [this list][iana-character
 * `$ ./configure`
 * `$ make`
 * `$ sudo make install`
-* for Kindle build use `--enable-kindle --sysconfdir=/mnt/us/extensions/kterm` configure options. If you are cross-compiling run `make dist-kindle` instead of `make install`. It will create zip package in build directory.
+* For the current Kindle package, see [构建和打包](#构建和打包).
 
 #### Packages 
 * for Kindle Touch/Paperwhite are available at http://www.fabiszewski.net/kindle-terminal/

@@ -48,7 +48,7 @@ ensure_runtime_image() (
         archive=$stage/$asset
         if ! curl --fail --location --proto '=https' --proto-redir '=https' \
             --connect-timeout 15 --speed-limit 1024 --speed-time 45 --retry 2 \
-            --output "$archive" "https://github.com/videni/kterm/releases/download/v3.10.1/$asset"; then
+            --output "$archive" "https://github.com/videni/kterm/releases/download/v3.10.2/$asset"; then
             echo "Could not download the kterm runtime. Copy $asset to $state and retry." >&2
             return 1
         fi

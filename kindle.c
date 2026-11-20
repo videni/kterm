@@ -363,6 +363,7 @@ void inject_styles(void) {
                                     // (Ctrl, Enter) smaller to fit; a gap between keys, so a
                                     // finger between two can tell which one it is on.
                                     "#ktermKbButton { background: #ffffff; padding: 0; min-width: 0; min-height: 0; border: 2px solid #000000; border-radius: 18px;"
+                                    " box-shadow: none; text-shadow: none; -gtk-icon-shadow: none;"
                                     " margin: 3px 2px; font-family: \"Amazon Ember\", sans-serif; font-size: 11pt; }"
                                     "#ktermKbButton.word { font-size: 9pt; }"
                                     "#ktermKbButton.long { font-size: 8pt; }"
@@ -385,7 +386,7 @@ void inject_styles(void) {
                                     " font-family: \"Amazon Ember\", sans-serif; font-size: 9pt; }"
                                     // the two tools at the ends: a sign in a black frame, on white
                                     "#ktermShortTool { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 24px; }"
-                                    "#ktermShortTool.pressed { background: #000000; color: #ffffff; }"
+                                    "#ktermShortTool.pressed, #ktermShortTool.selected { background: #000000; color: #ffffff; }"
                                     // the paste tool: black, as the text it pastes is there for a while
                                     "#ktermShortTool.paste { background: #000000; color: #ffffff; }"
                                     "#ktermShortTool.paste.pressed { background: #ffffff; color: #000000; }"

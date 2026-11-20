@@ -36,21 +36,3 @@ kterm_CFLAGS = @GTK_CFLAGS@ @VTE_CFLAGS@ @GDK_X11_CFLAGS@ @DBUS_CFLAGS@ -DSYSCON
 kterm_LDADD = @GTK_LIBS@ @VTE_LIBS@ @GDK_X11_LIBS@ @DBUS_LIBS@
 
 AM_CPPFLAGS = -pedantic -Wall -Wextra
-
-kterm_pkg = $(abs_builddir)/kterm-kindle-$(VERSION).zip
-
-dist-kindle: kterm
-	rm -f $(kterm_pkg)
-	KTERM_TMPDIR=`mktemp -d` \
-	&& mkdir $${KTERM_TMPDIR}/kterm \
-	&& cp -RL kindle.pkg/* $${KTERM_TMPDIR}/kterm \
-	&& cp kterm $${KTERM_TMPDIR}/kterm/bin \
-	&& cd $${KTERM_TMPDIR} \
-	&& sed -i'.bak' 's/@VER@/$(VERSION)/' kterm/config.xml \
-	&& rm kterm/config.xml.bak \
-	&& zip -qr $(kterm_pkg) kterm \
-	&& cd - \
-	&& rm -rf $${KTERM_TMPDIR}
-
-distclean-local:
-	-rm -f $(kterm_pkg)

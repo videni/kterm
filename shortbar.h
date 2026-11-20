@@ -38,7 +38,7 @@
 /** Side of the triangle in the corner of a prefix shortcut */
 #define SHORTBAR_PREFIX_MARK_PX 34
 
-GtkWidget * shortbar_new(const gchar *path);
+GtkWidget * shortbar_new(const gchar *path, GtkWidget *panel);
 void shortbar_follow(GtkWidget *keyboard, guint rows, GtkWidget *other);
 GPtrArray * shortbar_items(void);
 gboolean shortbar_save(GError **error);
