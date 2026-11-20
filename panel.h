@@ -47,6 +47,7 @@ void panel_add_setting(const gchar *title, GtkWidget *control);
 GtkWidget * panel_button_new(const gchar *label);
 void panel_clear_box(GtkWidget *box);
 void panel_open(void);
+void panel_open_page(GtkWidget *page);
 void panel_close(void);
 gboolean panel_is_open(void);
 gboolean panel_showing(GtkWidget *page);

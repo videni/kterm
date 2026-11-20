@@ -71,6 +71,8 @@ typedef struct {
     guint next_number;
     guint align_source;
     gint swipe_from;
+    GtkWidget *rename_page;
+    GtkEntry *rename_entry;
 } TerminalTabs;
 
 static TerminalTabs terminal_tabs;
@@ -99,8 +101,18 @@ typedef struct {
 #ifdef KINDLE
     guint number;
     GtkWidget *close_button;
+    GtkWidget *title_label;
+    gchar *custom_title;
 #endif
 } TerminalState;
+
+static void free_terminal_state(gpointer data) {
+    TerminalState *state = data;
+#ifdef KINDLE
+    g_free(state->custom_title);
+#endif
+    g_free(state);
+}
 
 static TerminalState *terminal_state(GtkWidget *terminal) {
     return terminal ? g_object_get_data(G_OBJECT(terminal), "kterm-state") : NULL;
@@ -873,24 +885,30 @@ gchar * kterm_terminal_title(void) {
     return g_strdup(title);
 }
 
-/**
- * Update the tab label and the active terminal's paste button.
- */
-static void title_cb(VteTerminal *terminal, const char *name, GtkWidget *label_widget) {
-    UNUSED(name);
+static void set_tab_title(VteTerminal *terminal, GtkWidget *label_widget) {
     TerminalState *state = terminal_state(GTK_WIDGET(terminal));
-    const gchar *title = vte_terminal_get_termprop_string_by_id(terminal, VTE_PROPERTY_ID_XTERM_TITLE, NULL);
-    const gchar *mark = title ? strstr(title, PASTE_TITLE_MARK) : NULL;
-    gchar *label = title ? g_strstrip(mark ? g_strndup(title, mark - title) : g_strdup(title)) : NULL;
-    if (!label || !*label) {
-        g_free(label);
-        label = g_strdup_printf("终端 %u", state->number);
+    g_autofree gchar *automatic = NULL;
+    const gchar *label = state->custom_title;
+    if (!label) {
+        const gchar *title = vte_terminal_get_termprop_string_by_id(terminal, VTE_PROPERTY_ID_XTERM_TITLE, NULL);
+        const gchar *mark = title ? strstr(title, PASTE_TITLE_MARK) : NULL;
+        automatic = title ? g_strstrip(mark ? g_strndup(title, mark - title) : g_strdup(title)) : NULL;
+        if (!automatic || !*automatic) {
+            g_free(automatic);
+            automatic = g_strdup_printf("终端 %u", state->number);
+        }
+        label = automatic;
     }
     gtk_label_set_text(GTK_LABEL(label_widget), label);
     gtk_widget_set_tooltip_text(label_widget, label);
-    g_free(label);
+}
+
+static void title_cb(VteTerminal *terminal, const char *name, GtkWidget *label_widget) {
+    UNUSED(name);
+    set_tab_title(terminal, label_widget);
     paste_target_cb(terminal, NULL);
 }
+
 #endif
 
 /**
@@ -993,7 +1011,7 @@ static void usage(void) {
 }
 
 static void configure_terminal(GtkWidget *terminal) {
-    g_object_set_data_full(G_OBJECT(terminal), "kterm-state", g_new0(TerminalState, 1), g_free);
+    g_object_set_data_full(G_OBJECT(terminal), "kterm-state", g_new0(TerminalState, 1), free_terminal_state);
     set_terminal_colors(terminal, conf->color_reversed);
 #ifdef KINDLE
     vte_terminal_set_text_contrast(VTE_TERMINAL(terminal), conf->text_contrast != 0);
@@ -1244,6 +1262,78 @@ static GtkWidget *tab_button(const gchar *icon, const gchar *label, gint size) {
     return button;
 }
 
+static void save_tab_name(GtkWidget *source, TerminalTabs *tabs) {
+    UNUSED(source);
+    GtkWidget *terminal = kterm_get_terminal();
+    TerminalState *state = terminal_state(terminal);
+    if (!state || !panel_showing(tabs->rename_page)) {
+        return;
+    }
+    g_free(state->custom_title);
+    state->custom_title = g_strstrip(g_strdup(gtk_entry_get_text(tabs->rename_entry)));
+    if (!*state->custom_title) {
+        g_clear_pointer(&state->custom_title, g_free);
+    }
+    set_tab_title(VTE_TERMINAL(terminal), state->title_label);
+    panel_close();
+}
+
+static void open_tab_rename(TerminalTabs *tabs, TerminalState *state) {
+    if (!tabs->rename_page) {
+        GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
+        GtkWidget *title = gtk_label_new("重命名标签");
+        gtk_label_set_xalign(GTK_LABEL(title), 0);
+        gtk_box_pack_start(GTK_BOX(page), title, FALSE, FALSE, 0);
+        GtkWidget *entry = gtk_entry_new();
+        gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "留空恢复自动标题");
+        gtk_box_pack_start(GTK_BOX(page), entry, FALSE, FALSE, 0);
+        GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
+        gtk_widget_set_halign(actions, GTK_ALIGN_END);
+        GtkWidget *cancel = panel_button_new("取消");
+        GtkWidget *save = panel_button_new("保存");
+        gtk_box_pack_start(GTK_BOX(actions), cancel, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(actions), save, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(page), actions, FALSE, FALSE, 0);
+        g_signal_connect(cancel, "clicked", G_CALLBACK(panel_close), NULL);
+        g_signal_connect(save, "clicked", G_CALLBACK(save_tab_name), tabs);
+        g_signal_connect(entry, "activate", G_CALLBACK(save_tab_name), tabs);
+        tabs->rename_page = page;
+        tabs->rename_entry = GTK_ENTRY(entry);
+        panel_add_page(page, TRUE, PANEL_TAB_NONE);
+    }
+    kterm_use_builtin_keyboard();
+    gtk_entry_set_text(tabs->rename_entry, gtk_label_get_text(GTK_LABEL(state->title_label)));
+    panel_open_page(tabs->rename_page);
+    gtk_widget_grab_focus(GTK_WIDGET(tabs->rename_entry));
+    gtk_editable_select_region(GTK_EDITABLE(tabs->rename_entry), 0, -1);
+}
+
+static gboolean widget_contains_point(GtkWidget *widget, GtkWidget *window, gdouble x, gdouble y) {
+    gint local_x, local_y;
+    return gtk_widget_get_mapped(widget)
+        && gtk_widget_translate_coordinates(window, widget, (gint) x, (gint) y, &local_x, &local_y)
+        && local_x >= 0 && local_x < gtk_widget_get_allocated_width(widget)
+        && local_y >= 0 && local_y < gtk_widget_get_allocated_height(widget);
+}
+
+static void tab_rename_pressed(GtkGestureLongPress *gesture, gdouble x, gdouble y, TerminalTabs *tabs) {
+    if (!gtk_notebook_get_show_tabs(tabs->notebook) || panel_is_open()) {
+        return;
+    }
+    const gint count = gtk_notebook_get_n_pages(tabs->notebook);
+    for (gint page = 0; page < count; ++page) {
+        TerminalState *state = terminal_state(gtk_notebook_get_nth_page(tabs->notebook, page));
+        GtkWidget *title = gtk_widget_get_parent(state->title_label);
+        if (widget_contains_point(title, tabs->window, x, y)
+            && !widget_contains_point(state->close_button, tabs->window, x, y)) {
+            gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+            gtk_notebook_set_current_page(tabs->notebook, page);
+            open_tab_rename(tabs, state);
+            return;
+        }
+    }
+}
+
 static void place_add_tab_button(TerminalTabs *tabs, GtkWidget *header) {
     GtkWidget *parent = gtk_widget_get_parent(tabs->add);
     if (parent) {
@@ -1337,6 +1427,7 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
     gtk_box_pack_start(GTK_BOX(header), title_box, TRUE, TRUE, 0);
     gchar *title = g_strdup_printf("终端 %u", state->number);
     GtkWidget *label = gtk_label_new(title);
+    state->title_label = label;
     g_free(title);
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     gtk_label_set_width_chars(GTK_LABEL(label), 5);
@@ -1430,6 +1521,11 @@ static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gch
     g_signal_connect(corner, "drag-begin", G_CALLBACK(tab_bar_press), tabs);
     g_signal_connect(corner, "drag-end", G_CALLBACK(tab_bar_release), tabs);
     g_object_set_data_full(G_OBJECT(window), "kterm-tab-touch", corner, g_object_unref);
+
+    GtkGesture *rename = gtk_gesture_long_press_new(window);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(rename), GTK_PHASE_CAPTURE);
+    g_signal_connect(rename, "pressed", G_CALLBACK(tab_rename_pressed), tabs);
+    g_object_set_data_full(G_OBJECT(window), "kterm-tab-rename", rename, g_object_unref);
 }
 #endif
 

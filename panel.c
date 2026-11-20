@@ -177,7 +177,11 @@ void panel_open(void) {
     if (!root || panel_is_open()) {
         return;
     }
-    panel_show_page(tabs[selected_tab].page);
+    panel_open_page(tabs[selected_tab].page);
+}
+
+void panel_open_page(GtkWidget *page) {
+    panel_show_page(page);
     gtk_widget_show(root);
 }
 
@@ -368,6 +372,7 @@ GtkWidget * panel_new(GtkWidget *overlay) {
 #else /* GTK+ 2: no overlay to draw the panel in */
 
 void panel_open(void) {}
+void panel_open_page(GtkWidget *page) { (void) page; }
 void panel_close(void) {}
 gboolean panel_is_open(void) { return FALSE; }
 gboolean panel_wants_keys(void) { return FALSE; }
