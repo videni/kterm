@@ -71,8 +71,7 @@ typedef struct {
     guint next_number;
     guint align_source;
     gint swipe_from;
-    GtkWidget *rename_page;
-    GtkEntry *rename_entry;
+    GtkWidget *rename_entry;
 } TerminalTabs;
 
 static TerminalTabs terminal_tabs;
@@ -1174,8 +1173,8 @@ static gboolean align_tab_titles(gpointer data) {
     if (!tab_titles_overflow(notebook)) {
         GtkWidget *first = gtk_notebook_get_nth_page(notebook, 0);
         GtkWidget *last = gtk_notebook_get_nth_page(notebook, count - 1);
-        GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->close_button);
-        GtkWidget *last_title = gtk_widget_get_parent(terminal_state(last)->close_button);
+        GtkWidget *first_title = gtk_widget_get_parent(terminal_state(first)->title_label);
+        GtkWidget *last_title = gtk_widget_get_parent(terminal_state(last)->title_label);
         gint left, right, end;
         if (gtk_widget_translate_coordinates(first_title, widget, 0, 0, &left, NULL)
             && gtk_widget_translate_coordinates(last_title, widget, gtk_widget_get_allocated_width(last_title), 0, &right, NULL)
@@ -1234,19 +1233,17 @@ static void tab_bar_press(GtkGestureDrag *gesture, gdouble x, gdouble y, Termina
 
 static void tab_bar_release(GtkGestureDrag *gesture, gdouble dx, gdouble dy, TerminalTabs *tabs) {
     GdkEventSequence *seq = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
-    if (gtk_gesture_get_sequence_state(GTK_GESTURE(gesture), seq) != GTK_EVENT_SEQUENCE_CLAIMED) {
-        if (tabs->swipe_from >= 0 && ABS(dx) >= TOUCH_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5) {
-            const gint last = gtk_notebook_get_n_pages(tabs->notebook) - 1;
-            const gint destination = tabs->swipe_from + (dx < 0 ? 1 : -1);
-            gtk_notebook_set_current_page(tabs->notebook, CLAMP(destination, 0, last));
+    if (gtk_gesture_get_sequence_state(GTK_GESTURE(gesture), seq) == GTK_EVENT_SEQUENCE_CLAIMED) {
+        // A tap that started in the corner can drift across its edge.
+        if (ABS(dx) < 30 && ABS(dy) < 30) {
+            gtk_notebook_set_show_tabs(tabs->notebook, !gtk_notebook_get_show_tabs(tabs->notebook));
+        } else {
+            top_swipe_cb(gesture, dx, dy, NULL);
         }
-        return;
-    }
-    // The press claimed the corner. Small movement can cross its edge.
-    if (ABS(dx) < 30 && ABS(dy) < 30) {
-        gtk_notebook_set_show_tabs(tabs->notebook, !gtk_notebook_get_show_tabs(tabs->notebook));
-    } else {
-        top_swipe_cb(gesture, dx, dy, NULL);
+    } else if (tabs->swipe_from >= 0 && ABS(dx) >= TOUCH_SWIPE_MIN_PX && ABS(dx) >= ABS(dy) * 1.5) {
+        const gint last = gtk_notebook_get_n_pages(tabs->notebook) - 1;
+        const gint destination = tabs->swipe_from + (dx < 0 ? 1 : -1);
+        gtk_notebook_set_current_page(tabs->notebook, CLAMP(destination, 0, last));
     }
 }
 
@@ -1262,15 +1259,14 @@ static GtkWidget *tab_button(const gchar *icon, const gchar *label, gint size) {
     return button;
 }
 
-static void save_tab_name(GtkWidget *source, TerminalTabs *tabs) {
-    UNUSED(source);
+static void save_tab_name(GtkEntry *entry) {
     GtkWidget *terminal = kterm_get_terminal();
     TerminalState *state = terminal_state(terminal);
-    if (!state || !panel_showing(tabs->rename_page)) {
+    if (!state || !panel_showing(gtk_widget_get_parent(GTK_WIDGET(entry)))) {
         return;
     }
     g_free(state->custom_title);
-    state->custom_title = g_strstrip(g_strdup(gtk_entry_get_text(tabs->rename_entry)));
+    state->custom_title = g_strstrip(g_strdup(gtk_entry_get_text(entry)));
     if (!*state->custom_title) {
         g_clear_pointer(&state->custom_title, g_free);
     }
@@ -1279,7 +1275,7 @@ static void save_tab_name(GtkWidget *source, TerminalTabs *tabs) {
 }
 
 static void open_tab_rename(TerminalTabs *tabs, TerminalState *state) {
-    if (!tabs->rename_page) {
+    if (!tabs->rename_entry) {
         GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
         GtkWidget *title = gtk_label_new("重命名标签");
         gtk_label_set_xalign(GTK_LABEL(title), 0);
@@ -1295,17 +1291,17 @@ static void open_tab_rename(TerminalTabs *tabs, TerminalState *state) {
         gtk_box_pack_start(GTK_BOX(actions), save, FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(page), actions, FALSE, FALSE, 0);
         g_signal_connect(cancel, "clicked", G_CALLBACK(panel_close), NULL);
-        g_signal_connect(save, "clicked", G_CALLBACK(save_tab_name), tabs);
-        g_signal_connect(entry, "activate", G_CALLBACK(save_tab_name), tabs);
-        tabs->rename_page = page;
-        tabs->rename_entry = GTK_ENTRY(entry);
+        g_signal_connect_swapped(save, "clicked", G_CALLBACK(save_tab_name), entry);
+        g_signal_connect(entry, "activate", G_CALLBACK(save_tab_name), NULL);
+        tabs->rename_entry = entry;
         panel_add_page(page, TRUE, PANEL_TAB_NONE);
     }
+    GtkWidget *entry = tabs->rename_entry;
     kterm_use_builtin_keyboard();
-    gtk_entry_set_text(tabs->rename_entry, gtk_label_get_text(GTK_LABEL(state->title_label)));
-    panel_open_page(tabs->rename_page);
-    gtk_widget_grab_focus(GTK_WIDGET(tabs->rename_entry));
-    gtk_editable_select_region(GTK_EDITABLE(tabs->rename_entry), 0, -1);
+    gtk_entry_set_text(GTK_ENTRY(entry), gtk_label_get_text(GTK_LABEL(state->title_label)));
+    panel_open_page(gtk_widget_get_parent(entry));
+    gtk_widget_grab_focus(entry);
+    gtk_editable_select_region(GTK_EDITABLE(entry), 0, -1);
 }
 
 static gboolean widget_contains_point(GtkWidget *widget, GtkWidget *window, gdouble x, gdouble y) {
@@ -1425,10 +1421,9 @@ static GtkWidget *new_tab(TerminalTabs *tabs) {
     GtkWidget *title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_name(title_box, "ktermTabTitle");
     gtk_box_pack_start(GTK_BOX(header), title_box, TRUE, TRUE, 0);
-    gchar *title = g_strdup_printf("终端 %u", state->number);
-    GtkWidget *label = gtk_label_new(title);
+    GtkWidget *label = gtk_label_new(NULL);
     state->title_label = label;
-    g_free(title);
+    set_tab_title(VTE_TERMINAL(terminal), label);
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
     gtk_label_set_width_chars(GTK_LABEL(label), 5);
     gtk_label_set_max_width_chars(GTK_LABEL(label), 15);
