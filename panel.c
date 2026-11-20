@@ -40,7 +40,6 @@
 #define PANEL_ICON_PX 54
 
 static GtkWidget *root = NULL;
-static GtkWidget *terminal_widget = NULL;
 /** Holds the pages, one shown at a time */
 static GtkWidget *content = NULL;
 static GPtrArray *pages = NULL;
@@ -124,8 +123,9 @@ gboolean panel_wants_keys(void) {
  * Give the keyboard back to the terminal
  */
 static void focus_terminal(void) {
-    if (terminal_widget) {
-        gtk_widget_grab_focus(terminal_widget);
+    GtkWidget *terminal = kterm_get_terminal();
+    if (terminal) {
+        gtk_widget_grab_focus(terminal);
     }
 }
 
@@ -144,8 +144,9 @@ void panel_show_page(GtkWidget *page) {
     gtk_widget_show(page);
     // While a form is shown, keys such as Tab must not move the focus to
     // the terminal, where the rest of what is typed would run.
-    if (terminal_widget) {
-        gtk_widget_set_can_focus(terminal_widget, !page_is_typing());
+    GtkWidget *terminal = kterm_get_terminal();
+    if (terminal) {
+        gtk_widget_set_can_focus(terminal, !page_is_typing());
     }
 }
 
@@ -174,8 +175,9 @@ void panel_close(void) {
     }
     D printf("panel: close\n");
     gtk_widget_hide(root);
-    if (terminal_widget) {
-        gtk_widget_set_can_focus(terminal_widget, TRUE);
+    GtkWidget *terminal = kterm_get_terminal();
+    if (terminal) {
+        gtk_widget_set_can_focus(terminal, TRUE);
     }
     focus_terminal();
 }
@@ -310,11 +312,9 @@ void panel_add_setting(const gchar *title, GtkWidget *control) {
 
 /**
  * Build the panel
- * @param terminal Terminal widget the connections are opened in
  * @return Panel widget, hidden; meant to be added to a GtkOverlay
  */
-GtkWidget * panel_new(GtkWidget *terminal) {
-    terminal_widget = terminal;
+GtkWidget * panel_new(void) {
     // an event box has a window of its own: it paints a background over the
     // terminal and keeps touches on the panel from reaching it
     root = gtk_event_box_new();

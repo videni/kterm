@@ -21,7 +21,7 @@
 /** Told what became of text from the phone, see voicebar_receive() */
 typedef void (*VoiceReply)(const gchar *status, gpointer data);
 
-void voicebar_init(GtkWidget *terminal);
+void voicebar_init(void);
 void voicebar_receive(const gchar *text, gboolean run, VoiceReply reply, gpointer data);
 gboolean voicebar_take_enter(void);
 void voicebar_clear(void);

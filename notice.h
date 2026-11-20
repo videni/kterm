@@ -22,6 +22,7 @@
 typedef void (*NoticeTapped)(void);
 
 void notices_init(GtkWidget *overlay);
+void notices_set_top(gint top);
 GtkWidget * notice_new(gint lines, NoticeTapped tapped, NoticeTapped closed);
 void notice_set_text(GtkWidget *notice, const gchar *text);
 void notice_lead(GtkWidget *notice, GtkWidget *icon);

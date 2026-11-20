@@ -18,7 +18,8 @@
 
 #include <gtk/gtk.h>
 
-gboolean ime_init(GtkWidget *terminal);
+gboolean ime_init(void);
+void ime_reset_context(void);
 void ime_shutdown(void);
 gboolean ime_is_open(void);
 gboolean ime_open(void);

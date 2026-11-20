@@ -44,8 +44,6 @@
 
 static GtkWidget *page = NULL;
 static GtkWidget *rows = NULL;
-/** Process group that had the terminal at the last look */
-static pid_t seen_owner = 0;
 /** The ssh session being asked about, 0 for none */
 static pid_t asking = 0;
 static guint tries = 0;
@@ -59,14 +57,14 @@ static void attach_cb(GtkWidget *button, gpointer data) {
     gchar *quoted = g_shell_quote(name);
     gchar *command = g_strconcat("tmux attach -t ", quoted, NULL);
     panel_close();
-    kterm_type_command(command);
+    kterm_type_command(kterm_get_terminal(), command);
     g_free(command);
     g_free(quoted);
 }
 
 static void new_cb(void) {
     panel_close();
-    kterm_type_command("tmux new-session");
+    kterm_type_command(kterm_get_terminal(), "tmux new-session");
 }
 
 /**
@@ -128,7 +126,9 @@ static gboolean retry_cb(gpointer data) {
 }
 
 static void answer_cb(TmuxAsked asked, GPtrArray *sessions, gpointer data) {
-    UNUSED(data);
+    if (GPOINTER_TO_INT(data) != asking) {
+        return;
+    }
     if (!still_asking()) {
         asking = 0;
         return;
@@ -146,7 +146,7 @@ static void answer_cb(TmuxAsked asked, GPtrArray *sessions, gpointer data) {
 }
 
 static void ask(void) {
-    if (!still_asking() || !tmux_list_sessions(answer_cb, NULL)) {
+    if (!still_asking() || !tmux_list_sessions(answer_cb, GINT_TO_POINTER(asking))) {
         asking = 0;
     }
 }
@@ -154,18 +154,16 @@ static void ask(void) {
 /**
  * The terminal changed: has an ssh client taken it?
  */
-static void contents_cb(void) {
+void tmuxpick_check(void) {
+    GtkWidget *terminal = kterm_get_terminal();
     const pid_t owner = kterm_terminal_owner();
-    if (owner == seen_owner) {
+    if (owner == GPOINTER_TO_INT(g_object_get_data(G_OBJECT(terminal), "kterm-tmux-owner"))) {
         return;
     }
-    seen_owner = owner;
-    if (!tmux_enabled()) {
+    if (!tmux_enabled() || !kterm_process_is(owner, "ssh")) {
         return;
     }
-    if (!kterm_process_is(owner, "ssh")) {
-        return;
-    }
+    g_object_set_data(G_OBJECT(terminal), "kterm-tmux-owner", GINT_TO_POINTER(owner));
     asking = owner;
     tries = 0;
     if (timer) {
@@ -176,9 +174,8 @@ static void contents_cb(void) {
 
 /**
  * Add the page of sessions to the panel and watch for ssh sessions
- * @param terminal Terminal
  */
-void tmuxpick_init(GtkWidget *terminal) {
+void tmuxpick_init(void) {
     page = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
     panel_page_header(page, "tmux 会话", NULL);
     rows = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
@@ -193,5 +190,15 @@ void tmuxpick_init(GtkWidget *terminal) {
     gtk_box_pack_start(GTK_BOX(actions), none, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(page), actions, FALSE, FALSE, 0);
     panel_add_page(page, FALSE);
+}
+
+static void contents_cb(GtkWidget *terminal, gpointer data) {
+    UNUSED(data);
+    if (terminal == kterm_get_terminal()) {
+        tmuxpick_check();
+    }
+}
+
+void tmuxpick_attach(GtkWidget *terminal) {
     g_signal_connect(terminal, "contents-changed", G_CALLBACK(contents_cb), NULL);
 }

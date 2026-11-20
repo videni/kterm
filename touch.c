@@ -180,6 +180,11 @@ static struct {
 static gboolean right_held = FALSE;
 static gdouble right_x = 0, right_y = 0;
 
+void touch_reset(void) {
+    memset(&touch, 0, sizeof(touch));
+    right_held = FALSE;
+}
+
 /**
  * Give the terminal a button event made here
  * @param terminal Terminal widget

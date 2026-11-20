@@ -18,6 +18,8 @@
 
 #include <gtk/gtk.h>
 
-void tmuxpick_init(GtkWidget *terminal);
+void tmuxpick_init(void);
+void tmuxpick_attach(GtkWidget *terminal);
+void tmuxpick_check(void);
 
 #endif /* tmuxpick_h */

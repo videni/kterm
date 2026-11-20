@@ -46,6 +46,10 @@
 /** The notices, one under the other */
 static GtkWidget *stack = NULL;
 
+void notices_set_top(gint top) {
+    gtk_widget_set_margin_top(stack, top + PANEL_SPACING);
+}
+
 /**
  * @param overlay Overlay of the window: the notices are drawn over the
  *        terminal's top. Before the panel is added, which covers them.
@@ -55,7 +59,7 @@ void notices_init(GtkWidget *overlay) {
     gtk_widget_set_valign(stack, GTK_ALIGN_START);
     gtk_widget_set_margin_start(stack, PANEL_SPACING);
     gtk_widget_set_margin_end(stack, PANEL_SPACING);
-    gtk_widget_set_margin_top(stack, PANEL_SPACING);
+    notices_set_top(0);
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), stack);
     gtk_widget_show(stack);
 }

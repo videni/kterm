@@ -42,7 +42,7 @@ static gint rang = -1;
 /** tmux is being asked which window rang: more bells wait for it */
 static gboolean asking = FALSE;
 
-static void close_bar(void) {
+void bellbar_hide(void) {
     gtk_widget_hide(bar);
 }
 
@@ -50,7 +50,7 @@ static void go_cb(GtkWidget *button, gpointer data) {
     UNUSED(button);
     UNUSED(data);
     tmux_select_window(rang);
-    close_bar();
+    bellbar_hide();
 }
 
 /**
@@ -76,8 +76,16 @@ static void show_own(void) {
 }
 
 static void bell_done(gint index, const gchar *label, gpointer data) {
-    UNUSED(data);
+    GWeakRef *ref = data;
+    GtkWidget *terminal = g_weak_ref_get(ref);
+    g_weak_ref_clear(ref);
+    g_free(ref);
     asking = FALSE;
+    const gboolean selected = terminal && terminal == kterm_get_terminal();
+    g_clear_object(&terminal);
+    if (!selected) {
+        return;
+    }
     if (index < 0) {
         show_own();
         return;
@@ -89,13 +97,16 @@ static void bell_done(gint index, const gchar *label, gpointer data) {
 }
 
 static void bell_cb(VteTerminal *terminal, gpointer data) {
-    UNUSED(terminal);
     UNUSED(data);
-    if (asking) {
+    if (asking || GTK_WIDGET(terminal) != kterm_get_terminal()) {
         return;
     }
-    asking = tmux_ask_bell(bell_done, NULL);
+    GWeakRef *ref = g_new0(GWeakRef, 1);
+    g_weak_ref_init(ref, terminal);
+    asking = tmux_ask_bell(bell_done, ref);
     if (!asking) {
+        g_weak_ref_clear(ref);
+        g_free(ref);
         show_own();
     }
 }
@@ -103,12 +114,14 @@ static void bell_cb(VteTerminal *terminal, gpointer data) {
 /**
  * @param terminal Terminal widget, whose bell is shown
  */
-void bellbar_init(GtkWidget *terminal) {
+void bellbar_attach(GtkWidget *terminal) {
     // no beep: the Kindle has no speaker
     vte_terminal_set_audible_bell(VTE_TERMINAL(terminal), FALSE);
     g_signal_connect(terminal, "bell", G_CALLBACK(bell_cb), NULL);
+}
 
-    bar = notice_new(BELL_LINES, close_bar, close_bar);
+void bellbar_init(void) {
+    bar = notice_new(BELL_LINES, bellbar_hide, bellbar_hide);
     notice_lead(bar, icon_new_outline(OUTLINE_BELL, 32));
     go_button = notice_action(bar, OUTLINE_GO, "去看");
     g_signal_connect(go_button, "clicked", G_CALLBACK(go_cb), NULL);

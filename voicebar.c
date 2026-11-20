@@ -52,13 +52,13 @@ typedef struct {
     gboolean run;
     /** For text from the phone: told what was done */
     VoiceReply reply;
+    GWeakRef terminal;
     gpointer data;
 } Incoming;
 
 /** Most lines of the text shown: more loses its middle */
 #define VOICEBAR_LINES 4
 
-static GtkWidget *terminal_widget = NULL;
 static GtkWidget *bar = NULL;
 /** Enter: out of the scrolled back view, put in and run */
 static GtkWidget *run_button = NULL;
@@ -77,17 +77,18 @@ static gboolean probing = FALSE;
  * @param run Enter after it
  */
 static void type_text(const gchar *text, gboolean run) {
+    GtkWidget *terminal = kterm_get_terminal();
     if (*text) {
         if (strchr(text, '\n')) {
             // several lines: pasted, so that a shell does not run each line
             // as it comes and Claude Code keeps them in one message
-            vte_terminal_paste_text(VTE_TERMINAL(terminal_widget), text);
+            vte_terminal_paste_text(VTE_TERMINAL(terminal), text);
         } else {
-            vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), text, -1);
+            vte_terminal_feed_child(VTE_TERMINAL(terminal), text, -1);
         }
     }
     if (run) {
-        vte_terminal_feed_child(VTE_TERMINAL(terminal_widget), "\r", 1);
+        vte_terminal_feed_child(VTE_TERMINAL(terminal), "\r", 1);
     }
 }
 
@@ -122,7 +123,15 @@ static void clear_staged(void) {
     show_bar(NULL);
 }
 
+static gboolean incoming_is_current(Incoming *in) {
+    GtkWidget *terminal = g_weak_ref_get(&in->terminal);
+    const gboolean current = terminal && terminal == kterm_get_terminal();
+    g_clear_object(&terminal);
+    return current;
+}
+
 static void incoming_free(Incoming *in) {
+    g_weak_ref_clear(&in->terminal);
     g_free(in->text);
     g_free(in);
 }
@@ -137,7 +146,7 @@ static void received_where(TmuxWhere where, gpointer data) {
     probing = FALSE;
     // with what already waits in the box: it came first
     g_string_append(staged, in->text);
-    if (where == TMUX_AT_INPUT) {
+    if (where == TMUX_AT_INPUT && incoming_is_current(in)) {
         type_text(staged->str, TRUE);
         clear_staged();
         in->reply("ran", in->data);
@@ -157,7 +166,9 @@ static void received_where(TmuxWhere where, gpointer data) {
 static void put_in_where(TmuxWhere where, gpointer data) {
     Incoming *in = data;
     probing = FALSE;
-    if (where == TMUX_SCROLLED) {
+    if (!incoming_is_current(in)) {
+        show_bar(NULL);
+    } else if (where == TMUX_SCROLLED) {
         // tmux did not leave copy mode: typed now, the text would be taken
         // for copy mode commands. A tap tries again.
         show_bar("tmux 没能退出往上翻。手动退出后，再点一次");
@@ -178,17 +189,18 @@ static void process_incoming(void) {
     while (!probing && (in = g_queue_pop_head(&incoming))) {
         if (!in->text) {
             // a tap: out of the scrolled back view, then in
-            if (!staged->len) {
+            if (!staged->len || !incoming_is_current(in)) {
                 incoming_free(in);
                 continue;
             }
             probing = TRUE;
             show_bar("正在放入…");
             tmux_ask_where(TRUE, put_in_where, in);
-        } else if (!in->run) {
+        } else if (!in->run || !incoming_is_current(in)) {
             g_string_append(staged, in->text);
+            staged_run |= in->run;
             show_bar(NULL);
-            in->reply("staged", in->data);
+            in->reply(in->run ? "staged-run" : "staged", in->data);
             incoming_free(in);
         } else {
             probing = TRUE;
@@ -207,6 +219,7 @@ static void process_incoming(void) {
  */
 void voicebar_receive(const gchar *text, gboolean run, VoiceReply reply, gpointer data) {
     Incoming *in = g_new0(Incoming, 1);
+    g_weak_ref_init(&in->terminal, kterm_get_terminal());
     in->text = g_strdup(text);
     in->run = run;
     in->reply = reply;
@@ -225,6 +238,7 @@ static void put_in(gboolean run) {
         return;
     }
     Incoming *in = g_new0(Incoming, 1);
+    g_weak_ref_init(&in->terminal, kterm_get_terminal());
     in->run = run;
     g_queue_push_tail(&incoming, in);
     process_incoming();
@@ -259,10 +273,8 @@ static void put_in_cb(GtkWidget *button, gpointer run) {
 
 /**
  * Build the box
- * @param terminal Terminal typed into
  */
-void voicebar_init(GtkWidget *terminal) {
-    terminal_widget = terminal;
+void voicebar_init(void) {
     staged = g_string_new(NULL);
     // a tap beside the buttons does nothing: the box stays until its text
     // is put in or thrown away (its close button, the phone's 清空)

@@ -39,15 +39,17 @@ void kterm_keyboard_back_on_tap(void);
 GtkWidget * kterm_get_terminal(void);
 void kterm_set_font_size(guint size);
 void kterm_set_text_contrast(guint on);
+void kterm_set_tab_auto_hide(guint on);
 gboolean kterm_terminal_has_shell(void);
-pid_t kterm_terminal_foreground(void);
+pid_t kterm_terminal_foreground(GtkWidget *terminal);
 pid_t kterm_terminal_owner(void);
 gchar * kterm_process_name(pid_t pid);
 gboolean kterm_process_is(pid_t pid, const gchar *name);
-void kterm_type_command(const gchar *command);
+void kterm_type_command(GtkWidget *terminal, const gchar *command);
+
+gchar * kterm_terminal_title(void);
 
 /* its history: the lines scrolled off its top */
-gchar * kterm_terminal_title(void);
 gboolean kterm_terminal_has_history(void);
 gboolean kterm_terminal_scrolled(void);
 void kterm_terminal_to_bottom(void);

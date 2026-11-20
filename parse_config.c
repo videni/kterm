@@ -73,6 +73,7 @@ KTconf *parse_config(void) {
     conf->refresh_rate = REFRESH_RATE_DEFAULT;
     conf->tmux_on = 1;
     conf->text_contrast = 1;
+    conf->auto_hide_tabs = 1;
     conf->idle_pause = REFRESH_IDLE_PAUSE_DEFAULT;
     conf->full_refresh = FLASH_DEFAULT;
     
@@ -173,6 +174,12 @@ KTconf *parse_config(void) {
             if (sscanf(buf, "full_refresh = %u", &when) == 1) {
                 // larger: counts of pages, from an earlier version
                 conf->full_refresh = MIN(when, FLASH_WRITTEN_OVER);
+            }
+        }
+        else if (!strncmp(buf, "auto_hide_tabs", 14)) {
+            guint on = 0;
+            if (sscanf(buf, "auto_hide_tabs = %u", &on) == 1) {
+                conf->auto_hide_tabs = on != 0;
             }
         }
         else if (!strncmp(buf, "voice_token", 11)) {

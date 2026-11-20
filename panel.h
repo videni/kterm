@@ -30,7 +30,7 @@
 /** Space around and between the panel's parts, in pixels */
 #define PANEL_SPACING 12
 
-GtkWidget * panel_new(GtkWidget *terminal);
+GtkWidget * panel_new(void);
 GtkWidget * panel_home_page(void);
 void panel_add_action(GtkWidget *button, gint position);
 void panel_add_page(GtkWidget *page, gboolean typing);

@@ -25,7 +25,9 @@
 /** Minutes untouched after which the screen stops following, by default */
 #define REFRESH_IDLE_PAUSE_DEFAULT 5
 
-void refresh_init(GtkWidget *window, GtkWidget *terminal);
+void refresh_init(GtkWidget *window);
+void refresh_activity(void);
+void refresh_attach(GtkWidget *terminal);
 void refresh_set_rate(guint per_second);
 
 #endif /* refresh_h */

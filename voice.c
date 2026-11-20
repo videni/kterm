@@ -321,14 +321,13 @@ void voice_set_enabled(guint on) {
 /**
  * Add the page to the panel and the box for text to the notices; serve the
  * page if switched on
- * @param terminal Terminal typed into
  */
-void voice_init(GtkWidget *terminal) {
+void voice_init(void) {
     if (strlen(conf->voice_token) < TOKEN_LENGTH) {
         new_token();
     }
     voiceserver_set_token(conf->voice_token);
-    voicebar_init(terminal);
+    voicebar_init();
     voice_page = build_page();
     panel_add_page(voice_page, FALSE);
     if (voice_enabled()) {

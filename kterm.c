@@ -62,22 +62,48 @@
 KTconf *conf;
 /** Global debug */
 gboolean debug = FALSE;
-/** The terminal widget */
-static GtkWidget *main_terminal = NULL;
+#ifdef KINDLE
+typedef struct {
+    GtkWidget *window;
+    GtkNotebook *notebook;
+    GtkWidget *handle;
+    GtkGesture *touch;
+    gchar **envv;
+    guint next_number;
+    guint hide_source;
+} TerminalTabs;
+
+static TerminalTabs terminal_tabs;
+#else
+static GtkWidget *desktop_terminal = NULL;
+#endif
 /** The built-in keyboard */
 static Keyboard *main_keyboard = NULL;
 
 /**
- * @return The terminal widget
+ * @return The selected terminal widget
  */
 GtkWidget * kterm_get_terminal(void) {
-    return main_terminal;
+#ifdef KINDLE
+    GtkNotebook *notebook = terminal_tabs.notebook;
+    const gint page = notebook ? gtk_notebook_get_current_page(notebook) : -1;
+    return page >= 0 ? gtk_notebook_get_nth_page(notebook, page) : NULL;
+#else
+    return desktop_terminal;
+#endif
 }
 
-/** Process started in the terminal, 0 if unknown */
-static GPid main_child = 0;
-/** TRUE if that process is a shell, FALSE for a program given with -e */
-static gboolean main_child_is_shell = FALSE;
+typedef struct {
+    GPid child;
+    gboolean is_shell;
+#ifdef KINDLE
+    guint number;
+#endif
+} TerminalState;
+
+static TerminalState *terminal_state(GtkWidget *terminal) {
+    return terminal ? g_object_get_data(G_OBJECT(terminal), "kterm-state") : NULL;
+}
 
 /**
  * @return TRUE if kterm started a shell in the terminal; FALSE if it runs a
@@ -85,7 +111,14 @@ static gboolean main_child_is_shell = FALSE;
  *         for a shell must not be typed
  */
 gboolean kterm_terminal_has_shell(void) {
-    return main_child_is_shell;
+    TerminalState *state = terminal_state(kterm_get_terminal());
+    return state && state->is_shell;
+}
+
+static pid_t terminal_owner(GtkWidget *terminal) {
+    VtePty *pty = terminal ? vte_terminal_get_pty(VTE_TERMINAL(terminal)) : NULL;
+    const pid_t owner = pty ? tcgetpgrp(vte_pty_get_fd(pty)) : -1;
+    return owner > 0 ? owner : 0;
 }
 
 /**
@@ -94,16 +127,13 @@ gboolean kterm_terminal_has_shell(void) {
  *         session, an editor) and what is typed goes to it. 0 if the
  *         process kterm started has it, or if it is unknown.
  */
-pid_t kterm_terminal_foreground(void) {
-    if (!main_terminal || main_child <= 0) {
+pid_t kterm_terminal_foreground(GtkWidget *terminal) {
+    TerminalState *state = terminal_state(terminal);
+    if (!state || state->child <= 0) {
         return 0;
     }
-    VtePty *pty = vte_terminal_get_pty(VTE_TERMINAL(main_terminal));
-    if (!pty) {
-        return 0;
-    }
-    const pid_t foreground = tcgetpgrp(vte_pty_get_fd(pty));
-    return (foreground > 0 && foreground != (pid_t) main_child) ? foreground : 0;
+    const pid_t owner = terminal_owner(terminal);
+    return owner != state->child ? owner : 0;
 }
 
 /**
@@ -111,9 +141,7 @@ pid_t kterm_terminal_foreground(void) {
  *         process kterm started too. 0 if unknown.
  */
 pid_t kterm_terminal_owner(void) {
-    VtePty *pty = main_terminal ? vte_terminal_get_pty(VTE_TERMINAL(main_terminal)) : NULL;
-    const pid_t owner = pty ? tcgetpgrp(vte_pty_get_fd(pty)) : -1;
-    return owner > 0 ? owner : 0;
+    return terminal_owner(kterm_get_terminal());
 }
 
 /**
@@ -152,9 +180,9 @@ gboolean kterm_process_is(pid_t pid, const gchar *name) {
  * with it. Not ^U: on an empty line, bash rings the bell for it.
  * @param command Command
  */
-void kterm_type_command(const gchar *command) {
+void kterm_type_command(GtkWidget *terminal, const gchar *command) {
     gchar *line = g_strconcat("\x01\x0b", command, "\r", NULL);
-    vte_terminal_feed_child(VTE_TERMINAL(main_terminal), line, -1);
+    vte_terminal_feed_child(VTE_TERMINAL(terminal), line, -1);
     g_free(line);
 }
 
@@ -164,7 +192,7 @@ void kterm_type_command(const gchar *command) {
  *         use the alternate screen, which has no history).
  */
 gboolean kterm_terminal_has_history(void) {
-    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(main_terminal));
+    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(kterm_get_terminal()));
     return gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj) > gtk_adjustment_get_lower(adj);
 }
 
@@ -173,7 +201,7 @@ gboolean kterm_terminal_has_history(void) {
  *         last ones
  */
 gboolean kterm_terminal_scrolled(void) {
-    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(main_terminal));
+    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(kterm_get_terminal()));
     return gtk_adjustment_get_value(adj) + gtk_adjustment_get_page_size(adj) < gtk_adjustment_get_upper(adj) - 0.5;
 }
 
@@ -181,7 +209,7 @@ gboolean kterm_terminal_scrolled(void) {
  * Show the terminal's last lines again
  */
 void kterm_terminal_to_bottom(void) {
-    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(main_terminal));
+    GtkAdjustment *adj = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(kterm_get_terminal()));
     gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
 }
 
@@ -210,7 +238,8 @@ static gboolean exit_on_signal(gpointer data) {
  */
 static gboolean present_on_signal(gpointer data) {
     UNUSED(data);
-    GtkWidget *window = main_terminal ? gtk_widget_get_toplevel(main_terminal) : NULL;
+    GtkWidget *terminal = kterm_get_terminal();
+    GtkWidget *window = terminal ? gtk_widget_get_toplevel(terminal) : NULL;
     if (window && gtk_widget_get_realized(window)) {
         D printf("brought to the front\n");
         gtk_widget_hide(window);
@@ -251,6 +280,7 @@ static void clean_on_exit(Keyboard *keyboard) {
  * @param widget Calling widget
  * @param data User data
  */
+#ifndef KINDLE
 static void grab_focus(GtkWidget *widget, gpointer data) {
     UNUSED(data);
     D printf("grab focus: %s\n", gtk_widget_get_name(widget)) ;
@@ -264,6 +294,7 @@ static void terminal_exit(void) {
     sleep(1); // time for kb to send key up event
     gtk_main_quit();
 }
+#endif
 
 #if VTE_CHECK_VERSION(0,20,0)
 /**
@@ -461,19 +492,15 @@ static GtkWidget *builtin_kb_box = NULL;
 static gboolean read_mode = FALSE;
 /** Back to the preview after the next key, see kterm_preview_after_key() */
 static gboolean preview_after_key = FALSE;
-/** Swipe down from the top edge over the panel, see panel_top_swipe_cb() */
-static GtkGesture *panel_top_swipe = NULL;
-
 /**
- * A swipe down from the top edge while the panel is open there: the panel
- * is in the way of the device's own gesture for its menu, which the
- * terminal passes on. The panel goes away and the menu comes.
+ * Pass a downward swipe over the panel or the tab reveal strip to the
+ * Kindle's quick settings, as a swipe over the terminal's top edge does.
  * @param drag Gesture on the panel, seen before its buttons
  * @param dx Horizontal travel
  * @param dy Vertical travel, down positive
  * @param data Not used
  */
-static void panel_top_swipe_cb(GtkGestureDrag *drag, gdouble dx, gdouble dy, gpointer data) {
+static void top_swipe_cb(GtkGestureDrag *drag, gdouble dx, gdouble dy, gpointer data) {
     UNUSED(data);
     gdouble x = 0, y = 0;
     if (!gtk_gesture_drag_get_start_point(drag, &x, &y)) {
@@ -483,6 +510,13 @@ static void panel_top_swipe_cb(GtkGestureDrag *drag, gdouble dx, gdouble dy, gpo
         panel_close();
         show_system_menu();
     }
+}
+
+static void watch_top_swipe(GtkWidget *widget) {
+    GtkGesture *swipe = gtk_gesture_drag_new(widget);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(swipe), GTK_PHASE_CAPTURE);
+    g_signal_connect(swipe, "drag-end", G_CALLBACK(top_swipe_cb), NULL);
+    g_object_set_data_full(G_OBJECT(widget), "kterm-top-swipe", swipe, g_object_unref);
 }
 
 /**
@@ -772,8 +806,9 @@ static GtkWidget * build_popup(GtkWidget *terminal, GtkWidget *box) {
  */
 void kterm_set_text_contrast(guint on) {
     conf->text_contrast = on ? 1 : 0;
-    if (main_terminal) {
-        vte_terminal_set_text_contrast(VTE_TERMINAL(main_terminal), on != 0);
+    GtkWidget *terminal = kterm_get_terminal();
+    if (terminal) {
+        vte_terminal_set_text_contrast(VTE_TERMINAL(terminal), on != 0);
     }
 }
 #endif
@@ -784,8 +819,9 @@ void kterm_set_text_contrast(guint on) {
  */
 void kterm_set_font_size(guint size) {
     conf->font_size = size;
-    if (main_terminal) {
-        set_terminal_font(VTE_TERMINAL(main_terminal), conf->font_family, (gint) size);
+    GtkWidget *terminal = kterm_get_terminal();
+    if (terminal) {
+        set_terminal_font(VTE_TERMINAL(terminal), conf->font_family, (gint) size);
     }
 }
 
@@ -816,6 +852,9 @@ static void add_panel_actions(void) {
  */
 static void paste_target_cb(VteTerminal *terminal, gpointer data) {
     UNUSED(data);
+    if (GTK_WIDGET(terminal) != kterm_get_terminal()) {
+        return;
+    }
     gboolean wanted = vte_terminal_get_bracketed_paste(terminal);
     const char *title = vte_terminal_get_termprop_string_by_id(terminal, VTE_PROPERTY_ID_XTERM_TITLE, NULL);
     const char *mark = title ? strstr(title, PASTE_TITLE_MARK) : NULL;
@@ -831,8 +870,9 @@ static void paste_target_cb(VteTerminal *terminal, gpointer data) {
  *         NULL if none, or if it is only tmux's mark for the paste button
  */
 gchar * kterm_terminal_title(void) {
-    const char *title = main_terminal
-                        ? vte_terminal_get_termprop_string_by_id(VTE_TERMINAL(main_terminal),
+    GtkWidget *terminal = kterm_get_terminal();
+    const char *title = terminal
+                        ? vte_terminal_get_termprop_string_by_id(VTE_TERMINAL(terminal),
                                                                  VTE_PROPERTY_ID_XTERM_TITLE, NULL)
                         : NULL;
     if (!title || !*title || g_str_has_prefix(title, PASTE_TITLE_MARK)) {
@@ -842,11 +882,22 @@ gchar * kterm_terminal_title(void) {
 }
 
 /**
- * The terminal's title changed, see paste_target_cb()
+ * Update the tab label and the active terminal's paste button.
  */
-static void title_cb(VteTerminal *terminal, const char *name, gpointer data) {
+static void title_cb(VteTerminal *terminal, const char *name, GtkWidget *label_widget) {
     UNUSED(name);
-    paste_target_cb(terminal, data);
+    TerminalState *state = terminal_state(GTK_WIDGET(terminal));
+    const gchar *title = vte_terminal_get_termprop_string_by_id(terminal, VTE_PROPERTY_ID_XTERM_TITLE, NULL);
+    const gchar *mark = title ? strstr(title, PASTE_TITLE_MARK) : NULL;
+    gchar *label = title ? g_strstrip(mark ? g_strndup(title, mark - title) : g_strdup(title)) : NULL;
+    if (!label || !*label) {
+        g_free(label);
+        label = g_strdup_printf("终端 %u", state->number);
+    }
+    gtk_label_set_text(GTK_LABEL(label_widget), label);
+    gtk_widget_set_tooltip_text(label_widget, label);
+    g_free(label);
+    paste_target_cb(terminal, NULL);
 }
 #endif
 
@@ -861,6 +912,9 @@ static gboolean button_event(GtkWidget *terminal, GdkEventButton *event, gpointe
 #ifdef KINDLE
     if (touch_forwarding()) {
         return FALSE;
+    }
+    if (terminal != kterm_get_terminal()) {
+        return TRUE;
     }
 #endif
     // A touch while the panel is open puts it away, and the program in the
@@ -946,42 +1000,8 @@ static void usage(void) {
     exit(0);
 }
 
-/**
- * Setup terminal
- * @param terminal Terminal
- * @param command Command passed to terminal, null if none
- * @param envv Null terminated array of env variable=value pairs passed to terminal
- * @param error Set on error, null otherwise
- */
-static void setup_terminal(GtkWidget *terminal, gchar *command, gchar **envv, GError **error) {
-    gchar *argv[TERM_ARGS_MAX] = { NULL };
-    gint argc = 0;
-    gchar *shell = NULL;
-#if VTE_CHECK_VERSION(0,25,1)
-    if (!command || *command == '\0') {
-        // prepend args with shell
-        if ((shell = vte_get_user_shell()) == NULL) {
-            shell = g_strdup("/bin/sh");
-        }
-        argv[argc++] = shell;
-    }
-#endif
-    if (command) {
-        gchar *argbuf = strtok(command, " ");
-        while (argbuf != NULL && argc < (TERM_ARGS_MAX - 1)) {
-            argv[argc++] = argbuf;
-            argbuf = strtok(NULL, " ");
-        }
-    }
-    if (argv[0]) {
-        static const gchar *shells[] = { "sh", "ash", "bash", "dash", "ksh", "mksh", "zsh", "fish" };
-        gchar *name = g_path_get_basename(argv[0]);
-        for (guint i = 0; i < G_N_ELEMENTS(shells); i++) {
-            main_child_is_shell |= !strcmp(name, shells[i]);
-        }
-        g_free(name);
-    }
-
+static void configure_terminal(GtkWidget *terminal) {
+    g_object_set_data_full(G_OBJECT(terminal), "kterm-state", g_new0(TerminalState, 1), g_free);
     set_terminal_colors(terminal, conf->color_reversed);
 #ifdef KINDLE
     vte_terminal_set_text_contrast(VTE_TERMINAL(terminal), conf->text_contrast != 0);
@@ -997,9 +1017,58 @@ static void setup_terminal(GtkWidget *terminal, gchar *command, gchar **envv, GE
     vte_terminal_set_encoding(VTE_TERMINAL(terminal), conf->encoding);
 #endif
     vte_terminal_set_allow_bold(VTE_TERMINAL(terminal), TRUE);
-    
+}
+
+/**
+ * Start the program after the terminal has its initial size.
+ * @param terminal Terminal
+ * @param command Command passed to terminal, null if none
+ * @param envv Null terminated array of env variable=value pairs passed to terminal
+ * @param error Set on error, null otherwise
+ */
+static void spawn_terminal(GtkWidget *terminal, const gchar *command, gchar **envv, GError **error) {
+    gchar *argv[TERM_ARGS_MAX] = { NULL };
+    gint argc = 0;
+    gchar *shell = NULL;
+    gchar *command_args = g_strdup(command);
+    TerminalState *state = terminal_state(terminal);
+#ifdef KINDLE
+    gchar **login_env = NULL;
+#endif
+#if VTE_CHECK_VERSION(0,25,1)
+    if (!command || *command == '\0') {
+        // prepend args with shell
+        shell = vte_get_user_shell();
+        if (!shell || !*shell) {
+            g_free(shell);
+            shell = g_strdup("/bin/sh");
+        }
+        argv[argc++] = shell;
+#ifdef KINDLE
+        argv[argc++] = "-l";
+        login_env = g_environ_setenv(g_strdupv(envv), "SHELL", shell, FALSE);
+        envv = login_env;
+#endif
+    }
+#endif
+    if (command_args) {
+        gchar *argbuf = strtok(command_args, " ");
+        while (argbuf != NULL && argc < (TERM_ARGS_MAX - 1)) {
+            argv[argc++] = argbuf;
+            argbuf = strtok(NULL, " ");
+        }
+    }
+    if (argv[0]) {
+        static const gchar *shells[] = { "sh", "ash", "bash", "dash", "ksh", "mksh", "zsh", "fish" };
+        gchar *name = g_path_get_basename(argv[0]);
+        for (guint i = 0; i < G_N_ELEMENTS(shells); i++) {
+            state->is_shell |= !strcmp(name, shells[i]);
+        }
+        g_free(name);
+    }
+
 #if VTE_CHECK_VERSION(0,38,0)
-    vte_terminal_spawn_sync(VTE_TERMINAL(terminal), 0, NULL, argv, envv, G_SPAWN_SEARCH_PATH, NULL, NULL, &main_child, NULL, error);
+    vte_terminal_spawn_sync(VTE_TERMINAL(terminal), 0, NULL, argv, envv, G_SPAWN_SEARCH_PATH, NULL, NULL, &state->child, NULL, error);
 #elif VTE_CHECK_VERSION(0,25,1)
     vte_terminal_fork_command_full(VTE_TERMINAL(terminal), 0, NULL, argv, envv, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, error);
 #else
@@ -1010,6 +1079,10 @@ static void setup_terminal(GtkWidget *terminal, gchar *command, gchar **envv, GE
     }
 #endif
     if (shell) { g_free(shell); }
+#ifdef KINDLE
+    g_strfreev(login_env);
+#endif
+    g_free(command_args);
     if (*error) {
         g_prefix_error(error, "VTE terminal fork failed.\n");
         D printf("%s\n", (*error)->message);
@@ -1056,6 +1129,249 @@ static void error_handle(GtkWidget *window, GError **error) {
     gtk_widget_destroy(dialog);
     g_clear_error(error);
 }
+
+#ifdef KINDLE
+#define TAB_HIDE_MS 4000
+
+static gboolean tab_bar_timeout(gpointer data) {
+    TerminalTabs *tabs = data;
+    // Wait until the finger is up before changing the terminal's layout.
+    if (gtk_gesture_is_active(tabs->touch)) {
+        return G_SOURCE_CONTINUE;
+    }
+    tabs->hide_source = 0;
+    refresh_activity();
+    gtk_notebook_set_show_tabs(tabs->notebook, FALSE);
+    return G_SOURCE_REMOVE;
+}
+
+static void restart_tab_hide_timer(TerminalTabs *tabs) {
+    g_clear_handle_id(&tabs->hide_source, g_source_remove);
+    if (conf->auto_hide_tabs && gtk_notebook_get_show_tabs(tabs->notebook)) {
+        tabs->hide_source = g_timeout_add(TAB_HIDE_MS, tab_bar_timeout, tabs);
+    }
+}
+
+static void set_tab_bar_visible(TerminalTabs *tabs, gboolean visible) {
+    gtk_notebook_set_show_tabs(tabs->notebook, visible);
+    restart_tab_hide_timer(tabs);
+}
+
+void kterm_set_tab_auto_hide(guint on) {
+    conf->auto_hide_tabs = on != 0;
+    TerminalTabs *tabs = &terminal_tabs;
+    gtk_widget_set_visible(tabs->handle, conf->auto_hide_tabs);
+    set_tab_bar_visible(tabs, !on || gtk_notebook_get_n_pages(tabs->notebook) > 1);
+}
+
+static void toggle_tab_bar(GtkButton *button, TerminalTabs *tabs) {
+    UNUSED(button);
+    set_tab_bar_visible(tabs, !gtk_notebook_get_show_tabs(tabs->notebook));
+}
+
+static gboolean tab_handle_contains(TerminalTabs *tabs, gdouble y) {
+    gint top = 0;
+    return gtk_widget_get_mapped(tabs->handle) && !panel_is_open()
+        && gtk_widget_translate_coordinates(tabs->handle, tabs->window, 0, 0, NULL, &top)
+        && y >= top && y < top + gtk_widget_get_allocated_height(tabs->handle);
+}
+
+static void tab_bar_press(GtkGestureDrag *gesture, gdouble x, gdouble y, TerminalTabs *tabs) {
+    UNUSED(x);
+    if (tab_handle_contains(tabs, y)) {
+        GdkEventSequence *seq = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
+        const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), seq);
+        GtkWidget *target = event ? gtk_get_event_widget((GdkEvent *) event) : NULL;
+        if (target == tabs->window || target == tabs->handle
+            || (target && gtk_widget_is_ancestor(target, tabs->handle))) {
+            gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+        }
+        return;
+    }
+    GtkWidget *terminal = kterm_get_terminal();
+    gint top = 0;
+    if (tabs->hide_source && terminal && !panel_is_open()
+        && gtk_widget_translate_coordinates(terminal, tabs->window, 0, 0, NULL, &top) && y < top) {
+        restart_tab_hide_timer(tabs);
+    }
+}
+
+static void tab_bar_release(GtkGestureDrag *gesture, gdouble dx, gdouble dy, TerminalTabs *tabs) {
+    GdkEventSequence *seq = gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture));
+    if (gtk_gesture_get_sequence_state(GTK_GESTURE(gesture), seq) != GTK_EVENT_SEQUENCE_CLAIMED) {
+        return;
+    }
+    gdouble y = 0;
+    if (!gtk_gesture_drag_get_start_point(gesture, NULL, &y)) {
+        return;
+    }
+    if (ABS(dx) < TOUCH_SWIPE_MIN_PX && tab_handle_contains(tabs, y + dy)) {
+        toggle_tab_bar(NULL, tabs);
+    } else {
+        top_swipe_cb(gesture, dx, dy, NULL);
+    }
+}
+
+static GtkWidget *tab_button(const gchar *icon, const gchar *label, gint size) {
+    GtkWidget *button = gtk_button_new();
+    gtk_widget_set_name(button, "ktermTabButton");
+    gtk_widget_set_focus_on_click(button, FALSE);
+    gtk_widget_set_tooltip_text(button, label);
+    atk_object_set_name(gtk_widget_get_accessible(button), label);
+    gtk_container_add(GTK_CONTAINER(button), icon_new_outline(icon, size));
+    return button;
+}
+
+static void close_tab(GtkWidget *terminal, TerminalTabs *tabs) {
+    if (!terminal || gtk_widget_in_destruction(terminal) || gtk_notebook_page_num(tabs->notebook, terminal) < 0) {
+        return;
+    }
+    if (gtk_notebook_get_n_pages(tabs->notebook) == 1) {
+        gtk_main_quit();
+        return;
+    }
+    gtk_widget_destroy(terminal);
+}
+
+static void close_tab_cb(GtkButton *button, GtkWidget *terminal) {
+    UNUSED(button);
+    close_tab(terminal, &terminal_tabs);
+}
+
+static void terminal_exit(VteTerminal *terminal, gint status, TerminalTabs *tabs) {
+    UNUSED(status);
+    close_tab(GTK_WIDGET(terminal), tabs);
+}
+
+static void switch_tab(GtkNotebook *notebook, GtkWidget *terminal, guint page, gpointer data) {
+    UNUSED(notebook);
+    UNUSED(page);
+    UNUSED(data);
+    gtk_widget_set_can_focus(terminal, TRUE);
+    panel_close();
+    touch_reset();
+    imageview_hide();
+    bellbar_hide();
+    ime_reset_context();
+    kterm_set_font_size(conf->font_size);
+    kterm_set_text_contrast(conf->text_contrast);
+    paste_target_cb(VTE_TERMINAL(terminal), NULL);
+    tmuxpick_check();
+    refresh_activity();
+    gtk_widget_grab_focus(terminal);
+}
+
+static void position_notices(GtkWidget *terminal, GtkAllocation *allocation, GtkWidget *window) {
+    UNUSED(allocation);
+    gint y = 0;
+    if (terminal == kterm_get_terminal() && gtk_widget_translate_coordinates(terminal, window, 0, 0, NULL, &y)) {
+        notices_set_top(y);
+    }
+}
+
+static GtkWidget *new_tab(TerminalTabs *tabs) {
+    GtkWidget *terminal = vte_terminal_new();
+    configure_terminal(terminal);
+    gtk_widget_set_name(terminal, "termBox");
+    bellbar_attach(terminal);
+
+    TerminalState *state = terminal_state(terminal);
+    state->number = ++tabs->next_number;
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gchar *title = g_strdup_printf("终端 %u", state->number);
+    GtkWidget *label = gtk_label_new(title);
+    g_free(title);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_label_set_width_chars(GTK_LABEL(label), 5);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 15);
+    gtk_label_set_single_line_mode(GTK_LABEL(label), TRUE);
+    gtk_box_pack_start(GTK_BOX(header), label, TRUE, TRUE, 0);
+    GtkWidget *close = tab_button(OUTLINE_X, "关闭标签", 25);
+    g_signal_connect_object(close, "clicked", G_CALLBACK(close_tab_cb), terminal, 0);
+    gtk_box_pack_end(GTK_BOX(header), close, FALSE, FALSE, 0);
+    gtk_widget_show_all(header);
+
+    g_signal_connect(terminal, "child-exited", G_CALLBACK(terminal_exit), tabs);
+    g_signal_connect(terminal, "scroll-event", G_CALLBACK(touch_scroll_event), NULL);
+    g_signal_connect(terminal, "button-press-event", G_CALLBACK(button_event), NULL);
+    g_signal_connect(terminal, "button-release-event", G_CALLBACK(button_event), NULL);
+    g_signal_connect(terminal, "motion-notify-event", G_CALLBACK(button_event), NULL);
+    g_signal_connect(terminal, "contents-changed", G_CALLBACK(paste_target_cb), NULL);
+    g_signal_connect(terminal, "cursor-moved", G_CALLBACK(paste_target_cb), NULL);
+    g_signal_connect_object(terminal, "termprop-changed::" VTE_TERMPROP_XTERM_TITLE, G_CALLBACK(title_cb), label, 0);
+    g_signal_connect(terminal, "size-allocate", G_CALLBACK(position_notices), tabs->window);
+    D g_signal_connect(terminal, "key-release-event", G_CALLBACK(debug_key_event), NULL);
+    D g_signal_connect(terminal, "key-press-event", G_CALLBACK(debug_key_event), NULL);
+    refresh_attach(terminal);
+    flash_attach(terminal);
+    tmuxpick_attach(terminal);
+    imageview_attach(terminal);
+
+    gtk_widget_show(terminal);
+    const gint index = gtk_notebook_append_page(tabs->notebook, terminal, header);
+    gtk_notebook_set_current_page(tabs->notebook, index);
+    return terminal;
+}
+
+static void add_tab_cb(GtkButton *button, TerminalTabs *tabs) {
+    UNUSED(button);
+    set_tab_bar_visible(tabs, TRUE);
+    GtkWidget *terminal = new_tab(tabs);
+    gtk_container_check_resize(GTK_CONTAINER(tabs->window));
+    GError *error = NULL;
+    spawn_terminal(terminal, NULL, tabs->envv, &error);
+    if (error) {
+        close_tab(terminal, tabs);
+        error_handle(tabs->window, &error);
+    }
+}
+
+static gboolean tab_key_cb(GtkWidget *window, GdkEventKey *event, TerminalTabs *tabs) {
+    UNUSED(window);
+    const guint modifiers = event->state & gtk_accelerator_get_default_mod_mask();
+    if (modifiers != (GDK_CONTROL_MASK | GDK_SHIFT_MASK) || panel_wants_keys()) {
+        return FALSE;
+    }
+    switch (gdk_keyval_to_lower(event->keyval)) {
+    case GDK_KEY_t:
+        add_tab_cb(NULL, tabs);
+        return TRUE;
+    case GDK_KEY_w:
+        close_tab(kterm_get_terminal(), tabs);
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+static void tabs_init(TerminalTabs *tabs, GtkWidget *window, GtkWidget *box, gchar **envv) {
+    GtkWidget *notebook = gtk_notebook_new();
+    *tabs = (TerminalTabs) { .window = window, .notebook = GTK_NOTEBOOK(notebook), .envv = envv };
+    gtk_widget_set_name(notebook, "ktermTabs");
+    gtk_widget_set_can_focus(notebook, FALSE);
+    gtk_notebook_set_scrollable(tabs->notebook, TRUE);
+    gtk_notebook_set_show_border(tabs->notebook, FALSE);
+    GtkWidget *add = tab_button("M12 5V19 M5 12H19", "新建标签", 25);
+    gtk_notebook_set_action_widget(tabs->notebook, add, GTK_PACK_END);
+    gtk_widget_show_all(add);
+    g_signal_connect(add, "clicked", G_CALLBACK(add_tab_cb), tabs);
+    g_signal_connect_after(notebook, "switch-page", G_CALLBACK(switch_tab), NULL);
+    g_signal_connect(window, "key-press-event", G_CALLBACK(tab_key_cb), tabs);
+
+    tabs->handle = tab_button("M3 12H21", "展开或收起标签栏", 24);
+    gtk_widget_set_name(tabs->handle, "ktermTabHandle");
+    gtk_widget_show_all(tabs->handle);
+    gtk_widget_set_no_show_all(tabs->handle, TRUE);
+    g_signal_connect(tabs->handle, "clicked", G_CALLBACK(toggle_tab_bar), tabs);
+    gtk_box_pack_start(GTK_BOX(box), tabs->handle, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), notebook, TRUE, TRUE, 0);
+    tabs->touch = gtk_gesture_drag_new(window);
+    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(tabs->touch), GTK_PHASE_CAPTURE);
+    g_signal_connect(tabs->touch, "drag-begin", G_CALLBACK(tab_bar_press), tabs);
+    g_signal_connect(tabs->touch, "drag-end", G_CALLBACK(tab_bar_release), tabs);
+    g_object_set_data_full(G_OBJECT(window), "kterm-tab-touch", tabs->touch, g_object_unref);
+}
+#endif
 
 /** main */
 gint main(gint argc, gchar **argv) {
@@ -1149,11 +1465,10 @@ gint main(gint argc, gchar **argv) {
     // window
     //  \- overlay
     //      \- vbox
-    //      |   \- terminal
+    //      |   \- terminal tabs
     //      |   \- shortcut bar, keyboard_box (or, while the system keyboard
     //      |      is up, the bar above it)
-    //      \- notices over the terminal's top: text from the phone, the
-    //      |  bell (notice.c)
+    //      \- notice over the terminal's top for text from the phone
     //      \- panel, drawn over the bottom of the window
     //      \- image shown over the whole window (imageview.c)
     //
@@ -1228,35 +1543,33 @@ gint main(gint argc, gchar **argv) {
     gtk_box_pack_end(GTK_BOX(vbox), keyboard_box, FALSE, FALSE, 0);
     keyboard_set_size(keyboard);
     
+#ifdef KINDLE
+    TerminalTabs *tabs = &terminal_tabs;
+    tabs_init(tabs, window, vbox, envv);
+#else
     GtkWidget *terminal = vte_terminal_new();
-    setup_terminal(terminal, command, envv, &error);
-    if G_UNLIKELY(error) {
-        error_handle(window, &error);
-        clean_on_exit(keyboard);
-        exit(1);
-    }
+    configure_terminal(terminal);
     gtk_widget_set_name(terminal, "termBox");
-    main_terminal = terminal;
+    desktop_terminal = terminal;
     gtk_box_pack_start(GTK_BOX(vbox), terminal, TRUE, TRUE, 0);
+#endif
 #if GTK_CHECK_VERSION(3,2,0)
 #ifdef KINDLE
     // under the panel: it covers them
     notices_init(overlay);
 #endif
-    GtkWidget *panel = panel_new(terminal);
-    connpage_init(terminal);
+    GtkWidget *panel = panel_new();
+    connpage_init();
     add_panel_actions();
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), panel);
 #ifdef KINDLE
-    panel_top_swipe = gtk_gesture_drag_new(panel);
-    gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(panel_top_swipe), GTK_PHASE_CAPTURE);
-    g_signal_connect(panel_top_swipe, "drag-end", G_CALLBACK(panel_top_swipe_cb), NULL);
+    watch_top_swipe(panel);
 #endif
 #endif
     
 #ifdef KINDLE
     builtin_kb_box = keyboard_box;
-    if (ime_init(terminal)) {
+    if (ime_init()) {
         ime_panel = build_ime_panel();
         gtk_box_pack_end(GTK_BOX(vbox), ime_panel, FALSE, FALSE, 0);
         if (g_getenv("KTERM_IME_TRACE")) {
@@ -1276,13 +1589,16 @@ gint main(gint argc, gchar **argv) {
     shortpage_init();
 #endif
 
-    // on the Kindle a second finger is the right button, see touch_event()
 #ifdef KINDLE
-    GtkWidget *menu = NULL;
-    g_signal_connect(terminal, "scroll-event", G_CALLBACK(touch_scroll_event), NULL);
-    g_signal_connect(terminal, "contents-changed", G_CALLBACK(paste_target_cb), NULL);
-    g_signal_connect(terminal, "cursor-moved", G_CALLBACK(paste_target_cb), NULL);
-    g_signal_connect(terminal, "termprop-changed::" VTE_TERMPROP_XTERM_TITLE, G_CALLBACK(title_cb), NULL);
+    refresh_init(window);
+    flash_init(window);
+    voice_init();
+    tmuxpick_init();
+    bellbar_init();
+    // over everything, the voice box too
+    imageview_init(overlay);
+    GtkWidget *terminal = new_tab(tabs);
+    kterm_set_tab_auto_hide(conf->auto_hide_tabs);
 #else
     GtkWidget *menu = build_popup(terminal, vbox);
 #endif
@@ -1292,17 +1608,18 @@ gint main(gint argc, gchar **argv) {
     gtk_widget_add_events(window, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
     g_signal_connect(window, "button-press-event", G_CALLBACK(keyboard_gap_event), keyboard_box);
     g_signal_connect(window, "button-release-event", G_CALLBACK(keyboard_gap_event), keyboard_box);
+#ifndef KINDLE
     g_signal_connect(terminal, "child-exited", G_CALLBACK(terminal_exit), NULL);
     g_signal_connect(terminal, "button-press-event", G_CALLBACK(button_event), menu);
     g_signal_connect(terminal, "button-release-event", G_CALLBACK(button_event), menu);
     g_signal_connect(terminal, "motion-notify-event", G_CALLBACK(button_event), menu);
     g_signal_connect(terminal, "realize", G_CALLBACK(grab_focus), NULL);
-#ifdef KINDLE
+    D g_signal_connect(terminal, "key-release-event", G_CALLBACK(debug_key_event), NULL);
+    D g_signal_connect(terminal, "key-press-event", G_CALLBACK(debug_key_event), NULL);
+#else
     g_object_set(window, "events", GDK_VISIBILITY_NOTIFY_MASK, NULL);
     g_signal_connect(window, "visibility-notify-event", G_CALLBACK(grab_keyboard_cb), NULL);
 #endif
-    D g_signal_connect(terminal, "key-release-event", G_CALLBACK(debug_key_event), NULL);
-    D g_signal_connect(terminal, "key-press-event", G_CALLBACK(debug_key_event), NULL);
     
     gtk_widget_show_all(window);
     if (!conf->kb_on) {
@@ -1311,20 +1628,26 @@ gint main(gint argc, gchar **argv) {
     g_signal_connect(keyboard_box, "size-allocate", G_CALLBACK(keyboard_update), keyboard);
     gtk_window_maximize(GTK_WINDOW(window));
 #ifdef KINDLE
-    refresh_init(window, terminal);
-    flash_init(window, terminal);
-    voice_init(terminal);
-    tmuxpick_init(terminal);
-    // over everything, the voice box too
-    imageview_init(overlay, terminal);
-    bellbar_init(terminal);
+    gtk_widget_grab_focus(terminal);
 #endif
+    gtk_container_check_resize(GTK_CONTAINER(window));
+    spawn_terminal(terminal, command, envv, &error);
+    if G_UNLIKELY(error) {
+        error_handle(window, &error);
+        clean_on_exit(keyboard);
+        return 1;
+    }
     gtk_main();
+#ifdef KINDLE
+    g_clear_handle_id(&tabs->hide_source, g_source_remove);
+#endif
     
     clean_on_exit(keyboard);
+#ifndef KINDLE
     if (menu) {
         gtk_widget_destroy(menu);
     }
+#endif
     D printf("the end\n");
     return 0;
 }

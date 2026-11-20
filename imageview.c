@@ -75,8 +75,6 @@ static const gchar FETCH_SCRIPT[] =
 static GtkWidget *view = NULL;
 static GtkWidget *picture = NULL;
 static GtkWidget *message = NULL;
-/** VTE's tag of IMAGE_PATTERN */
-static int match_tag = -1;
 /** Counts the images asked for: an answer for one taken away since is
  *  dropped */
 static guint asked = 0;
@@ -190,6 +188,15 @@ static void open_image(const gchar *path) {
     g_free(var);
 }
 
+void imageview_hide(void) {
+    if (gtk_widget_get_visible(view)) {
+        asked++;
+        gtk_widget_hide(view);
+        gtk_image_clear(GTK_IMAGE(picture));
+        flash_window_next_draw();
+    }
+}
+
 /**
  * A tap on the image takes it away; the press too is kept from what is
  * under it
@@ -198,10 +205,7 @@ static gboolean view_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer
     UNUSED(widget);
     UNUSED(data);
     if (event->type == GDK_BUTTON_RELEASE) {
-        asked++;
-        gtk_widget_hide(view);
-        gtk_image_clear(GTK_IMAGE(picture));
-        flash_window_next_draw();
+        imageview_hide();
     }
     return TRUE;
 }
@@ -213,6 +217,7 @@ static gboolean view_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer
  * @return TRUE if it was on such a path
  */
 gboolean imageview_tap(GtkWidget *terminal, GdkEvent *event) {
+    const gint match_tag = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(terminal), "kterm-image-tag")) - 1;
     if (match_tag < 0) {
         return FALSE;
     }
@@ -227,19 +232,22 @@ gboolean imageview_tap(GtkWidget *terminal, GdkEvent *event) {
 }
 
 /**
- * @param overlay Window's overlay: the image is shown over everything
- * @param terminal Terminal widget, whose image paths are looked for
+ * Add image path matching to a terminal.
  */
-void imageview_init(GtkWidget *overlay, GtkWidget *terminal) {
+void imageview_attach(GtkWidget *terminal) {
     GError *error = NULL;
     VteRegex *regex = vte_regex_new_for_match(IMAGE_PATTERN, -1, PCRE2_MULTILINE | PCRE2_CASELESS, &error);
     if (regex) {
-        match_tag = vte_terminal_match_add_regex(VTE_TERMINAL(terminal), regex, 0);
+        const gint tag = vte_terminal_match_add_regex(VTE_TERMINAL(terminal), regex, 0);
+        g_object_set_data(G_OBJECT(terminal), "kterm-image-tag", GINT_TO_POINTER(tag + 1));
         vte_regex_unref(regex);
     } else {
         D printf("image: %s\n", error->message);
         g_error_free(error);
     }
+}
+
+void imageview_init(GtkWidget *overlay) {
     view = gtk_event_box_new();
     gtk_widget_set_name(view, "ktermImageView");
     gtk_widget_add_events(view, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
@@ -260,5 +268,6 @@ void imageview_init(GtkWidget *overlay, GtkWidget *terminal) {
     gtk_container_add(GTK_CONTAINER(view), box);
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), view);
     gtk_widget_show_all(view);
+    gtk_widget_set_no_show_all(view, TRUE);
     gtk_widget_hide(view);
 }

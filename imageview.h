@@ -18,7 +18,9 @@
 
 #include <gtk/gtk.h>
 
-void imageview_init(GtkWidget *overlay, GtkWidget *terminal);
+void imageview_init(GtkWidget *overlay);
+void imageview_attach(GtkWidget *terminal);
+void imageview_hide(void);
 gboolean imageview_tap(GtkWidget *terminal, GdkEvent *event);
 
 #endif /* imageview_h */

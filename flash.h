@@ -29,7 +29,8 @@
 /** By default */
 #define FLASH_DEFAULT FLASH_WRITTEN_OVER
 
-void flash_init(GtkWidget *window, GtkWidget *terminal);
+void flash_init(GtkWidget *window);
+void flash_attach(GtkWidget *terminal);
 void flash_set_when(guint when);
 void flash_next_draw(void);
 void flash_window_next_draw(void);

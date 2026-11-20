@@ -18,6 +18,6 @@
 
 #include <gtk/gtk.h>
 
-void connpage_init(GtkWidget *terminal);
+void connpage_init(void);
 
 #endif /* connpage_h */

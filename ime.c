@@ -39,6 +39,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "ime.h"
+#include "kterm.h"
 #include "config.h"
 
 #define KB_SERVICE "com.lab126.keyboard"
@@ -54,7 +55,7 @@
 static GDBusConnection *bus = NULL;
 static gchar *service = NULL;
 static guint filter_id = 0;
-static GtkWidget *terminal = NULL;
+static gint context_epoch = 0;
 static gboolean opened = FALSE;
 static gboolean trace = FALSE;
 /** Text most recently entered through the keyboard, see report_surround() */
@@ -62,6 +63,7 @@ static gchar *context = NULL;
 
 /** One property write from the keyboard, carried to the main loop */
 typedef struct {
+    gint epoch;
     gchar *property;
     gchar *value;
 } ImeCall;
@@ -161,6 +163,7 @@ static void report_surround(void) {
  * @param count How many times
  */
 static void feed(const gchar *text, gint count) {
+    GtkWidget *terminal = kterm_get_terminal();
     if (!terminal) {
         return;
     }
@@ -190,8 +193,8 @@ static gboolean ime_dispatch(gpointer data) {
     ImeCall *call = data;
     const gchar *property = call->property;
     const gchar *value = call->value;
-    if (!bus) {
-        // queued just before ime_shutdown()
+    if (!bus || call->epoch != g_atomic_int_get(&context_epoch)) {
+        // Queued before the terminal changed or the bus closed.
         property = "";
     }
     if (trace) {
@@ -255,6 +258,7 @@ static GDBusMessage * ime_filter(GDBusConnection *connection, GDBusMessage *mess
         g_free(dump);
     }
     ImeCall *call = g_new0(ImeCall, 1);
+    call->epoch = g_atomic_int_get(&context_epoch);
     call->property = g_strndup(member + 3, strlen(member) - 6);
     call->value = g_strdup(value);
     if (first) {
@@ -283,11 +287,9 @@ static gboolean ime_fake(void) {
 
 /**
  * Connect to the system bus and get ready to receive text
- * @param term Terminal widget that receives the text
  * @return True if the system keyboard can be used
  */
-gboolean ime_init(GtkWidget *term) {
-    terminal = term;
+gboolean ime_init(void) {
     trace = (g_getenv("KTERM_IME_TRACE") != NULL);
     if (ime_fake()) {
         return TRUE;
@@ -366,6 +368,11 @@ gboolean ime_open(void) {
     opened = lipc_set_string(KB_SERVICE, "open", request);
     g_free(request);
     return opened;
+}
+
+void ime_reset_context(void) {
+    g_atomic_int_inc(&context_epoch);
+    g_clear_pointer(&context, g_free);
 }
 
 /**

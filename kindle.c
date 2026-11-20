@@ -290,7 +290,19 @@ void inject_styles(void) {
     GError *error = NULL;
     GtkCssProvider *provider = gtk_css_provider_new();
     if (!provider) { return; }
-    gtk_css_provider_load_from_data(provider,
+    static const gchar tab_css[] =
+        "#ktermTabs > header { background: @gray; padding: 0; border-bottom: 2px solid #000; }"
+        "#ktermTabs > header tab { background: #fff; color: #000; margin: 5px 2px 0;"
+        " padding: 0 2px 0 10px; border: 2px solid #000; border-bottom: 0;"
+        " border-radius: 10px 10px 0 0; box-shadow: none; font-family: \"Amazon Ember\", sans-serif; font-size: 8pt; }"
+        "#ktermTabs > header tab:checked { background: #000; color: #fff; }"
+        "#ktermTabButton { background: transparent; border: 0; box-shadow: none;"
+        " color: #000; min-width: 44px; min-height: 44px; padding: 0; }"
+        "#ktermTabs > header tab:checked #ktermTabButton { color: #fff; }"
+        "#ktermTabs > header arrow { min-width: 42px; min-height: 44px; }"
+        "#ktermTabHandle { background: @gray; border: 0; border-radius: 0; box-shadow: none;"
+        " color: #000; min-height: 24px; padding: 0; }";
+    gchar *css = g_strconcat(
                                     // The window has 8 levels of gray (see
                                     // kterm.c): #d8d8d8 shows as the light
                                     // gray of the keys, #b0b0b0 as their
@@ -377,7 +389,9 @@ void inject_styles(void) {
                                     // settings: thin gray lines between the rows, buttons of one width
                                     "#ktermPanel #ktermSettingLine { background: @line; min-height: 1px; }"
                                     "#ktermSettings #ktermPanelButton { min-width: 80px; padding-top: 6px; padding-bottom: 6px; }"
-                                    , -1, &error);
+                                    , tab_css, NULL);
+    gtk_css_provider_load_from_data(provider, css, -1, &error);
+    g_free(css);
     if G_UNLIKELY(error) {
         D printf("Style injection failed: %s\n", error->message);
         g_error_free(error);

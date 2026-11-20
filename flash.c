@@ -50,6 +50,7 @@
 #include <vte/vte.h>
 #include "config.h"
 #include "flash.h"
+#include "kterm.h"
 
 extern KTconf *conf;
 
@@ -66,7 +67,6 @@ extern KTconf *conf;
 #define FLASH_NON_BLOCKING 0x0400
 
 static GtkWidget *window = NULL;
-static GtkWidget *terminal = NULL;
 /** Drawn since the last full refresh, in terminals */
 static gdouble written = 0;
 /** Monotonic time until which what is drawn is a page turned or a swipe,
@@ -80,7 +80,7 @@ static gint64 turning_until = 0;
  */
 static void flash_send(GtkWidget *area) {
     GdkWindow *gdk_window = window ? gtk_widget_get_window(window) : NULL;
-    if (!gdk_window || !GDK_IS_X11_WINDOW(gdk_window) || !gtk_widget_get_mapped(area)) {
+    if (!area || !gdk_window || !GDK_IS_X11_WINDOW(gdk_window) || !gtk_widget_get_mapped(area)) {
         return;
     }
     gint x = 0, y = 0;
@@ -127,7 +127,7 @@ void flash_next_draw(void) {
         || (conf->full_refresh != FLASH_ALWAYS && written < 1)) {
         return;
     }
-    flash_send(terminal);
+    flash_send(kterm_get_terminal());
     written = 0;
 }
 
@@ -176,11 +176,12 @@ static gboolean drawn_cb(GtkWidget *widget, cairo_t *cr, gpointer data) {
 
 /**
  * @param toplevel Window
- * @param widget Terminal in it
  */
-void flash_init(GtkWidget *toplevel, GtkWidget *widget) {
+void flash_init(GtkWidget *toplevel) {
     window = toplevel;
-    terminal = widget;
+}
+
+void flash_attach(GtkWidget *terminal) {
     g_signal_connect_after(terminal, "draw", G_CALLBACK(drawn_cb), NULL);
 }
 

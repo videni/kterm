@@ -18,6 +18,8 @@
 
 #include <gtk/gtk.h>
 
-void bellbar_init(GtkWidget *terminal);
+void bellbar_init(void);
+void bellbar_attach(GtkWidget *terminal);
+void bellbar_hide(void);
 
 #endif /* bellbar_h */

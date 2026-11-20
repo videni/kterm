@@ -24,6 +24,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <vte/vte.h>
 #include "config.h"
 #include "connpage.h"
 #include "icons.h"
@@ -40,8 +41,6 @@
  *  Dragging a list with a finger needs touch events the Kindle's X server
  *  does not deliver. */
 #define ROWS_PER_PAGE 4
-/** Terminal the connections are opened in */
-static GtkWidget *terminal_widget = NULL;
 /** On the first page while an ssh session has the terminal */
 static GtkWidget *disconnect_button = NULL;
 static GtkWidget *list_page = NULL;
@@ -84,7 +83,7 @@ static pid_t ssh_session(void);
  * Give the keyboard back to the terminal
  */
 static void focus_terminal(void) {
-    gtk_widget_grab_focus(terminal_widget);
+    gtk_widget_grab_focus(kterm_get_terminal());
 }
 
 /**
@@ -104,10 +103,20 @@ static gchar * describe(const SshHost *host) {
     return g_string_free(text, FALSE);
 }
 
-/** Command to type once the session being left has ended */
-static gchar *switch_command = NULL;
-static guint switch_tries = 0;
-static guint switch_source = 0;
+typedef struct {
+    gchar *command;
+    gint64 deadline;
+    guint source;
+} ConnectionSwitch;
+
+static void connection_switch_free(gpointer data) {
+    ConnectionSwitch *pending = data;
+    if (pending->source) {
+        g_source_remove(pending->source);
+    }
+    g_free(pending->command);
+    g_free(pending);
+}
 /**
  * @param name Saved connection, a plain word (validated)
  * @return The command starting it, newly allocated. The session is also
@@ -129,7 +138,7 @@ static gchar * ssh_command(const gchar *name) {
  *         there is none
  */
 static pid_t ssh_session(void) {
-    const pid_t foreground = kterm_terminal_foreground();
+    const pid_t foreground = kterm_terminal_foreground(kterm_get_terminal());
     return (foreground && kterm_process_is(foreground, "ssh")) ? foreground : 0;
 }
 
@@ -149,23 +158,22 @@ static void disconnect_cb(void) {
 
 /**
  * Timer callback: type the pending ssh command as soon as the shell has
- * the terminal back. Given up after three seconds; nothing is typed then.
- * @param data Not used
- * @return FALSE when done
+ * the terminal back. Give up at the deadline if it is still busy.
+ * @param data Terminal where the switch was requested
  */
 static gboolean switch_when_idle(gpointer data) {
-    UNUSED(data);
-    const gboolean busy = kterm_terminal_foreground() != 0;
-    if (busy && ++switch_tries < 30) {
-        return TRUE;
+    GtkWidget *terminal = data;
+    ConnectionSwitch *pending = g_object_get_data(G_OBJECT(terminal), "kterm-connection-switch");
+    const gboolean busy = kterm_terminal_foreground(terminal) != 0;
+    if (busy && g_get_monotonic_time() < pending->deadline) {
+        return G_SOURCE_CONTINUE;
     }
-    if (!busy && switch_command) {
-        kterm_type_command(switch_command);
+    if (!busy && vte_terminal_get_pty(VTE_TERMINAL(terminal))) {
+        kterm_type_command(terminal, pending->command);
     }
-    g_free(switch_command);
-    switch_command = NULL;
-    switch_source = 0;
-    return FALSE;
+    pending->source = 0;
+    g_object_set_data(G_OBJECT(terminal), "kterm-connection-switch", NULL);
+    return G_SOURCE_REMOVE;
 }
 
 /**
@@ -179,7 +187,8 @@ static gboolean switch_when_idle(gpointer data) {
 static void connect_cb(GtkWidget *button, gpointer data) {
     UNUSED(button);
     const guint index = GPOINTER_TO_UINT(data);
-    if (!hosts || index >= hosts->len || !terminal_widget) {
+    GtkWidget *terminal = kterm_get_terminal();
+    if (!hosts || index >= hosts->len || !terminal) {
         return;
     }
     const SshHost *host = g_ptr_array_index(hosts, index);
@@ -199,23 +208,22 @@ static void connect_cb(GtkWidget *button, gpointer data) {
         // session is hung up, as when its window is closed, and the new
         // command is typed once the shell is back.
         kill(-session, SIGHUP);
-        g_free(switch_command);
-        switch_command = ssh_command(host->name);
-        switch_tries = 0;
-        if (!switch_source) {
-            switch_source = g_timeout_add(100, switch_when_idle, NULL);
-        }
+        ConnectionSwitch *pending = g_new0(ConnectionSwitch, 1);
+        pending->command = ssh_command(host->name);
+        pending->deadline = g_get_monotonic_time() + 3 * G_USEC_PER_SEC;
+        pending->source = g_timeout_add(100, switch_when_idle, terminal);
+        g_object_set_data_full(G_OBJECT(terminal), "kterm-connection-switch", pending, connection_switch_free);
         panel_close();
         return;
     }
-    if (kterm_terminal_foreground()) {
+    if (kterm_terminal_foreground(kterm_get_terminal())) {
         // some other program (an editor, a pager): not ours to end
         gtk_label_set_text(GTK_LABEL(empty_label), "终端里有程序在运行，先退出它再连接。");
         gtk_widget_show(empty_label);
         return;
     }
     gchar *command = ssh_command(host->name);
-    kterm_type_command(command);
+    kterm_type_command(kterm_get_terminal(), command);
     g_free(command);
     panel_close();
 }
@@ -577,7 +585,7 @@ static void install_cb(void) {
         gtk_label_set_text(GTK_LABEL(form_message), "这个密钥旁边没有 .pub 公钥文件，装不了。");
         return;
     }
-    if (ssh_session() || kterm_terminal_foreground()) {
+    if (ssh_session() || kterm_terminal_foreground(kterm_get_terminal())) {
         gtk_label_set_text(GTK_LABEL(form_message), "终端里有程序在运行（或连着 SSH），先退出它再装。");
         g_free(public_key);
         return;
@@ -593,7 +601,7 @@ static void install_cb(void) {
     gchar *quoted = g_shell_quote(remote);
     gchar *command = g_strdup_printf("ssh -o RemoteCommand=none -o RequestTTY=no %s %s"
                                      " && echo '公钥装好了：以后连 %s 不用密码'", host->name, quoted, host->name);
-    kterm_type_command(command);
+    kterm_type_command(kterm_get_terminal(), command);
     g_free(command);
     g_free(quoted);
     g_free(remote);
@@ -827,10 +835,8 @@ static void home_shown_cb(void) {
 /**
  * Add the connection pages to the panel, and 连接 and 断开 at the start of
  * its first page
- * @param terminal Terminal the connections are opened in
  */
-void connpage_init(GtkWidget *terminal) {
-    terminal_widget = terminal;
+void connpage_init(void) {
     list_page = build_list_page();
     form_page = build_form_page();
     found_page = build_found_page();

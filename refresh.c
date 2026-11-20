@@ -34,6 +34,7 @@
 #include <vte/vte.h>
 #include "config.h"
 #include "refresh.h"
+#include "kterm.h"
 
 extern KTconf *conf;
 
@@ -59,6 +60,11 @@ static void thaw(void) {
     frozen = FALSE;
 }
 
+void refresh_activity(void) {
+    last_input = g_get_monotonic_time();
+    thaw();
+}
+
 static gboolean thaw_cb(gpointer data) {
     UNUSED(data);
     thaw_source = 0;
@@ -79,8 +85,7 @@ static void event_handler(GdkEvent *event, gpointer data) {
     case GDK_KEY_RELEASE:
     case GDK_TOUCH_BEGIN:
     case GDK_TOUCH_END:
-        last_input = g_get_monotonic_time();
-        thaw();
+        refresh_activity();
         break;
     default:
         break;
@@ -92,8 +97,10 @@ static void event_handler(GdkEvent *event, gpointer data) {
  * The terminal changed: drawn now, or held back until the next refresh
  */
 static void contents_changed_cb(VteTerminal *terminal, gpointer data) {
-    UNUSED(terminal);
     UNUSED(data);
+    if (GTK_WIDGET(terminal) != kterm_get_terminal()) {
+        return;
+    }
     const gint64 now = g_get_monotonic_time();
     if (frozen || !window || !gtk_widget_get_window(window)
         || now - last_input < (gint64) REFRESH_ACTIVE_MS * 1000) {
@@ -126,13 +133,15 @@ static gboolean drawn_cb(GtkWidget *terminal, cairo_t *cr, gpointer data) {
 /**
  * Hold back the refreshes of a window while its terminal changes on its own
  * @param toplevel Window
- * @param terminal Terminal in it
  */
-void refresh_init(GtkWidget *toplevel, GtkWidget *terminal) {
+void refresh_init(GtkWidget *toplevel) {
     window = toplevel;
-    D g_signal_connect_after(terminal, "draw", G_CALLBACK(drawn_cb), NULL);
-    last_input = g_get_monotonic_time();
+    refresh_activity();
     gdk_event_handler_set(event_handler, NULL, NULL);
+}
+
+void refresh_attach(GtkWidget *terminal) {
+    D g_signal_connect_after(terminal, "draw", G_CALLBACK(drawn_cb), NULL);
     g_signal_connect(terminal, "contents-changed", G_CALLBACK(contents_changed_cb), NULL);
 }
 
