@@ -35,6 +35,7 @@
 #define ICON_LINK IMAGE_RESOURCES "icons/link.png"
 #define ICON_SETTINGS IMAGE_RESOURCES "icons/settings.png"
 #define ICON_SHORTCUT IMAGE_RESOURCES "icons/shortcut.png"
+#define ICON_TAB_LIST IMAGE_RESOURCES "icons/tab-list.png"
 
 void icon_draw(cairo_t *cr, const gchar *resource, gdouble x, gdouble y, gdouble size);
 GtkWidget * icon_new(const gchar *resource, gint size);

@@ -23,6 +23,7 @@
 #include <gio/gio.h>
 #include "kindle.h"
 #include "config.h"
+#include "icons.h"
 #include "kterm.h"
 
 /** Global config */
@@ -277,6 +278,28 @@ gboolean show_system_menu(void) {
     return TRUE;
 }
 
+#if GTK_CHECK_VERSION(3,0,0)
+#define TAB_ARROW_ICON "kterm-tab-arrow"
+#define TAB_ARROW_DISABLED_ICON "kterm-tab-arrow-disabled"
+
+static void register_tab_arrow(const gchar *name, gdouble gray) {
+    const gint size = TAB_ARROW_PX;
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
+    cairo_t *cr = cairo_create(surface);
+    cairo_set_source_rgb(cr, gray, gray, gray);
+    icon_draw(cr, ICON_GO, 0, 0, size);
+    cairo_destroy(cr);
+    g_autoptr(GdkPixbuf) pixbuf = gdk_pixbuf_get_from_surface(surface, 0, 0, size, size);
+    cairo_surface_destroy(surface);
+
+    // GtkNotebook draws its steppers through CSS. Register the decoded PNG
+    // in memory so GTK can draw them without an external image loader.
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+    gtk_icon_theme_add_builtin_icon(name, size, pixbuf);
+    G_GNUC_END_IGNORE_DEPRECATIONS
+}
+#endif
+
 /**
  * Inject custom styles (css)
  * Reason: Kindle users have limited access to style customizations.
@@ -291,6 +314,8 @@ void inject_styles(void) {
     GError *error = NULL;
     GtkCssProvider *provider = gtk_css_provider_new();
     if (!provider) { return; }
+    register_tab_arrow(TAB_ARROW_ICON, 0);
+    register_tab_arrow(TAB_ARROW_DISABLED_ICON, 0.65);
     static const gchar tab_css[] =
         "#ktermTabs > header { background: #fff; padding: 0 " G_STRINGIFY(TAB_CORNER_PX) "px 0 0;"
         " border-bottom: 2px solid #000; }"
@@ -308,10 +333,14 @@ void inject_styles(void) {
         " background: #fff; border-bottom-color: #fff; color: #000; font-weight: bold; }"
         "#ktermTabButton { background: transparent; border: 0; box-shadow: none;"
         " color: #000; min-width: 48px; min-height: 56px; padding: 0; }"
-        "#ktermTabTitle > #ktermTabButton { margin: 0 4px; }"
+        "#ktermTabTitle > #ktermTabButton { padding: 0 4px; }"
         "#ktermTabButton.add { min-width: 56px; }"
         "#ktermTabs > header arrow { min-width: " G_STRINGIFY(TAB_ARROW_PX) "px; min-height: 56px;"
-        " margin: 0; padding: 0; border: 0; }";
+        " margin: 0; padding: 0; border: 0; -gtk-icon-shadow: none;"
+        " -gtk-icon-source: -gtk-icontheme(\"" TAB_ARROW_ICON "\"); }"
+        "#ktermTabs > header arrow.down { -gtk-icon-transform: rotate(180deg); }"
+        "#ktermTabs > header arrow:disabled {"
+        " -gtk-icon-source: -gtk-icontheme(\"" TAB_ARROW_DISABLED_ICON "\"); }";
     gchar *css = g_strconcat(
                                     // The window has 8 levels of gray (see
                                     // kterm.c): #d8d8d8 shows as the light
@@ -397,8 +426,21 @@ void inject_styles(void) {
                                     "#ktermPanelTabs #ktermPanelButton.selected label { color: #000; }"
                                     "#ktermPanelButton.quit { padding: 0; border-radius: 50%;"
                                     " min-width: 56px; min-height: 56px; }"
+                                    "#ktermPanelButton.close-panel { padding: 0 20px; min-height: 56px; }"
                                     "#ktermPanel entry { background: #ffffff; color: #000000; border: 2px solid #000000;"
                                     " border-radius: 20px; padding: 12px 16px; min-height: 0; box-shadow: none; }"
+                                    "#ktermPanel.dialog { border: 3px solid #000; border-radius: 44px; }"
+                                    "#ktermTabRenameTitle { font-size: 11pt; font-weight: bold; }"
+                                    "#ktermTabRenamePage entry selection { background: #000; color: #fff; }"
+                                    "#ktermTabRenamePage #ktermPanelButton.suggested-action { background: #000; color: #fff; }"
+                                    "#ktermTabRenamePage #ktermPanelButton.suggested-action:active { background: #333; }"
+                                    "#ktermTabListRow { border-radius: 16px; padding: 0 4px 0 8px; }"
+                                    "#ktermTabListRow.current { background: @gray; }"
+                                    "#ktermTabListRow.current #ktermTabSelect { font-weight: bold; }"
+                                    "#ktermTabListRow button { background: transparent; border: 0; box-shadow: none;"
+                                    " color: #000; min-height: 62px; min-width: 0; padding: 0 8px; }"
+                                    "#ktermTabListRow button:active { background: #bbb; }"
+                                    "#ktermTabListRow #ktermTabButton { min-width: 48px; padding: 0; }"
                                     "#ktermPanel scrollbar.vertical { background: @gray; }"
                                     "#ktermPanel scrollbar.vertical slider { background: #000000;"
                                     " border: 3px solid @gray; min-width: 24px; min-height: 44px; }"

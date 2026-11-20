@@ -35,6 +35,7 @@ typedef enum {
     PANEL_TAB_CONNECTIONS,
     PANEL_TAB_SETTINGS,
     PANEL_TAB_SHORTCUTS,
+    PANEL_TAB_TERMINALS,
     PANEL_TAB_COUNT
 } PanelTab;
 
@@ -48,8 +49,11 @@ GtkWidget * panel_button_new(const gchar *label);
 void panel_clear_box(GtkWidget *box);
 void panel_open(void);
 void panel_open_page(GtkWidget *page);
+/** Open a page in a centered dialog without the panel's navigation. */
+void panel_open_dialog(GtkWidget *page);
 void panel_close(void);
 gboolean panel_is_open(void);
+gboolean panel_is_dialog(void);
 gboolean panel_showing(GtkWidget *page);
 gboolean panel_wants_keys(void);
 

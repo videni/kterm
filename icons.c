@@ -13,7 +13,24 @@
  * General Public License for more details.
  */
 
+#include <string.h>
 #include "icons.h"
+
+typedef struct {
+    const guint8 *data;
+    gsize remaining;
+} IconPng;
+
+static cairo_status_t read_icon_png(void *closure, unsigned char *buffer, unsigned int length) {
+    IconPng *png = closure;
+    if (length > png->remaining) {
+        return CAIRO_STATUS_READ_ERROR;
+    }
+    memcpy(buffer, png->data, length);
+    png->data += length;
+    png->remaining -= length;
+    return CAIRO_STATUS_SUCCESS;
+}
 
 static cairo_surface_t *icon_mask(const gchar *resource) {
     static GHashTable *masks = NULL;
@@ -26,11 +43,21 @@ static cairo_surface_t *icon_mask(const gchar *resource) {
     }
 
     GError *error = NULL;
-    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_resource(resource, &error);
+    GBytes *bytes = g_resources_lookup_data(resource, G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
     cairo_surface_t *surface = NULL;
-    if (pixbuf) {
-        surface = gdk_cairo_surface_create_from_pixbuf(pixbuf, 1, NULL);
-        g_object_unref(pixbuf);
+    if (bytes) {
+        // These PNGs are embedded at build time. Drawing must not wait on
+        // an external image loader.
+        IconPng png;
+        png.data = g_bytes_get_data(bytes, &png.remaining);
+        surface = cairo_image_surface_create_from_png_stream(read_icon_png, &png);
+        const cairo_status_t status = cairo_surface_status(surface);
+        if (status != CAIRO_STATUS_SUCCESS) {
+            g_warning("Cannot decode icon %s: %s", resource, cairo_status_to_string(status));
+            cairo_surface_destroy(surface);
+            surface = NULL;
+        }
+        g_bytes_unref(bytes);
     } else {
         g_warning("Cannot load icon %s: %s", resource, error->message);
         g_error_free(error);

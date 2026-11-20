@@ -19,5 +19,6 @@
     <file alias="icons/link.png">generated-icons/link.png</file>
     <file alias="icons/settings.png">generated-icons/settings.png</file>
     <file alias="icons/shortcut.png">generated-icons/shortcut.png</file>
+    <file alias="icons/tab-list.png">generated-icons/tab-list.png</file>
   </gresource>
 </gresources>

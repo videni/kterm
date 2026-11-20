@@ -34,6 +34,7 @@ gboolean kterm_previewing(void);
 void kterm_preview_after_key(void);
 void kterm_key_typed(void);
 void kterm_keyboard_back_on_tap(void);
+void kterm_watch_top_swipe(GtkWidget *widget);
 
 /* the terminal and what runs in it */
 GtkWidget * kterm_get_terminal(void);

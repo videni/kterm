@@ -14,9 +14,8 @@
  */
 
 /*
- * The panel opened from the shortcut bar's ☰ button. Its connection,
- * settings and shortcut pages appear below the tab row. The panel overlays
- * the terminal, so the running program keeps its size.
+ * The panel opens from the shortcut bar's ☰ button and overlays the terminal
+ * without resizing it.
  */
 
 #include <gtk/gtk.h>
@@ -33,9 +32,10 @@ static GtkWidget *root = NULL;
 static GtkStack *content = NULL;
 #if GTK_CHECK_VERSION(3,22,0)
 static GtkScrolledWindow *scroll = NULL;
+static GtkWidget *dismiss_layer = NULL;
 #endif
 static GtkWidget *tab_row = NULL;
-static GtkWidget *quit_footer = NULL;
+static GtkWidget *panel_footer = NULL;
 static PanelTab selected_tab = PANEL_TAB_CONNECTIONS;
 static struct {
     GtkWidget *page;
@@ -110,12 +110,20 @@ static void set_terminal_focus(gboolean enabled) {
     }
 }
 
-/**
- * Show one page of the panel, the others hidden
- * @param page Page widget, added with panel_add_page() or one of the panel's
- */
-void panel_show_page(GtkWidget *page) {
-    const PanelTab tab = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(page), "panel-tab"));
+gboolean panel_is_dialog(void) {
+    return panel_is_open()
+        && gtk_style_context_has_class(gtk_widget_get_style_context(root), "dialog");
+}
+
+#if GTK_CHECK_VERSION(3,22,0)
+static void sync_dismiss_layer(void) {
+    gtk_widget_set_visible(dismiss_layer, panel_is_dialog());
+}
+#endif
+
+static void show_page(GtkWidget *page, gboolean dialog) {
+    const PanelTab tab = dialog ? PANEL_TAB_NONE
+            : GPOINTER_TO_INT(g_object_get_data(G_OBJECT(page), "panel-tab"));
     if (tab != PANEL_TAB_NONE && tab != selected_tab) {
         gtk_style_context_remove_class(gtk_widget_get_style_context(tabs[selected_tab].button), "selected");
         selected_tab = tab;
@@ -125,14 +133,27 @@ void panel_show_page(GtkWidget *page) {
         tabs[tab].refresh();
     }
     gtk_widget_set_visible(tab_row, tab != PANEL_TAB_NONE);
-    gtk_widget_set_visible(quit_footer, tab != PANEL_TAB_NONE);
+    gtk_widget_set_visible(panel_footer, tab != PANEL_TAB_NONE);
     gtk_stack_set_visible_child(content, page);
+    GtkStyleContext *style = gtk_widget_get_style_context(root);
+    if (dialog) {
+        gtk_style_context_add_class(style, "dialog");
+    } else {
+        gtk_style_context_remove_class(style, "dialog");
+    }
 #if GTK_CHECK_VERSION(3,22,0)
     gtk_adjustment_set_value(gtk_scrolled_window_get_vadjustment(scroll), 0);
+    sync_dismiss_layer();
+    gtk_widget_queue_resize(root);
 #endif
     // While a form is shown, keys such as Tab must not move the focus to
     // the terminal, where the rest of what is typed would run.
-    set_terminal_focus(!page_is_typing());
+    set_terminal_focus(!dialog && !page_is_typing());
+}
+
+/** Show a page within the panel. */
+void panel_show_page(GtkWidget *page) {
+    show_page(page, FALSE);
 }
 
 /**
@@ -167,6 +188,9 @@ void panel_close(void) {
     }
     D printf("panel: close\n");
     gtk_widget_hide(root);
+#if GTK_CHECK_VERSION(3,22,0)
+    sync_dismiss_layer();
+#endif
     set_terminal_focus(TRUE);
 }
 
@@ -180,9 +204,20 @@ void panel_open(void) {
     panel_open_page(tabs[selected_tab].page);
 }
 
-void panel_open_page(GtkWidget *page) {
-    panel_show_page(page);
+static void open_page(GtkWidget *page, gboolean dialog) {
+    show_page(page, dialog);
     gtk_widget_show(root);
+#if GTK_CHECK_VERSION(3,22,0)
+    sync_dismiss_layer();
+#endif
+}
+
+void panel_open_page(GtkWidget *page) {
+    open_page(page, FALSE);
+}
+
+void panel_open_dialog(GtkWidget *page) {
+    open_page(page, TRUE);
 }
 
 /**
@@ -229,17 +264,22 @@ static GtkWidget * build_tab_row(void) {
     static const struct {
         const gchar *label;
         const gchar *icon;
-    } items[PANEL_TAB_COUNT] = {
+    } items[] = {
         [PANEL_TAB_CONNECTIONS] = {"连接", ICON_LINK},
         [PANEL_TAB_SETTINGS] = {"设置", ICON_SETTINGS},
         [PANEL_TAB_SHORTCUTS] = {"快捷键", ICON_SHORTCUT},
+#ifdef KINDLE
+        [PANEL_TAB_TERMINALS] = {"标签页", ICON_TAB_LIST},
+#endif
     };
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_name(row, "ktermPanelTabs");
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
-    for (PanelTab tab = PANEL_TAB_CONNECTIONS; tab < PANEL_TAB_COUNT; tab++) {
+    for (guint tab = PANEL_TAB_CONNECTIONS; tab < G_N_ELEMENTS(items); tab++) {
         GtkWidget *button = panel_button_new(items[tab].label);
-        gtk_button_set_image(GTK_BUTTON(button), icon_new(items[tab].icon, 32));
+        GtkWidget *icon = icon_new(items[tab].icon, 40);
+        gtk_widget_set_margin_end(icon, 8);
+        gtk_button_set_image(GTK_BUTTON(button), icon);
         gtk_button_set_always_show_image(GTK_BUTTON(button), TRUE);
         tabs[tab].button = button;
         if (tab == selected_tab) {
@@ -252,21 +292,29 @@ static GtkWidget * build_tab_row(void) {
     return row;
 }
 
-static GtkWidget * build_quit_footer(void) {
+static GtkWidget * build_footer(void) {
     GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_VERTICAL, PANEL_SPACING);
     GtkWidget *line = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_name(line, PANEL_LINE_NAME);
     gtk_box_pack_start(GTK_BOX(footer), line, FALSE, FALSE, 0);
 
-    GtkWidget *button = panel_button_new("");
-    gtk_button_set_image(GTK_BUTTON(button), icon_new(ICON_POWER, 32));
-    gtk_button_set_always_show_image(GTK_BUTTON(button), TRUE);
-    gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
-    gtk_widget_set_tooltip_text(button, "退出终端");
-    atk_object_set_name(gtk_widget_get_accessible(button), "退出终端");
-    gtk_style_context_add_class(gtk_widget_get_style_context(button), "quit");
-    g_signal_connect(button, "clicked", G_CALLBACK(gtk_main_quit), NULL);
-    gtk_box_pack_start(GTK_BOX(footer), button, FALSE, FALSE, 0);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, PANEL_SPACING);
+    GtkWidget *quit = panel_button_new("");
+    gtk_button_set_image(GTK_BUTTON(quit), icon_new(ICON_POWER, 32));
+    gtk_button_set_always_show_image(GTK_BUTTON(quit), TRUE);
+    gtk_widget_set_valign(quit, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(quit, "退出终端");
+    atk_object_set_name(gtk_widget_get_accessible(quit), "退出终端");
+    gtk_style_context_add_class(gtk_widget_get_style_context(quit), "quit");
+    g_signal_connect(quit, "clicked", G_CALLBACK(gtk_main_quit), NULL);
+    gtk_box_set_center_widget(GTK_BOX(actions), quit);
+
+    GtkWidget *close = panel_button_new("关闭");
+    g_signal_connect(close, "clicked", G_CALLBACK(panel_close), NULL);
+    gtk_style_context_add_class(gtk_widget_get_style_context(close), "close-panel");
+    gtk_widget_set_valign(close, GTK_ALIGN_CENTER);
+    gtk_box_pack_end(GTK_BOX(actions), close, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(footer), actions, FALSE, FALSE, 0);
     gtk_widget_show_all(footer);
     return footer;
 }
@@ -312,10 +360,10 @@ void panel_add_setting(const gchar *title, const gchar *hint, GtkWidget *control
 }
 
 #if GTK_CHECK_VERSION(3,22,0)
-/** Give the panel up to the space above the shortcuts and keyboard. */
+/** Fit overlays above the shortcuts and keyboard. */
 static gboolean position_panel(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *area, gpointer data) {
     UNUSED(data);
-    if (child != root) {
+    if (child != root && child != dismiss_layer) {
         return FALSE;
     }
     GtkWidget *terminal = kterm_get_terminal();
@@ -325,9 +373,29 @@ static gboolean position_panel(GtkOverlay *overlay, GtkWidget *child, GdkRectang
         return FALSE;
     }
     const gint width = gtk_widget_get_allocated_width(GTK_WIDGET(overlay));
-    gint height = 0;
-    gtk_widget_get_preferred_height_for_width(child, width, NULL, &height);
-    *area = (GdkRectangle) {0, 0, width, MIN(height, bottom)};
+    if (child == dismiss_layer) {
+        *area = (GdkRectangle) {0, 0, width, bottom};
+        return TRUE;
+    }
+    const gboolean dialog = panel_is_dialog();
+    const gint margin = PANEL_SPACING * 2;
+    const gint gap = dialog ? MIN(margin, (bottom - 1) / 2) : 0;
+    const gint panel_width = dialog ? CLAMP(width - 2 * margin, 1, 640) : width;
+    gint preferred_height;
+    gtk_widget_get_preferred_height_for_width(child, panel_width, NULL, &preferred_height);
+    const gint height = MIN(preferred_height, bottom - 2 * gap);
+    const gint center_y = (gtk_widget_get_allocated_height(GTK_WIDGET(overlay)) - height) / 2;
+    const gint y = dialog ? CLAMP(center_y, gap, bottom - gap - height) : 0;
+    *area = (GdkRectangle) {(width - panel_width) / 2, y, panel_width, height};
+    return TRUE;
+}
+
+static gboolean dismiss_dialog(GtkWidget *widget, GdkEventButton *event, gpointer data) {
+    UNUSED(widget);
+    UNUSED(data);
+    if (event->button == GDK_BUTTON_PRIMARY) {
+        panel_close();
+    }
     return TRUE;
 }
 #endif
@@ -351,6 +419,18 @@ GtkWidget * panel_new(GtkWidget *overlay) {
     content = GTK_STACK(gtk_stack_new());
     gtk_stack_set_homogeneous(content, FALSE);
 #if GTK_CHECK_VERSION(3,22,0)
+    // Catch outside taps over the terminal and tab bar. Leave the keyboard
+    // and shortcuts below this input-only overlay.
+    dismiss_layer = gtk_event_box_new();
+    gtk_event_box_set_visible_window(GTK_EVENT_BOX(dismiss_layer), FALSE);
+    gtk_widget_add_events(dismiss_layer, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+    g_signal_connect(dismiss_layer, "button-release-event", G_CALLBACK(dismiss_dialog), NULL);
+    gtk_widget_set_no_show_all(dismiss_layer, TRUE);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), dismiss_layer);
+#ifdef KINDLE
+    kterm_watch_top_swipe(dismiss_layer);
+#endif
+
     scroll = GTK_SCROLLED_WINDOW(gtk_scrolled_window_new(NULL, NULL));
     gtk_scrolled_window_set_policy(scroll, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_scrolled_window_set_overlay_scrolling(scroll, FALSE);
@@ -362,9 +442,9 @@ GtkWidget * panel_new(GtkWidget *overlay) {
 #else
     gtk_box_pack_start(GTK_BOX(layout), GTK_WIDGET(content), FALSE, FALSE, 0);
 #endif
-    quit_footer = build_quit_footer();
-    gtk_widget_set_margin_top(quit_footer, PANEL_SPACING);
-    gtk_box_pack_start(GTK_BOX(layout), quit_footer, FALSE, FALSE, 0);
+    panel_footer = build_footer();
+    gtk_widget_set_margin_top(panel_footer, PANEL_SPACING);
+    gtk_box_pack_start(GTK_BOX(layout), panel_footer, FALSE, FALSE, 0);
     panel_add_tab(PANEL_TAB_SETTINGS, build_settings_page(), NULL);
     gtk_widget_show(GTK_WIDGET(content));
     gtk_widget_show(layout);
@@ -380,6 +460,7 @@ void panel_open(void) {}
 void panel_open_page(GtkWidget *page) { (void) page; }
 void panel_close(void) {}
 gboolean panel_is_open(void) { return FALSE; }
+gboolean panel_is_dialog(void) { return FALSE; }
 gboolean panel_wants_keys(void) { return FALSE; }
 
 #endif
